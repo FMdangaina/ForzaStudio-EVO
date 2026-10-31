@@ -115,10 +115,14 @@ namespace ForzaStudio
             Dictionary<string, int> remap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             List<string> tables = BuildStrings(cleanRoot, targetRoot, trialRoot, Path.Combine(zips, strings), offer, name, layers, remap, out displayKey, out descriptionKey, report);
             Time(report, watch, "string tables");
+            List<string> reusedMakes = new List<string>();
+            Dictionary<string, long> makeIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, List<long>> unlockIds = new Dictionary<string, List<long>>(StringComparer.OrdinalIgnoreCase);
             using (SqliteDatabase patch = SqliteDatabase.FromBytes(merge))
             {
                 RemapStrings(patch, remap, report);
-                RelocateKeys(patch, installed, targetRoot, package, report);
+                RelocateKeys(patch, installed, targetRoot, package, cleanRoot, trialRoot, loose, reusedMakes, report);
+                MakeRuleIds(patch, makeIds, unlockIds);
                 patch.Execute("UPDATE ContentOffers SET DisplayName = ?, Description = ?",
                     "_&" + ((hi << 16) | (long) displayKey).ToString(CultureInfo.InvariantCulture),
                     "_&" + ((hi << 16) | (long) descriptionKey).ToString(CultureInfo.InvariantCulture));
@@ -136,7 +140,7 @@ namespace ForzaStudio
 
             Time(report, watch, "relocating keys + writing the merge");
             report.AppendLine("files:");
-            CopyPortedFiles(targetRoot, trialRoot, loose, media, offer, report);
+            CopyPortedFiles(targetRoot, trialRoot, loose, media, offer, reusedMakes, makeIds, unlockIds, report);
             Time(report, watch, "copying the ported files");
 
             // The two lists, in the official files' form (" \r\n" line ends).
@@ -817,10 +821,11 @@ namespace ForzaStudio
             return null;
         }
 
-        // The same string: both have a name (IDS_...) and it is the same, else the same text.
+        // The same string: the same text. The names (IDS_DisplayName_102) do not tell: they carry the source game's ids, so
+        // two games give one name to different strings (Eagle's make in FH1 and Hennessey's in FM4 both IDS_DisplayName_102).
         internal static bool SameString(StrFile.Entry a, StrFile.Entry b)
         {
-            return (a.Name != null && b.Name != null) ? a.Name == b.Name : a.Text == b.Text;
+            return a.Text == b.Text;
         }
 
         // The highest key (from FFFD down) that 'result' lacks, that the pack's own strings do not use and no
@@ -910,10 +915,11 @@ namespace ForzaStudio
         // next to the target database's are not safe in a pack: they must be above FM4's largest of their column and free in
         // the game and in every package installed in Xenia's content folder. Same move as Validate DLC for Installation
         // (DlcRelocate): engines and drivetrains with their children, then every other single key, references following.
-        private static void RelocateKeys(SqliteDatabase patch, string content, string targetRoot, string package, StringBuilder report)
+        private static void RelocateKeys(SqliteDatabase patch, string content, string targetRoot, string package, string cleanRoot, string trialRoot, string loose, List<string> reusedMakes, StringBuilder report)
         {
             using (DlcWorld world = DlcWorld.Load(content, targetRoot, package))
             {
+                ReuseMakes(patch, world.Others, reusedMakes, report);
                 DlcRelocate relocate = new DlcRelocate(patch, world.Others, ForzaGame.Motorsport4);
                 relocate.MoveRoots();
                 relocate.MoveKeys();
@@ -925,11 +931,186 @@ namespace ForzaStudio
                 {
                     report.AppendLine("  NOT MOVED: " + line);
                 }
+                ShipLogos(patch, world, cleanRoot, targetRoot, trialRoot, loose, report);
             }
         }
 
+        // A make the port added (List_CarMake row of the pack) that the game or an installed pack already has under the same
+        // ManufacturerCode (the 2013 SRT Viper Pack's Viper, Hennessey, Lincoln...) is not a second make: the pack's cars,
+        // upgrade rows and discounts go under the existing one, and its row, decals and title unlocks are left out.
+        internal static void ReuseMakes(SqliteDatabase patch, List<DlcRelocate.Other> others, List<string> reused, StringBuilder report)
+        {
+            if (!DbIds.HasTable(patch, "List_CarMake"))
+            {
+                return;
+            }
+            foreach (object[] make in patch.Query("SELECT ID, ManufacturerCode, IconPathBase FROM List_CarMake").Rows)
+            {
+                long id = Convert.ToInt64(make[0], CultureInfo.InvariantCulture);
+                string code = Convert.ToString(make[1], CultureInfo.InvariantCulture);
+                string logo = Convert.ToString(make[2], CultureInfo.InvariantCulture);
+                if (string.IsNullOrEmpty(code))
+                {
+                    continue;
+                }
+                object existing = null;
+                object existingName = null;
+                string where = null;
+                foreach (DlcRelocate.Other other in others)
+                {
+                    if (!DbIds.HasTable(other.Db, "List_CarMake"))
+                    {
+                        continue;
+                    }
+                    SqliteDatabase.Result found = other.Db.Query("SELECT ID, DisplayName FROM List_CarMake WHERE ManufacturerCode = ? COLLATE NOCASE", code);
+                    if (found.Rows.Count > 0)
+                    {
+                        existing = found.Rows[0][0];
+                        existingName = found.Rows[0][1];
+                        where = other.Name;
+                    }
+                }
+                if (existing == null || Convert.ToInt64(existing, CultureInfo.InvariantCulture) == id)
+                {
+                    continue;
+                }
+                long now = Convert.ToInt64(existing, CultureInfo.InvariantCulture);
+                if (DbIds.HasTable(patch, "Livery_DecalsSortOrder"))
+                {
+                    patch.Execute("DELETE FROM Livery_DecalsSortOrder WHERE MakeID = ?", id);
+                }
+                if (DbIds.HasTable(patch, "Rewards_CarPartDiscounts"))
+                {
+                    patch.Execute("DELETE FROM Rewards_CarPartDiscounts WHERE CarMakeId = ?", id);
+                }
+                foreach (GameDbSchema.Relation relation in GameDbSchema.Into("List_CarMake"))
+                {
+                    if (DbIds.HasTable(patch, relation.Table) && relation.Table != "Livery_DecalsSortOrder" && relation.Table != "Rewards_CarPartDiscounts")
+                    {
+                        patch.Execute("UPDATE " + SqliteDatabase.Quote(relation.Table) + " SET " + SqliteDatabase.Quote(relation.Column) + " = ? WHERE " + SqliteDatabase.Quote(relation.Column) + " = ?", now, id);
+                    }
+                }
+                if (DbIds.HasTable(patch, "Data_Car") && existingName != null)
+                {
+                    patch.Execute("UPDATE Data_Car SET MakeName = ? WHERE MakeID = ?", existingName, now);
+                }
+                patch.Execute("DELETE FROM List_CarMake WHERE ID = ?", id);
+                if (!string.IsNullOrEmpty(logo) && DbIds.HasTable(patch, "List_BadgeAndTitleUnlocks"))
+                {
+                    patch.Execute("DELETE FROM List_BadgeAndTitleUnlocks WHERE UnlockBadgeTexture LIKE ?", "%L_MAN_" + logo + "_Logo.%");
+                }
+                reused.Add(logo ?? "");
+                report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  make {0} ({1}) is {2} in {3}: the pack's cars go under it, no second make", id, code, now, where));
+            }
+        }
+
+        // The make logos the pack's makes need: the game and the installed packs have them or the pack carries them (loose in
+        // UI\Textures\UI4\Logos\...). The port put them in its trial copy of the game, but a game the earlier ports changed
+        // already holds them, and the diff against it left them out.
+        private static void ShipLogos(SqliteDatabase patch, DlcWorld world, string cleanRoot, string targetRoot, string trialRoot, string loose, StringBuilder report)
+        {
+            if (!DbIds.HasTable(patch, "List_CarMake"))
+            {
+                return;
+            }
+            string[] zips = new string[] { Path.Combine(Path.Combine(Path.Combine(cleanRoot, "Media"), "UI"), "Textures.zip"), Path.Combine(Path.Combine(Path.Combine(trialRoot, "Media"), "UI"), "Textures.zip"), Path.Combine(Path.Combine(Path.Combine(targetRoot, "Media"), "UI"), "Textures.zip") };
+            ForzaZip clean = File.Exists(zips[0]) ? new ForzaZip(zips[0]) : null;
+            foreach (object[] make in patch.Query("SELECT IconPathBase FROM List_CarMake").Rows)
+            {
+                string logo = Convert.ToString(make[0], CultureInfo.InvariantCulture);
+                if (string.IsNullOrEmpty(logo))
+                {
+                    continue;
+                }
+                int shipped = 0;
+                foreach (string folder in CarMake.LogoFolders)
+                {
+                    string entry = "UI4/Logos/" + folder + "/L_MAN_" + logo + "_Logo.xds";
+                    string file = Path.Combine(loose, ("UI\\Textures\\" + entry).Replace('/', '\\'));
+                    if ((clean != null && clean.Find(entry) != null) || world.ReadPackFile("Media/UI/Textures/" + entry) != null || File.Exists(file))
+                    {
+                        continue;
+                    }
+                    for (int i = 1; i < zips.Length && !File.Exists(file); i++)
+                    {
+                        if (!File.Exists(zips[i]))
+                        {
+                            continue;
+                        }
+                        ForzaZip zip = new ForzaZip(zips[i]);
+                        ForzaZip.Entry found = zip.Find(entry);
+                        if (found != null)
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(file));
+                            File.WriteAllBytes(file, zip.Read(found));
+                            shipped++;
+                        }
+                    }
+                }
+                if (shipped > 0)
+                {
+                    report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  L_MAN_{0}_Logo: {1} logo file(s) carried by the pack", logo, shipped));
+                }
+            }
+        }
+
+        // The ids a make's title rule names, from the pack's final database: the make's id and its unlock ids.
+        internal static void MakeRuleIds(SqliteDatabase patch, Dictionary<string, long> makeIds, Dictionary<string, List<long>> unlockIds)
+        {
+            if (!DbIds.HasTable(patch, "List_CarMake"))
+            {
+                return;
+            }
+            foreach (object[] make in patch.Query("SELECT ID, IconPathBase FROM List_CarMake").Rows)
+            {
+                string logo = Convert.ToString(make[1], CultureInfo.InvariantCulture);
+                if (string.IsNullOrEmpty(logo))
+                {
+                    continue;
+                }
+                makeIds[logo] = Convert.ToInt64(make[0], CultureInfo.InvariantCulture);
+                if (DbIds.HasTable(patch, "List_BadgeAndTitleUnlocks"))
+                {
+                    List<long> ids = new List<long>();
+                    foreach (object[] unlock in patch.Query("SELECT UnlockId FROM List_BadgeAndTitleUnlocks WHERE UnlockBadgeTexture LIKE ? ORDER BY UnlockLevel", "%L_MAN_" + logo + "_Logo.%").Rows)
+                    {
+                        ids.Add(Convert.ToInt64(unlock[0], CultureInfo.InvariantCulture));
+                    }
+                    unlockIds[logo] = ids;
+                }
+            }
+        }
+
+        // A title rule of a make as the pack needs it: none for a make left out (ReuseMakes), else the make and unlock ids of the
+        // pack's database (the keys moved after the port wrote the rule).
+        internal static string RuleBlock(string block, List<string> reused, Dictionary<string, long> makeIds, Dictionary<string, List<long>> unlockIds)
+        {
+            Match name = Regex.Match(block, "id=\"Drive_([^\"]+)\"");
+            if (!name.Success)
+            {
+                return block;
+            }
+            string logo = name.Groups[1].Value;
+            if (reused.Exists(delegate(string r) { return string.Equals(r, logo, StringComparison.OrdinalIgnoreCase); }))
+            {
+                return null;
+            }
+            long make;
+            if (makeIds.TryGetValue(logo, out make))
+            {
+                block = Regex.Replace(block, "<Manufacturer id=\"\\d+\"", "<Manufacturer id=\"" + make.ToString(CultureInfo.InvariantCulture) + "\"");
+            }
+            List<long> unlocks;
+            if (unlockIds.TryGetValue(logo, out unlocks) && unlocks.Count > 0)
+            {
+                int n = 0;
+                block = Regex.Replace(block, "unlockId=\"\\d+\"", delegate(Match m) { return n < unlocks.Count ? "unlockId=\"" + unlocks[n++].ToString(CultureInfo.InvariantCulture) + "\"" : m.Value; });
+            }
+            return block;
+        }
+
         // The trial's files, loose where the game mounts them (a zip X.zip mounts at the folder X).
-        private static void CopyPortedFiles(string targetRoot, string trialRoot, string loose, Dictionary<string, bool> media, int offer, StringBuilder report)
+        private static void CopyPortedFiles(string targetRoot, string trialRoot, string loose, Dictionary<string, bool> media, int offer, List<string> reusedMakes, Dictionary<string, long> makeIds, Dictionary<string, List<long>> unlockIds, StringBuilder report)
         {
             string trialMedia = Path.Combine(trialRoot, "Media");
             string[] all = Directory.GetFiles(trialMedia, "*", SearchOption.AllDirectories);
@@ -946,7 +1127,14 @@ namespace ForzaStudio
                 if (lower.StartsWith("gametunablesettings\\badgesandtitles\\") && !lower.EndsWith("\\" + MakeTitles.RulesFile.ToLowerInvariant()))
                 {
                     // A pack adds its own rules file to the folder (official offer 31: 30.xml); the game's stays as it is.
-                    rules.AddRange(MakeTitles.Blocks(File.ReadAllText(file)));
+                    foreach (string block in MakeTitles.Blocks(File.ReadAllText(file)))
+                    {
+                        string fixedBlock = RuleBlock(block, reusedMakes, makeIds, unlockIds);
+                        if (fixedBlock != null)
+                        {
+                            rules.Add(fixedBlock);
+                        }
+                    }
                     continue;
                 }
                 string targetFile = Path.Combine(Path.Combine(targetRoot, "Media"), relative);

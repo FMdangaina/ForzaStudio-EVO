@@ -438,6 +438,75 @@ namespace ForzaStudio
         // (Evora S on every car). 'installed' are the layers of the other packs (DlcPackage.StringLayer.Installed); the
         // ones below this pack's own priority count. Each clashing key of the pack moves to a free key, the rows follow,
         // and the table gets the lower packs' strings back. Returns the number of keys moved.
+        // Repairs a pack built before DlcPackage.ReuseMakes: a make the game or another installed pack has under the same
+        // ManufacturerCode (the Viper of the 2013 SRT Viper Pack) is not a second make. The cars go under the existing
+        // make, the pack's row, decals, unlocks and title rule for it go, and the other rules follow the pack's ids.
+        // content: the FM4 content folder with the other packs; gameRoot: an FM4 game folder (its database counts).
+        // Returns the number of makes folded into existing ones.
+        public int RepairMakes(string content, string gameRoot)
+        {
+            this.OpenMerge();
+            if (this.merge == null)
+            {
+                throw new InvalidOperationException("The package has no merge database.");
+            }
+            List<string> reused = new List<string>();
+            StringBuilder report = new StringBuilder();
+            Dictionary<string, long> makeIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, List<long>> unlockIds = new Dictionary<string, List<long>>(StringComparer.OrdinalIgnoreCase);
+            using (DlcWorld world = DlcWorld.Load(content, gameRoot, this.source))
+            {
+                DlcPackage.ReuseMakes(this.merge, world.Others, reused, report);
+            }
+            DlcPackage.MakeRuleIds(this.merge, makeIds, unlockIds);
+            this.Log.Append(report.ToString());
+            if (reused.Count > 0)
+            {
+                this.mergeDirty = true;
+            }
+            foreach (FLayer layer in this.layers)
+            {
+                if (layer.IsFolder)
+                {
+                    continue;
+                }
+                foreach (ForzaZip.Entry entry in new List<ForzaZip.Entry>(layer.Zip.Entries))
+                {
+                    string[] part = entry.Name.Replace('\\', '/').Split('/');
+                    if (part.Length < 2 || !string.Equals(part[part.Length - 2], "BadgesAndTitles", StringComparison.OrdinalIgnoreCase) || !entry.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    List<string> before = MakeTitles.Blocks(Encoding.UTF8.GetString(layer.Zip.Read(entry)));
+                    List<string> after = new List<string>();
+                    foreach (string block in before)
+                    {
+                        string rule = DlcPackage.RuleBlock(block, reused, makeIds, unlockIds);
+                        if (rule != null)
+                        {
+                            after.Add(rule);
+                        }
+                    }
+                    if (after.Count == before.Count && string.Join("", after.ToArray()) == string.Join("", before.ToArray()))
+                    {
+                        continue;
+                    }
+                    if (after.Count == 0)
+                    {
+                        layer.Zip.MarkDeleted(entry);
+                        this.Log.AppendLine("files: " + entry.Name + " removed (no rule left)");
+                    }
+                    else
+                    {
+                        layer.Zip.Replace(entry, new UTF8Encoding(false).GetBytes(MakeTitles.Document(after)));
+                        this.Log.AppendLine("files: " + entry.Name + ": " + after.Count + " rule(s), ids of the pack's database");
+                    }
+                    layer.Dirty = true;
+                }
+            }
+            return reused.Count;
+        }
+
         public int RekeyStrings(string content)
         {
             string layerTemp = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "StringLayers_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
