@@ -186,6 +186,125 @@ namespace ForzaStudio
             return entry != null && entry.Recommended;
         }
 
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ComboBox, object> searching = new System.Runtime.CompilerServices.ConditionalWeakTable<ComboBox, object>();
+
+        // Typing in a list (DropDownList) picks the best entry while the user writes, in place of the first-letter jump:
+        // an entry that is the text, then one that starts with it, then one with a word that starts with it, then one that
+        // holds it (or all its words). A tip under the box shows what was typed; it starts again after two seconds.
+        public static void TypeToSearch(ComboBox combo)
+        {
+            object mark;
+            if (combo.DropDownStyle != ComboBoxStyle.DropDownList || searching.TryGetValue(combo, out mark))
+            {
+                return;
+            }
+            searching.Add(combo, new object());
+            System.Text.StringBuilder typed = new System.Text.StringBuilder();
+            DateTime last = DateTime.MinValue;
+            ToolTip tip = new ToolTip();
+            combo.Disposed += delegate { tip.Dispose(); };
+            combo.KeyPress += delegate(object sender, KeyPressEventArgs e)
+            {
+                if (e.KeyChar == (char) 27 || e.KeyChar == '\r' || e.KeyChar == '\t')
+                {
+                    typed.Length = 0;
+                    tip.Hide(combo);
+                    return;
+                }
+                if (e.KeyChar == '\b')
+                {
+                    if (typed.Length > 0)
+                    {
+                        typed.Length--;
+                    }
+                }
+                else if (char.IsControl(e.KeyChar) || (e.KeyChar == ' ' && typed.Length == 0))
+                {
+                    return;
+                }
+                else
+                {
+                    if ((DateTime.Now - last).TotalMilliseconds > 2000)
+                    {
+                        typed.Length = 0;
+                    }
+                    typed.Append(e.KeyChar);
+                }
+                last = DateTime.Now;
+                e.Handled = true;
+                int best = BestMatch(combo, typed.ToString());
+                if (best >= 0 && best != combo.SelectedIndex)
+                {
+                    combo.SelectedIndex = best;
+                }
+                tip.Show(typed.Length == 0 ? "search" : "search: " + typed + (best < 0 ? "  (no match)" : ""), combo, 0, combo.Height + 2, 2000);
+            };
+        }
+
+        private static int BestMatch(ComboBox combo, string query)
+        {
+            query = query.Trim().ToLowerInvariant();
+            if (query.Length == 0)
+            {
+                return -1;
+            }
+            string[] terms = query.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            int best = -1;
+            int bestScore = int.MaxValue;
+            for (int i = 0; i < combo.Items.Count; i++)
+            {
+                string text = combo.GetItemText(combo.Items[i]).ToLowerInvariant();
+                int score;
+                if (text == query)
+                {
+                    score = 0;
+                }
+                else if (text.StartsWith(query, StringComparison.Ordinal))
+                {
+                    score = 1;
+                }
+                else if (WordStart(text, query))
+                {
+                    score = 2;
+                }
+                else if (text.IndexOf(query, StringComparison.Ordinal) >= 0)
+                {
+                    score = 3;
+                }
+                else
+                {
+                    bool all = terms.Length > 1;
+                    foreach (string term in terms)
+                    {
+                        all = all && text.IndexOf(term, StringComparison.Ordinal) >= 0;
+                    }
+                    if (!all)
+                    {
+                        continue;
+                    }
+                    score = 4;
+                }
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    best = i;
+                }
+            }
+            return best;
+        }
+
+        private static bool WordStart(string text, string query)
+        {
+            for (int at = text.IndexOf(query, StringComparison.Ordinal); at >= 0; at = text.IndexOf(query, at + 1, StringComparison.Ordinal))
+            {
+                if (at == 0 || !char.IsLetterOrDigit(text[at - 1]))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // A list whose recommended entries are written in green (in place of a ★ mark, user 2026-10-20).
         public static void GreenItems(ComboBox combo)
         {
@@ -307,6 +426,7 @@ namespace ForzaStudio
                 combo.FlatStyle = FlatStyle.Flat;
                 combo.BackColor = Raised;
                 combo.ForeColor = Text;
+                TypeToSearch(combo);
                 return;
             }
             if (control is Button)
@@ -358,6 +478,7 @@ namespace ForzaStudio
                 combo.ForeColor = Text;
                 combo.ComboBox.BackColor = Raised;
                 combo.ComboBox.ForeColor = Text;
+                TypeToSearch(combo.ComboBox);
                 DarkChrome(combo.ComboBox);
             }
             ToolStripDropDownItem dropDown = item as ToolStripDropDownItem;
