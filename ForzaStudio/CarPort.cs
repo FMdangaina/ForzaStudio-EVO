@@ -48,6 +48,7 @@ namespace ForzaStudio
         public string Tires = "normal"; // "normal": the source's own tire models (BuildTireZips); "offroad": FM4's Hummer H1 tire models under the car's name
         public string RenameTo;         // a car FM4 already has, ported beside it under this MediaName (for tests); null = the source's name
         public string DisplaySuffix;    // text added to the car's DisplayName / ModelShort when renamed, e.g. " FH"
+        public bool DeferIntegrity;     // a pack trial: the database rules are checked once for the whole pack, not after every car
         public bool Arcade = true;      // Data_Car.IsArcade
         public long? FirstCarId;        // the first Id to try for the car (a DLC pack's, chosen by the user); null = Port.ini InstallFirstCar (3000)
         public long? MakeId;          // an FM4 make (List_CarMake.ID) to put the car under instead of the source's
@@ -317,9 +318,42 @@ namespace ForzaStudio
             }
         }
 
+        // The database rules (DbIntegrity) on a whole pack trial: FM4's own database against the trial's, after every car was
+        // ported with DeferIntegrity. Returns the report lines; throws with the errors, as the check of a single car does.
+        public static List<string> CheckPackIntegrity(string targetRoot, string trialRoot)
+        {
+            string relative = Path.Combine(Path.Combine("Media", "db"), "gamedb.slt");
+            List<string> lines = new List<string>();
+            using (SqliteDatabase was = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(targetRoot, relative))))
+            using (SqliteDatabase now = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(trialRoot, relative))))
+            {
+                DbIntegrity.Result integrity = DbIntegrity.Compare(was, now, ForzaGame.Motorsport4, null, false);
+                if (!integrity.Ok)
+                {
+                    throw new InvalidOperationException("Database integrity check of the whole pack failed:\r\n  " + string.Join("\r\n  ", integrity.Errors.ToArray()));
+                }
+                foreach (string line in integrity.Warnings)
+                {
+                    lines.Add("database warning: " + line);
+                }
+                lines.Add(string.Format(CultureInfo.InvariantCulture, "database integrity of the whole pack: the keys and the cars' rows hold ({0} tables changed)", integrity.Summary.Count));
+            }
+            return lines;
+        }
+
+        // The time since the last lap, kept as "step|seconds" for the timing lines at the end of a run.
+        private static void Lap(System.Diagnostics.Stopwatch lap, List<string> times, string step)
+        {
+            times.Add(step + "|" + lap.Elapsed.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture));
+            lap.Reset();
+            lap.Start();
+        }
+
         private void RunCore()
         {
             this.stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
+            System.Diagnostics.Stopwatch lap = System.Diagnostics.Stopwatch.StartNew();
+            List<string> times = new List<string>();
             ForzaGame sourceGame = GameInfo.Detect(this.SourceRoot);
             // FM2 only as a staged folder whose models and database are already in FM4 form (its .carbin
             // rebuilt on an FM4 donor's, its rows the donor's under the FM2 name): Fm2Source.Stage.
@@ -375,16 +409,25 @@ namespace ForzaStudio
                     this.CheckWritable(targetDbPath);
                 }
 
+                Lap(lap, times, "setup (ids against the installed packs, donor, renumbering)");
                 this.PortDatabase();
+                Lap(lap, times, "database");
                 this.PortStrings();
+                Lap(lap, times, "strings");
                 this.PortTitles();
+                Lap(lap, times, "titles");
                 this.BuildCarZip();
+                Lap(lap, times, "car zip");
                 this.SteeringWheelPosition();
                 this.ReviewMaterials();
+                Lap(lap, times, "wheel position + material review");
                 this.BuildWheelZips();
                 this.BuildTireZips();
+                Lap(lap, times, "wheel + tire zips");
                 this.PortSound();
+                Lap(lap, times, "sound");
                 this.PortThumbnail();
+                Lap(lap, times, "thumbnail");
                 this.DonorReport();
 
                 // C3: the car's rows are checked before anything is written.
@@ -394,31 +437,39 @@ namespace ForzaStudio
                     throw new InvalidOperationException("Database check failed, nothing was written:\r\n  " + string.Join("\r\n  ", errors.ToArray()));
                 }
                 this.Line("database check: car {0} (Data_Car, Data_CarBody, the keys of its rows) OK", this.carId);
+                Lap(lap, times, "donor report + row check");
 
                 // The rules of the whole database (DbIntegrity): keys above FM4's largest and unique, a car's
                 // rows complete. Ids that point at nothing are reported only: the rows come from another game.
-                using (SqliteDatabase was = SqliteDatabase.FromBytes(targetBefore))
+                // A pack trial sets DeferIntegrity and runs the same rules once on the whole pack at the end (CheckPackIntegrity).
+                if (!this.DeferIntegrity)
                 {
-                    DbIntegrity.Result integrity = DbIntegrity.Compare(was, this.target, ForzaGame.Motorsport4, null, false);
-                    if (!integrity.Ok)
+                    using (SqliteDatabase was = SqliteDatabase.FromBytes(targetBefore))
                     {
-                        throw new InvalidOperationException("Database integrity check failed, nothing was written:\r\n  " + string.Join("\r\n  ", integrity.Errors.ToArray()));
+                        DbIntegrity.Result integrity = DbIntegrity.Compare(was, this.target, ForzaGame.Motorsport4, null, false);
+                        if (!integrity.Ok)
+                        {
+                            throw new InvalidOperationException("Database integrity check failed, nothing was written:\r\n  " + string.Join("\r\n  ", integrity.Errors.ToArray()));
+                        }
+                        foreach (string line in integrity.Warnings)
+                        {
+                            this.Line("database warning: {0}", line);
+                        }
+                        this.Line("database integrity: the keys and the car's rows hold ({0} tables changed)", integrity.Summary.Count);
                     }
-                    foreach (string line in integrity.Warnings)
-                    {
-                        this.Line("database warning: {0}", line);
-                    }
-                    this.Line("database integrity: the keys and the car's rows hold ({0} tables changed)", integrity.Summary.Count);
                 }
+                Lap(lap, times, "database integrity");
 
                 // Write everything: backups first, then files, then the manifest.
                 this.Write(targetDbPath, this.target.ToBytes());
+                Lap(lap, times, "write database");
                 foreach (KeyValuePair<string, ForzaZip> pair in this.changedZips)
                 {
                     string output = this.Out(pair.Key);
                     this.Backup(output);
                     pair.Value.Save(output);
                     this.Line("saved {0}", this.Relative(pair.Key));
+                    Lap(lap, times, "save " + Path.GetFileName(pair.Key));
                 }
                 if (this.titleRule != null)
                 {
@@ -436,7 +487,25 @@ namespace ForzaStudio
                 this.Put(this.carZip, "port_log.txt", Encoding.UTF8.GetBytes(log));
                 this.SaveNew(this.carZip, this.carZipPath);
                 this.Line("saved {0}", this.Relative(this.carZipPath));
+                Lap(lap, times, "save car zip");
                 this.UpdateManifest();
+                Lap(lap, times, "manifest");
+                // the slowest steps first, those under a quarter of a second left out
+                List<KeyValuePair<string, double>> slow = new List<KeyValuePair<string, double>>();
+                foreach (string entry in times)
+                {
+                    int at = entry.LastIndexOf('|');
+                    double seconds = double.Parse(entry.Substring(at + 1), CultureInfo.InvariantCulture);
+                    if (seconds >= 0.25)
+                    {
+                        slow.Add(new KeyValuePair<string, double>(entry.Substring(0, at), seconds));
+                    }
+                }
+                slow.Sort(delegate(KeyValuePair<string, double> a, KeyValuePair<string, double> b) { return b.Value.CompareTo(a.Value); });
+                foreach (KeyValuePair<string, double> item in slow)
+                {
+                    this.Line("time: {0} {1:0.0} s", item.Key, item.Value);
+                }
             }
             finally
             {
@@ -6555,7 +6624,12 @@ namespace ForzaStudio
             if (!donorRoots.TryGetValue(this.XeniaContent + "|" + this.DonorMediaName, out root))
             {
                 root = null;
-                foreach (InstalledDlc dlc in InstalledDlc.Scan(ForzaGame.Motorsport4, this.XeniaContent, null))
+                System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+                List<InstalledDlc> packs = InstalledPacks(this.XeniaContent);
+                double scan = watch.Elapsed.TotalSeconds;
+                watch.Reset();
+                watch.Start();
+                foreach (InstalledDlc dlc in packs)
                 {
                     if (dlc.Source == null || dlc.Source.Problem != null)
                     {
@@ -6564,7 +6638,11 @@ namespace ForzaStudio
                     if (dlc.Source.Cars().Exists(delegate(string c) { return string.Equals(c, this.DonorMediaName, StringComparison.OrdinalIgnoreCase); }))
                     {
                         root = dlc.Source.Stage(new StringBuilder());
+                        double stage = watch.Elapsed.TotalSeconds;
+                        watch.Reset();
+                        watch.Start();
                         DlcSource.Materialize(root, this.DonorMediaName);   // the donor's zip stays: later cars of the run use it again
+                        this.Line("time: donor {0}: packs scanned {1:0.0} s, pack staged {2:0.0} s, donor zip written {3:0.0} s", this.DonorMediaName, scan, stage, watch.Elapsed.TotalSeconds);
                         break;
                     }
                 }
@@ -6580,6 +6658,37 @@ namespace ForzaStudio
             this.DonorRoot = root;
             this.donorDb = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(Path.Combine(Path.Combine(root, "Media"), "db"), "gamedb.slt")));
             this.Line("donor {0}: a car of the DLC pack installed in Xenia (read from {1})", this.DonorMediaName, root);
+        }
+
+        private static List<InstalledDlc> installedPacks;
+        private static string installedPacksFor;
+
+        // The packs installed in Xenia, read once: the scan opens every package, and every new donor of a DLC pack scanned
+        // them all again (43 s for one car of a 5-car trial, 2026-10-31). Read again when the content folder changed.
+        private static List<InstalledDlc> InstalledPacks(string content)
+        {
+            System.Text.StringBuilder signature = new System.Text.StringBuilder(content).Append('|');
+            try
+            {
+                foreach (string entry in Directory.GetFileSystemEntries(content))
+                {
+                    signature.Append(entry).Append('|').Append(File.GetLastWriteTimeUtc(entry).Ticks).Append(';');
+                    if (File.Exists(entry))
+                    {
+                        signature.Append(new FileInfo(entry).Length).Append(';');
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+            string key = signature.ToString();
+            if (installedPacks == null || installedPacksFor != key)
+            {
+                installedPacks = new List<InstalledDlc>(InstalledDlc.Scan(ForzaGame.Motorsport4, content, null));
+                installedPacksFor = key;
+            }
+            return installedPacks;
         }
 
         // A value of the donor: in the target database, else in its pack's.

@@ -50,7 +50,10 @@ namespace ForzaStudio
             string layerTemp = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "StringLayers_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
             try
             {
-                return BuildFolderWith(cleanRoot, targetRoot, trialRoot, content, installed, StringLayer.Installed(installed, layerTemp, report), offer, name, report);
+                System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+                List<StringLayer> layers = StringLayer.Installed(installed, layerTemp, report);
+                Time(report, watch, "reading the installed packs' string tables");
+                return BuildFolderWith(cleanRoot, targetRoot, trialRoot, content, installed, layers, offer, name, report);
             }
             finally
             {
@@ -67,6 +70,14 @@ namespace ForzaStudio
             }
         }
 
+        // "time: <step> n s" in the report since the last call, the stopwatch starts again.
+        private static void Time(StringBuilder report, System.Diagnostics.Stopwatch watch, string step)
+        {
+            report.AppendLine(string.Format(CultureInfo.InvariantCulture, "time: {0} {1:0.0} s", step, watch.Elapsed.TotalSeconds));
+            watch.Reset();
+            watch.Start();
+        }
+
         private static string BuildFolderWith(string cleanRoot, string targetRoot, string trialRoot, string content, string installed, List<StringLayer> layers, int offer, string name, StringBuilder report)
         {
             string package = Path.Combine(content, OfferId(offer));
@@ -79,9 +90,11 @@ namespace ForzaStudio
             Directory.CreateDirectory(loose);
             File.WriteAllBytes(Path.Combine(Path.Combine(package, "Media"), offer.ToString(CultureInfo.InvariantCulture) + ".puboffer"), new byte[] { 0x20, 0x0D, 0x0A });
 
+            System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
             report.AppendLine("database:");
             byte[] targetDb = File.ReadAllBytes(GameDb(targetRoot));
             byte[] merge = BuildMerge(targetDb, File.ReadAllBytes(GameDb(trialRoot)), offer, report);
+            Time(report, watch, "merge database");
             Dictionary<string, bool> media = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             long hi;
             using (SqliteDatabase game = SqliteDatabase.FromBytes(targetDb))
@@ -100,6 +113,7 @@ namespace ForzaStudio
             int displayKey;
             int descriptionKey;
             List<string> tables = BuildStrings(cleanRoot, targetRoot, trialRoot, Path.Combine(zips, strings), offer, name, layers, out displayKey, out descriptionKey, report);
+            Time(report, watch, "string tables");
             using (SqliteDatabase patch = SqliteDatabase.FromBytes(merge))
             {
                 RelocateKeys(patch, installed, targetRoot, package, report);
@@ -118,8 +132,10 @@ namespace ForzaStudio
             Directory.CreateDirectory(patchFolder);
             File.WriteAllBytes(Path.Combine(patchFolder, offer.ToString(CultureInfo.InvariantCulture) + "000_merge.slt"), merge);
 
+            Time(report, watch, "relocating keys + writing the merge");
             report.AppendLine("files:");
             CopyPortedFiles(targetRoot, trialRoot, loose, media, offer, report);
+            Time(report, watch, "copying the ported files");
 
             // The two lists, in the official files' form (" \r\n" line ends).
             WriteXml(Path.Combine(zips, "zipmount.xml"), "zipmount",
@@ -148,9 +164,12 @@ namespace ForzaStudio
             string temp = stage + ".package";
             try
             {
+                System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
                 CopyForConsole(packageFolder, stage, report);
+                Time(report, watch, "console folder (zips of the _pri folders)");
                 string id = StfsPackage.Write(stage, temp, uint.Parse(TitleId, NumberStyles.HexNumber, CultureInfo.InvariantCulture), 2, name,
                     "ForzaStudio EVO DLC pack", "Forza Motorsport 4", thumbnail);
+                Time(report, watch, "STFS package");
                 // Straight into the folder the user chose: no Content\0000000000000000\<title>\00000002
                 // tree (user 2026-10-20); the file name is the content id, as the console wants it.
                 Directory.CreateDirectory(output);

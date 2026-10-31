@@ -123,6 +123,7 @@ namespace ForzaStudio
         private readonly List<ListViewItem> items = new List<ListViewItem>();
 
         private List<Car> fm4Cars = new List<Car>();
+        private Dictionary<long, string> makeNames = new Dictionary<long, string>();   // FM4 make id -> name, for the donor list
         private string trialFolder;
         private string sourceTag = "FH";    // FH, FH2, FM2 or FM3, once the cars are loaded
         private bool busy;
@@ -167,9 +168,25 @@ namespace ForzaStudio
                 get { return this.Suggested; }
             }
 
+            public string Make;     // the make's name, "" when unknown
+
+            // "Make - Model - Origin (code, year)": the list sorts on it
+            public string Label
+            {
+                get
+                {
+                    string model = this.Car.Name ?? "";
+                    if (this.Make.Length > 0 && model.StartsWith(this.Make + " ", StringComparison.CurrentCultureIgnoreCase))
+                    {
+                        model = model.Substring(this.Make.Length + 1);
+                    }
+                    return (this.Make.Length > 0 ? this.Make + " - " : "") + model + " - " + (string.IsNullOrEmpty(this.Car.Dlc) ? "FM4" : "DLC " + this.Car.Dlc);
+                }
+            }
+
             public override string ToString()
             {
-                return this.Car.Name + "  (" + this.Car.MediaName + ", " + this.Car.Year + ")" + (string.IsNullOrEmpty(this.Car.Dlc) ? "" : "  [DLC: " + this.Car.Dlc + "]");
+                return this.Label + "  (" + this.Car.MediaName + ", " + this.Car.Year + ")";
             }
         }
 
@@ -1461,6 +1478,7 @@ namespace ForzaStudio
                     port.OutputRoot = folder;
                     port.XeniaContent = content;
                     port.FirstCarId = firstCar;
+                    port.DeferIntegrity = true;   // checked once for the whole pack below
                     port.MediaName = entries[i].Car.MediaName;
                     port.DonorMediaName = entries[i].Donor;
                     port.Arcade = entries[i].Arcade;
@@ -1484,6 +1502,27 @@ namespace ForzaStudio
                     }
                     text.Append(port.Report.ToString().Replace("\r\n", "\n").Replace("\n", "\r\n"));
                     ports.Add(port);
+                }
+                if (error == null && ports.Count > 0)
+                {
+                    Stopwatch check = Stopwatch.StartNew();
+                    try
+                    {
+                        text.AppendLine();
+                        foreach (string line in CarPort.CheckPackIntegrity(target, folder))
+                        {
+                            text.AppendLine(line);
+                        }
+                        text.AppendLine(string.Format(CultureInfo.InvariantCulture, "time: database integrity of the pack {0:0.0} s", check.Elapsed.TotalSeconds));
+                    }
+                    catch (Exception ex)
+                    {
+                        error = ex;
+                        failed = new PackEntry();
+                        failed.Car = new Car();
+                        failed.Car.Name = "the pack's database";
+                        failed.Car.MediaName = "pack";
+                    }
                 }
                 return delegate
                 {
@@ -1566,6 +1605,7 @@ namespace ForzaStudio
                 System.Text.StringBuilder text = new System.Text.StringBuilder();
                 Exception error = null;
                 string package = null;
+                Stopwatch watch = Stopwatch.StartNew();
                 try
                 {
                     DlcPackage.Remove(content, offer);
@@ -1593,7 +1633,7 @@ namespace ForzaStudio
                     }
                     else
                     {
-                        this.report.Text += "\r\nbuilt " + package + "\r\n";
+                        this.report.Text += string.Format(CultureInfo.InvariantCulture, "\r\nbuilt {0} in {1:0.0} s\r\n", package, watch.Elapsed.TotalSeconds);
                         this.UpdatePackInfo();
                         this.packStatus.Text = string.Format("\"{0}\" is in the Xenia folder ({1} cars): {2}. Start FM4 from {3}: the cars are with their makes.", name, this.pack.Count, package, target);
                     }
@@ -1771,6 +1811,7 @@ namespace ForzaStudio
                 Exception error = null;
                 string file = null;
                 string work = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "Xbox_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
+                Stopwatch watch = Stopwatch.StartNew();
                 try
                 {
                     string content = Path.Combine(work, "00000002");
@@ -1805,7 +1846,7 @@ namespace ForzaStudio
                     else
                     {
                         this.packStatus.Text = string.Format("Xbox 360 package saved: {0}. On the console it goes in Hdd1:\\Content\\0000000000000000\\4D530910\\00000002\\ (FTP).", file);
-                        this.report.Text += "\r\nXbox 360 package: " + file + "\r\n";
+                        this.report.Text += string.Format(CultureInfo.InvariantCulture, "\r\nXbox 360 package: {0} in {1:0.0} s\r\n", file, watch.Elapsed.TotalSeconds);
                         Process.Start("explorer.exe", "/select,\"" + file + "\"");
                     }
                     this.report.SelectionStart = this.report.TextLength;
@@ -2025,6 +2066,15 @@ namespace ForzaStudio
                     this.classColors = colors;
                     this.makes.Items.Clear();
                     this.makes.Items.AddRange(makeList.ToArray());
+                    this.makeNames.Clear();
+                    foreach (CarPort.Choice make in makeList)
+                    {
+                        if (make.Value != null)
+                        {
+                            int paren = make.Label.LastIndexOf("  (", StringComparison.Ordinal);
+                            this.makeNames[Convert.ToInt64(make.Value, CultureInfo.InvariantCulture)] = (paren > 0) ? make.Label.Substring(0, paren) : make.Label;
+                        }
+                    }
                     this.AddPendingMakeChoices();
                     this.makes.SelectedIndex = 0;
                     List<Car> soundCars = new List<Car>(motorsport);
@@ -2153,7 +2203,7 @@ namespace ForzaStudio
                         notes.AppendLine(Path.GetFileName(source) + ": left out, no cars in it (tracks or other content)");
                         continue;
                     }
-                    foreach (Car car in ReadCars(source, target, to, motorsport, ported))
+                    foreach (Car car in ReadCars(source, target, to, motorsport, ported, notes))
                     {
                         string first;
                         if (seen.TryGetValue(car.MediaName, out first))
@@ -2189,7 +2239,22 @@ namespace ForzaStudio
                         car.Dlc = pack;
                     }
                 }
-                motorsport.RemoveAll(delegate(Car car) { return !File.Exists(Path.Combine(targetCars, car.MediaName + ".zip")) && string.IsNullOrEmpty(car.Dlc); });
+                // A donor needs its zip in the target or an installed pack that holds it: the internal list also names the DLC
+                // cars of packs that are not installed, and a trial on one of those failed only after the other cars (2026-10-31).
+                int leftOut = 0;
+                motorsport.RemoveAll(delegate(Car car)
+                {
+                    if (File.Exists(Path.Combine(targetCars, car.MediaName + ".zip")) || packCars.ContainsKey(car.MediaName))
+                    {
+                        return false;
+                    }
+                    leftOut++;
+                    return true;
+                });
+                if (leftOut > 0)
+                {
+                    notes.AppendLine(string.Format("{0} FM4 cars are not donors: no zip in {1} and no installed DLC pack has them (their DLC is not installed)", leftOut, targetCars));
+                }
             }
         }
 
@@ -2287,7 +2352,7 @@ namespace ForzaStudio
         }
 
         // One source root's cars, with their FM4 state; FM4 cars they were ported over go into 'ported'.
-        private static List<Car> ReadCars(string source, string target, SqliteDatabase to, List<Car> motorsport, List<Car> ported)
+        private static List<Car> ReadCars(string source, string target, SqliteDatabase to, List<Car> motorsport, List<Car> ported, System.Text.StringBuilder notes)
         {
             using (SqliteDatabase from = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(Path.Combine(Path.Combine(source, "Media"), "db"), "gamedb.slt"))))
             {
@@ -2341,6 +2406,7 @@ namespace ForzaStudio
                             car.State = Status.Ported;
                             car.Note = "ported earlier (install updates it)";
                             ported.Add(same);
+                            notes.AppendLine(string.Format("Donor {0} ({1}) left out: the {2} car {3} counts as ported over it (build number or port_log.txt)", same.MediaName, same.Name, Path.GetFileName(source), car.MediaName));
                         }
                         else
                         {
@@ -2352,6 +2418,7 @@ namespace ForzaStudio
                                 car.PortedAs = copy.MediaName;
                                 car.Note += ", also ported as " + copy.MediaName;
                                 ported.Add(copy);   // not a donor: it is a port
+                                notes.AppendLine(string.Format("Donor {0} ({1}) left out: it is the port of {2}", copy.MediaName, copy.Name, car.MediaName));
                             }
                         }
                     }
@@ -2480,18 +2547,22 @@ namespace ForzaStudio
                     // an FM2 port is built on a car of the FM4 game folder itself: no donor from a DLC pack
                     ranked.RemoveAll(delegate(Car donorCar) { return !string.IsNullOrEmpty(donorCar.Dlc); });
                 }
-                ranked.Sort(delegate(Car a, Car b) { return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase); });
+                List<DonorChoice> choices = new List<DonorChoice>();
+                foreach (Car donorCar in ranked)
+                {
+                    string makeName;
+                    choices.Add(new DonorChoice { Car = donorCar, Make = this.makeNames.TryGetValue(donorCar.Make, out makeName) ? makeName : "" });
+                }
+                choices.Sort(delegate(DonorChoice a, DonorChoice b) { return string.Compare(a.Label, b.Label, StringComparison.CurrentCultureIgnoreCase); });
                 string picked = AppSettings.Get("CarPort.Donor." + car.MediaName, "");
                 this.fillingDonors = true;
                 try
                 {
                     int select = -1;
-                    for (int i = 0; i < ranked.Count; i++)
+                    for (int i = 0; i < choices.Count; i++)
                     {
-                        DonorChoice choice = new DonorChoice();
-                        choice.Car = ranked[i];
-                        this.donors.Items.Add(choice);
-                        if (picked.Length > 0 && string.Equals(ranked[i].MediaName, picked, StringComparison.OrdinalIgnoreCase))
+                        this.donors.Items.Add(choices[i]);
+                        if (picked.Length > 0 && string.Equals(choices[i].Car.MediaName, picked, StringComparison.OrdinalIgnoreCase))
                         {
                             select = i;
                         }
