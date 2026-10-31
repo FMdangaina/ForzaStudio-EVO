@@ -112,10 +112,12 @@ namespace ForzaStudio
             string strings = "StringTables_pri_" + priority.ToString(CultureInfo.InvariantCulture) + ".zip";
             int displayKey;
             int descriptionKey;
-            List<string> tables = BuildStrings(cleanRoot, targetRoot, trialRoot, Path.Combine(zips, strings), offer, name, layers, out displayKey, out descriptionKey, report);
+            Dictionary<string, int> remap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            List<string> tables = BuildStrings(cleanRoot, targetRoot, trialRoot, Path.Combine(zips, strings), offer, name, layers, remap, out displayKey, out descriptionKey, report);
             Time(report, watch, "string tables");
             using (SqliteDatabase patch = SqliteDatabase.FromBytes(merge))
             {
+                RemapStrings(patch, remap, report);
                 RelocateKeys(patch, installed, targetRoot, package, report);
                 patch.Execute("UPDATE ContentOffers SET DisplayName = ?, Description = ?",
                     "_&" + ((hi << 16) | (long) displayKey).ToString(CultureInfo.InvariantCulture),
@@ -563,7 +565,7 @@ namespace ForzaStudio
         // out). ContentOffers gets the pack's name under keys free in every language. A package's table
         // replaces the game's whole table (official offer 31: EN Data_Car.str = the game's 1006 keys,
         // same hashes, + 186), so it must hold the game's strings too.
-        private static List<string> BuildStrings(string cleanRoot, string targetRoot, string trialRoot, string output, int offer, string name, List<StringLayer> layers, out int displayKey, out int descriptionKey, StringBuilder report)
+        private static List<string> BuildStrings(string cleanRoot, string targetRoot, string trialRoot, string output, int offer, string name, List<StringLayer> layers, Dictionary<string, int> remap, out int displayKey, out int descriptionKey, StringBuilder report)
         {
             int conflicts = 0;
             SortedDictionary<string, StrFile> files = new SortedDictionary<string, StrFile>(StringComparer.Ordinal);
@@ -611,17 +613,31 @@ namespace ForzaStudio
                             continue;
                         }
                         StrFile.Entry present = Find(result, text.Key);
-                        if (present != null && present.Name != null && text.Name != null && present.Name != text.Name)
+                        int key = text.Key;
+                        string remapId = Path.GetFileNameWithoutExtension(entry.Name) + "|" + text.Key.ToString(CultureInfo.InvariantCulture);
+                        int moved;
+                        if (remap.TryGetValue(remapId, out moved))
+                        {
+                            key = moved;
+                        }
+                        else if (present != null && !SameString(present, text))
                         {
                             // The port chose this key against the game's table alone: an installed pack
-                            // already uses it for another string, which the port's now replaces.
+                            // already uses it for another string. The port's string moves to a key free in the
+                            // game and in every installed pack, and the rows of the pack follow (RemapStrings).
+                            key = FreeStringKey(result, ported, remap, Path.GetFileNameWithoutExtension(entry.Name));
+                            remap[remapId] = key;
                             conflicts++;
                             if (language == "EN")
                             {
-                                report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  WARNING {0}: key {1:X4} was \"{2}\" in an installed pack, now \"{3}\"", Path.GetFileNameWithoutExtension(entry.Name), text.Key, present.Name, text.Name));
+                                report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}: key {1:X4} is \"{2}\" in an installed pack, \"{3}\" of this pack moved to {4:X4}", Path.GetFileNameWithoutExtension(entry.Name), text.Key, present.Text, text.Text, key));
                             }
                         }
-                        result.Set(text.Key, text.Text, text.Name);
+                        if (key != text.Key && Find(result, key) != null)
+                        {
+                            throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "{0}: the new key {1:X4} is used in the {2} table.", Path.GetFileNameWithoutExtension(entry.Name), key, language));
+                        }
+                        result.Set(key, text.Text, text.Name);
                         added++;
                     }
                     string table = Path.GetFileNameWithoutExtension(entry.Name);
@@ -640,7 +656,7 @@ namespace ForzaStudio
                     files[language + "/ContentOffers"] = offerTable;
                 }
             }
-            report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  built on the game's strings + {0} installed FM4 pack layers{1}", layers.Count, conflicts > 0 ? ", " + conflicts + " key conflicts (see WARNING)" : ""));
+            report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  built on the game's strings + {0} installed FM4 pack layers{1}", layers.Count, conflicts > 0 ? ", " + conflicts + " string keys moved (they were used by installed packs)" : ""));
             if (model == null)
             {
                 throw new InvalidOperationException("No string tables to build on (clean game: " + cleanRoot + ").");
@@ -685,7 +701,7 @@ namespace ForzaStudio
         // A table replaces the game's whole table, so a new pack's tables are built on the game's plus
         // every layer's strings, lowest priority first (user 2026-10-22: a pack must hold ALL the strings,
         // then its own).
-        private sealed class StringLayer
+        internal sealed class StringLayer
         {
             public int Priority;
             public string Label;
@@ -799,6 +815,78 @@ namespace ForzaStudio
                 }
             }
             return null;
+        }
+
+        // The same string: both have a name (IDS_...) and it is the same, else the same text.
+        internal static bool SameString(StrFile.Entry a, StrFile.Entry b)
+        {
+            return (a.Name != null && b.Name != null) ? a.Name == b.Name : a.Text == b.Text;
+        }
+
+        // The highest key (from FFFD down) that 'result' lacks, that the pack's own strings do not use and no
+        // earlier move of this table took.
+        private static int FreeStringKey(StrFile result, StrFile ported, Dictionary<string, int> remap, string table)
+        {
+            for (int key = 0xFFFD; key > 0; key--)
+            {
+                if (result.Contains(key) || ported.Contains(key) || remap.ContainsValue(key))
+                {
+                    continue;
+                }
+                return key;
+            }
+            throw new InvalidOperationException(table + ".str has no free string key.");
+        }
+
+        // The rows of a pack's database that name a string by "_&<table id><key>" follow the keys the pack's strings moved to
+        // (remap: "<Table>|<old key>" -> new key). The table id is the one the table's own rows use for that key.
+        internal static int RemapStrings(SqliteDatabase db, Dictionary<string, int> remap, StringBuilder report)
+        {
+            int changed = 0;
+            Dictionary<string, List<string>> schema = DbIds.Schema(db);
+            foreach (KeyValuePair<string, int> move in remap)
+            {
+                string table = move.Key.Substring(0, move.Key.IndexOf('|'));
+                int old = int.Parse(move.Key.Substring(move.Key.IndexOf('|') + 1), CultureInfo.InvariantCulture);
+                List<uint> highs = new List<uint>();
+                List<string> columns;
+                if (schema.TryGetValue(table, out columns))
+                {
+                    foreach (string column in columns)
+                    {
+                        foreach (object[] row in db.Query("SELECT DISTINCT " + SqliteDatabase.Quote(column) + " FROM " + SqliteDatabase.Quote(table) + " WHERE " + SqliteDatabase.Quote(column) + " LIKE '\\_&%' ESCAPE '\\'").Rows)
+                        {
+                            uint id;
+                            string text = row[0] as string;
+                            if (text != null && uint.TryParse(text.Substring(2), NumberStyles.None, CultureInfo.InvariantCulture, out id) && (int) (id & 0xFFFF) == old && !highs.Contains(id >> 16))
+                            {
+                                highs.Add(id >> 16);
+                            }
+                        }
+                    }
+                }
+                foreach (uint high in highs)
+                {
+                    string was = "_&" + ((high << 16) | (uint) old).ToString(CultureInfo.InvariantCulture);
+                    string now = "_&" + ((high << 16) | (uint) move.Value).ToString(CultureInfo.InvariantCulture);
+                    foreach (KeyValuePair<string, List<string>> t in schema)
+                    {
+                        if (t.Key.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        foreach (string column in t.Value)
+                        {
+                            changed += db.Execute("UPDATE " + SqliteDatabase.Quote(t.Key) + " SET " + SqliteDatabase.Quote(column) + " = ? WHERE " + SqliteDatabase.Quote(column) + " = ?", now, was);
+                        }
+                    }
+                }
+                if (report != null)
+                {
+                    report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}: string key {1:X4} -> {2:X4} in the pack's rows ({3} table id(s))", table, old, move.Value, highs.Count));
+                }
+            }
+            return changed;
         }
 
         private static int FreeKey(List<StrFile> files, int start)

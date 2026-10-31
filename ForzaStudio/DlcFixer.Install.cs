@@ -433,6 +433,231 @@ namespace ForzaStudio
             this.Log.AppendLine(string.Format(CultureInfo.InvariantCulture, "strings: {0} strings of {1} table(s) now in Benchmark.str ({2} languages, keys {3}), {4} database values changed; the tables {5} are no longer shipped", order.Count, moved.Count, benchmark.Count, DescribeKeys(order), changed, string.Join(", ", new List<string>(moved.Keys).ToArray())));
         }
 
+        // Repairs a pack built before DlcPackage moved clashing string keys: its own strings sit on keys that a pack of lower
+        // priority uses for other strings, so the pack's table (which replaces the whole table) hides that pack's names
+        // (Evora S on every car). 'installed' are the layers of the other packs (DlcPackage.StringLayer.Installed); the
+        // ones below this pack's own priority count. Each clashing key of the pack moves to a free key, the rows follow,
+        // and the table gets the lower packs' strings back. Returns the number of keys moved.
+        public int RekeyStrings(string content)
+        {
+            string layerTemp = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "StringLayers_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
+            try
+            {
+                StringBuilder report = new StringBuilder();
+                List<DlcPackage.StringLayer> installed = DlcPackage.StringLayer.Installed(content, layerTemp, report);
+                this.Log.Append(report.ToString());
+                return this.RekeyStrings(installed);
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(layerTemp))
+                    {
+                        Directory.Delete(layerTemp, true);
+                    }
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+
+        internal int RekeyStrings(List<DlcPackage.StringLayer> installed)
+        {
+            this.OpenMerge();
+            if (this.merge == null)
+            {
+                throw new InvalidOperationException("The package has no merge database.");
+            }
+            this.LoadStrings();
+            int priority = -1;
+            foreach (FLayer layer in this.layers)
+            {
+                if (!layer.IsFolder && layer.Name.StartsWith("StringTables", StringComparison.OrdinalIgnoreCase))
+                {
+                    priority = Math.Max(priority, layer.Priority);
+                }
+            }
+            if (priority < 0 || this.strings.Count == 0)
+            {
+                this.Log.AppendLine("strings: the package has no string tables.");
+                return 0;
+            }
+            List<DlcPackage.StringLayer> lower = installed.FindAll(delegate(DlcPackage.StringLayer l) { return l.Priority < priority; });
+            string english = this.strings.ContainsKey("EN") ? "EN" : new List<string>(this.strings.Keys)[0];
+
+            // Every "_&" value of the database; which table a table id is (the table whose own strings most of its
+            // values name), and the keys of each table the rows use.
+            List<string[]> refs = new List<string[]>();
+            Dictionary<uint, Dictionary<string, int>> votes = new Dictionary<uint, Dictionary<string, int>>();
+            foreach (KeyValuePair<string, List<string>> table in DbIds.Schema(this.merge))
+            {
+                if (table.Key.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                foreach (string column in table.Value)
+                {
+                    foreach (object[] row in this.merge.Query("SELECT DISTINCT " + SqliteDatabase.Quote(column) + " FROM " + SqliteDatabase.Quote(table.Key) + " WHERE " + SqliteDatabase.Quote(column) + " LIKE '\\_&%' ESCAPE '\\'").Rows)
+                    {
+                        uint id;
+                        string text = row[0] as string;
+                        if (text == null || !uint.TryParse(text.Substring(2), NumberStyles.None, CultureInfo.InvariantCulture, out id))
+                        {
+                            continue;
+                        }
+                        refs.Add(new string[] { table.Key, text });
+                        if (this.HasString(english, table.Key, (int) (id & 0xFFFF)))
+                        {
+                            Dictionary<string, int> counts;
+                            if (!votes.TryGetValue(id >> 16, out counts))
+                            {
+                                counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                                votes[id >> 16] = counts;
+                            }
+                            int n;
+                            counts.TryGetValue(table.Key, out n);
+                            counts[table.Key] = n + 1;
+                        }
+                    }
+                }
+            }
+            Dictionary<uint, string> tableOf = new Dictionary<uint, string>();
+            foreach (KeyValuePair<uint, Dictionary<string, int>> vote in votes)
+            {
+                int best = 0;
+                foreach (KeyValuePair<string, int> count in vote.Value)
+                {
+                    if (count.Value > best)
+                    {
+                        best = count.Value;
+                        tableOf[vote.Key] = count.Key;
+                    }
+                }
+            }
+            Dictionary<string, List<uint>> mine = new Dictionary<string, List<uint>>(StringComparer.OrdinalIgnoreCase);
+            foreach (string[] reference in refs)
+            {
+                uint id = uint.Parse(reference[1].Substring(2), CultureInfo.InvariantCulture);
+                string owner;
+                if (!tableOf.TryGetValue(id >> 16, out owner) || !this.HasString(english, owner, (int) (id & 0xFFFF)))
+                {
+                    continue;
+                }
+                List<uint> keys;
+                if (!mine.TryGetValue(owner, out keys))
+                {
+                    keys = new List<uint>();
+                    mine[owner] = keys;
+                }
+                if (!keys.Contains(id & 0xFFFF))
+                {
+                    keys.Add(id & 0xFFFF);
+                }
+            }
+
+            Dictionary<string, int> remap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, List<uint>> owned in mine)
+            {
+                string table = owned.Key;
+                // The strings of the lower packs, per language.
+                Dictionary<string, StrFile> below = new Dictionary<string, StrFile>(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, Dictionary<string, StrRef>> language in this.strings)
+                {
+                    StrRef reference;
+                    if (!language.Value.TryGetValue(table, out reference))
+                    {
+                        continue;
+                    }
+                    StrFile empty = new StrFile(this.Str(reference).ToBytes());
+                    foreach (StrFile.Entry entry in new List<StrFile.Entry>(empty.Entries))
+                    {
+                        empty.Remove(entry.Key);
+                    }
+                    DlcPackage.StringLayer.Merge(empty, lower, language.Key, table + ".str");
+                    below[language.Key] = empty;
+                }
+                if (!below.ContainsKey(english))
+                {
+                    continue;
+                }
+                // The keys that clash (English decides; the other languages follow).
+                StrFile ownEnglish = this.Str(this.strings[english][table]);
+                Dictionary<int, int> moves = new Dictionary<int, int>();
+                foreach (uint key in owned.Value)
+                {
+                    StrFile.Entry own = EntryOf(ownEnglish, (int) key);
+                    StrFile.Entry theirs = EntryOf(below[english], (int) key);
+                    if (own == null || theirs == null || DlcPackage.SameString(own, theirs))
+                    {
+                        continue;
+                    }
+                    int free = 0xFFFD;
+                    while (free > 0)
+                    {
+                        bool used = moves.ContainsValue(free) || owned.Value.Contains((uint) free);
+                        foreach (KeyValuePair<string, StrFile> language in below)
+                        {
+                            used = used || language.Value.Contains(free) || this.Str(this.strings[language.Key][table]).Contains(free);
+                        }
+                        if (!used)
+                        {
+                            break;
+                        }
+                        free--;
+                    }
+                    if (free <= 0)
+                    {
+                        throw new InvalidOperationException(table + ".str has no free string key.");
+                    }
+                    moves[(int) key] = free;
+                    remap[table + "|" + key.ToString(CultureInfo.InvariantCulture)] = free;
+                    this.Log.AppendLine(string.Format(CultureInfo.InvariantCulture, "strings: {0} key {1:X4} is \"{2}\" in a lower pack, \"{3}\" of this pack moves to {4:X4}", table, key, theirs.Text, own.Text, free));
+                }
+                if (moves.Count == 0 && below[english].Entries.Count == 0)
+                {
+                    continue;
+                }
+                // The table: the pack's strings on their new keys, then every string of the lower packs back.
+                foreach (KeyValuePair<string, StrFile> language in below)
+                {
+                    StrRef reference = this.strings[language.Key][table];
+                    StrFile file = this.Str(reference);
+                    foreach (KeyValuePair<int, int> move in moves)
+                    {
+                        StrFile.Entry own = EntryOf(file, move.Key);
+                        if (own != null)
+                        {
+                            file.Set(move.Value, own.Text, own.Name);
+                        }
+                    }
+                    foreach (StrFile.Entry text in language.Value.Entries)
+                    {
+                        if (!moves.ContainsKey(text.Key) && owned.Value.Contains((uint) text.Key))
+                        {
+                            continue;
+                        }
+                        StrFile.Entry now = EntryOf(file, text.Key);
+                        if (now == null || now.Text != text.Text || now.Name != text.Name)
+                        {
+                            file.Set(text.Key, text.Text, text.Name);
+                        }
+                    }
+                    reference.Dirty = true;
+                }
+            }
+            if (remap.Count > 0)
+            {
+                StringBuilder report = new StringBuilder();
+                DlcPackage.RemapStrings(this.merge, remap, report);
+                this.Log.Append(report.ToString());
+                this.mergeDirty = true;
+            }
+            this.Log.AppendLine(string.Format(CultureInfo.InvariantCulture, "strings: {0} key(s) moved, the tables hold the strings of the {1} lower layer(s) again", remap.Count, lower.Count));
+            return remap.Count;
+        }
+
         private static string DescribeKeys(List<StringUse> order)
         {
             List<string> text = new List<string>();
