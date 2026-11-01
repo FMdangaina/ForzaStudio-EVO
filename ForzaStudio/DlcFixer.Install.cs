@@ -445,6 +445,15 @@ namespace ForzaStudio
         // Returns the number of makes folded into existing ones.
         public int RepairMakes(string content, string gameRoot)
         {
+            using (DlcWorld world = DlcWorld.Load(content, gameRoot, this.source))
+            {
+                return this.RepairMakes(world);
+            }
+        }
+
+        // The same with a world already loaded (the install wizard has one): the game and the other packs it holds count.
+        public int RepairMakes(DlcWorld world)
+        {
             this.OpenMerge();
             if (this.merge == null)
             {
@@ -454,10 +463,7 @@ namespace ForzaStudio
             StringBuilder report = new StringBuilder();
             Dictionary<string, long> makeIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, List<long>> unlockIds = new Dictionary<string, List<long>>(StringComparer.OrdinalIgnoreCase);
-            using (DlcWorld world = DlcWorld.Load(content, gameRoot, this.source))
-            {
-                DlcPackage.ReuseMakes(this.merge, world.Others, reused, report);
-            }
+            DlcPackage.ReuseMakes(this.merge, world.Others, reused, report);
             DlcPackage.MakeRuleIds(this.merge, makeIds, unlockIds);
             this.Log.Append(report.ToString());
             if (reused.Count > 0)
@@ -727,6 +733,225 @@ namespace ForzaStudio
             return remap.Count;
         }
 
+        // A string table a pack ships REPLACES the whole table of every pack below it, so a pack that carries a copy of
+        // List_CarMake.str (built when the game and the packs below were all it knew) hides the make names of a pack
+        // installed after it (the Eagle of the VIPER_EAGLE pack lost its name, user 2026-11-01). A table whose every string is
+        // what the game and the packs below give already adds nothing: it goes. A table with strings of its own stays.
+        // Returns the number of tables dropped.
+        public int DropRedundantTables(string content, string gameRoot)
+        {
+            string layerTemp = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "StringLayers_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
+            try
+            {
+                List<DlcPackage.StringLayer> installed = DlcPackage.StringLayer.Installed(content, layerTemp, new StringBuilder());
+                return this.DropRedundantTables(installed, gameRoot);
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(layerTemp))
+                    {
+                        Directory.Delete(layerTemp, true);
+                    }
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+
+        internal int DropRedundantTables(List<DlcPackage.StringLayer> installed, string gameRoot)
+        {
+            this.LoadStrings();
+            int priority = -1;
+            foreach (FLayer layer in this.layers)
+            {
+                if (!layer.IsFolder && layer.Name.StartsWith("StringTables", StringComparison.OrdinalIgnoreCase))
+                {
+                    priority = Math.Max(priority, layer.Priority);
+                }
+            }
+            if (priority < 0 || this.strings.Count == 0)
+            {
+                return 0;
+            }
+            List<DlcPackage.StringLayer> lower = installed.FindAll(delegate(DlcPackage.StringLayer l) { return l.Priority < priority; });
+            Dictionary<string, bool> tables = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (Dictionary<string, StrRef> language in this.strings.Values)
+            {
+                foreach (string table in language.Keys)
+                {
+                    if (!string.Equals(table, "Benchmark", StringComparison.OrdinalIgnoreCase))
+                    {
+                        tables[table] = true;
+                    }
+                }
+            }
+            // The keys the package's database still uses, per table: a "_&N" value names table (N >> 16) and key (N & FFFF);
+            // the table of a high part is the one whose own strings hold most of the keys written under it. Strings the
+            // database does not use any more (copies made when the pack was built) cannot matter, whatever they say.
+            this.OpenMerge();
+            Dictionary<uint, Dictionary<string, int>> votes = new Dictionary<uint, Dictionary<string, int>>();
+            List<uint> values = new List<uint>();
+            if (this.merge != null)
+            {
+                foreach (KeyValuePair<string, List<string>> table in DbIds.Schema(this.merge))
+                {
+                    if (table.Key.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    foreach (string column in table.Value)
+                    {
+                        foreach (object[] row in this.merge.Query("SELECT DISTINCT " + SqliteDatabase.Quote(column) + " FROM " + SqliteDatabase.Quote(table.Key) + " WHERE " + SqliteDatabase.Quote(column) + " GLOB '_&*'").Rows)
+                        {
+                            uint id;
+                            string text = row[0] as string;
+                            if (text != null && uint.TryParse(text.Substring(2), NumberStyles.None, CultureInfo.InvariantCulture, out id))
+                            {
+                                values.Add(id);
+                            }
+                        }
+                    }
+                }
+            }
+            string english = this.strings.ContainsKey("EN") ? "EN" : new List<string>(this.strings.Keys)[0];
+            foreach (uint id in values)
+            {
+                foreach (string table in tables.Keys)
+                {
+                    if (this.HasString(english, table, (int) (id & 0xFFFF)))
+                    {
+                        Dictionary<string, int> counts;
+                        if (!votes.TryGetValue(id >> 16, out counts))
+                        {
+                            counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                            votes[id >> 16] = counts;
+                        }
+                        int n;
+                        counts.TryGetValue(table, out n);
+                        counts[table] = n + 1;
+                    }
+                }
+            }
+            Dictionary<string, Dictionary<int, bool>> used = new Dictionary<string, Dictionary<int, bool>>(StringComparer.OrdinalIgnoreCase);
+            foreach (uint id in values)
+            {
+                Dictionary<string, int> counts;
+                string best = null;
+                int most = 0;
+                if (votes.TryGetValue(id >> 16, out counts))
+                {
+                    foreach (KeyValuePair<string, int> count in counts)
+                    {
+                        if (count.Value > most)
+                        {
+                            most = count.Value;
+                            best = count.Key;
+                        }
+                    }
+                }
+                if (best != null)
+                {
+                    Dictionary<int, bool> keys;
+                    if (!used.TryGetValue(best, out keys))
+                    {
+                        keys = new Dictionary<int, bool>();
+                        used[best] = keys;
+                    }
+                    keys[(int) (id & 0xFFFF)] = true;
+                }
+            }
+            Dictionary<string, bool> dropped = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (string table in tables.Keys)
+            {
+                bool same = true;
+                string why = "";
+                foreach (KeyValuePair<string, Dictionary<string, StrRef>> language in this.strings)
+                {
+                    StrRef reference;
+                    if (!language.Value.TryGetValue(table, out reference))
+                    {
+                        continue;
+                    }
+                    StrFile own = this.Str(reference);
+                    StrFile below = null;
+                    string gameZip = Path.Combine(Path.Combine(Path.Combine(gameRoot, "Media"), "StringTables"), language.Key + ".zip");
+                    if (File.Exists(gameZip))
+                    {
+                        ForzaZip zip = new ForzaZip(gameZip);
+                        ForzaZip.Entry entry = zip.Find(table + ".str");
+                        below = entry == null ? null : new StrFile(zip.Read(entry));
+                    }
+                    if (below == null)
+                    {
+                        below = new StrFile(own.ToBytes());
+                        foreach (StrFile.Entry entry in new List<StrFile.Entry>(below.Entries))
+                        {
+                            below.Remove(entry.Key);
+                        }
+                    }
+                    DlcPackage.StringLayer.Merge(below, lower, language.Key, table + ".str");
+                    Dictionary<int, bool> usedKeys;
+                    used.TryGetValue(table, out usedKeys);
+                    foreach (StrFile.Entry text in own.Entries)
+                    {
+                        if (usedKeys == null || !usedKeys.ContainsKey(text.Key))
+                        {
+                            continue;     // the database does not use this string: a stale copy, whatever it says
+                        }
+                        StrFile.Entry there = EntryOf(below, text.Key);
+                        bool placeholder = there != null && (string.IsNullOrEmpty(text.Text) || text.Text == "N/A");     // a pack fills the languages it lacks with "N/A"
+                        if (there == null || (there.Text != text.Text && !placeholder))
+                        {
+                            same = false;
+                            why = (there == null ? "key " + text.Key.ToString("X4", CultureInfo.InvariantCulture) + " missing below" : "key " + text.Key.ToString("X4", CultureInfo.InvariantCulture) + " differs (\"" + Shorten(text.Text) + "\" here, \"" + Shorten(there.Text) + "\" below)") + " in " + language.Key;
+                            break;
+                        }
+                    }
+                    if (!same)
+                    {
+                        break;
+                    }
+                }
+                if (!same)
+                {
+                    this.Log.AppendLine("strings: the package ships the table " + table + " with strings of its own (" + why + "): kept.");
+                    continue;
+                }
+                foreach (Dictionary<string, StrRef> language in this.strings.Values)
+                {
+                    StrRef reference;
+                    if (language.TryGetValue(table, out reference))
+                    {
+                        reference.Layer.Zip.MarkDeleted(reference.Entry);
+                        reference.Layer.Dirty = true;
+                    }
+                }
+                dropped[table] = true;
+                this.Log.AppendLine("strings: the table " + table + " is a copy of what the game and the packs below already give: not shipped any more, it no longer hides the packs above.");
+            }
+            foreach (Dictionary<string, StrRef> language in this.strings.Values)
+            {
+                foreach (string table in dropped.Keys)
+                {
+                    language.Remove(table);
+                }
+            }
+            if (dropped.Count > 0)
+            {
+                this.WriteStringTableList(dropped, false);
+            }
+            return dropped.Count;
+        }
+
+        private static string Shorten(string text)
+        {
+            text = (text ?? "").Replace((char) 13, (char) 32).Replace((char) 10, (char) 32);
+            return text.Length > 40 ? text.Substring(0, 40) + "..." : text;
+        }
+
         private static string DescribeKeys(List<StringUse> order)
         {
             List<string> text = new List<string>();
@@ -761,6 +986,11 @@ namespace ForzaStudio
         // stringtables.xml lists the tables the package replaces: the moved ones go, Benchmark comes.
         private void WriteStringTableList(Dictionary<string, bool> moved)
         {
+            this.WriteStringTableList(moved, true);
+        }
+
+        private void WriteStringTableList(Dictionary<string, bool> moved, bool addBenchmark)
+        {
             string path = Path.Combine(Path.Combine(Path.Combine(this.root, "Media"), "DLCZips"), "stringtables.xml");
             List<string> names = new List<string>();
             if (File.Exists(path))
@@ -776,7 +1006,10 @@ namespace ForzaStudio
                     }
                 }
             }
-            names.Add("Benchmark");
+            if (addBenchmark && !names.Exists(delegate(string n) { return string.Equals(n, "Benchmark", StringComparison.OrdinalIgnoreCase); }))
+            {
+                names.Add("Benchmark");
+            }
             StringBuilder text = new StringBuilder();
             text.Append("<?xml version=\"1.0\" ?> \r\n<stringtables> \r\n");
             foreach (string name in names)

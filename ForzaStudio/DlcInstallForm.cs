@@ -178,7 +178,10 @@ namespace ForzaStudio
                 this.Refresh();
                 this.fixer = new DlcFixer(path);
                 this.fixer.Relocate(this.world);
+                this.fixer.RepairMakes(this.world);
+                this.fixer.RekeyStrings(folder);
                 this.fixer.MoveStrings(this.world);
+                this.fixer.DropRedundantTables(folder, baseFolder);
                 text.Append(this.fixer.Log.ToString().Replace("\r\n", "\n").Replace("\n", "\r\n"));
                 DbIntegrity.Result merged = DbIntegrity.CheckMerge(this.world.GameDb, this.world.MergeFiles, this.fixer.MergeBytes(), ForzaGame.Motorsport4);
                 text.AppendLine();

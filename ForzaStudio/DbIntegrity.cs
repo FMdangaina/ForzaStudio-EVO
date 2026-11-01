@@ -135,7 +135,7 @@ namespace ForzaStudio
                     {
                         using (SqliteDatabase patch = SqliteDatabase.FromBytes(System.IO.File.ReadAllBytes(other)))
                         {
-                            AddRows(before, patch);
+                            AddRows(before, patch, true);
                         }
                     }
                     catch (Exception)
@@ -167,6 +167,13 @@ namespace ForzaStudio
         // The rows of every table of a merge database, added to the same table of db (columns by name).
         internal static void AddRows(SqliteDatabase db, SqliteDatabase merge)
         {
+            AddRows(db, merge, false);
+        }
+
+        // skipDuplicates: a row whose key the database already has is left out, not an error (an installed package that
+        // shares rows with the game: the rest of its rows still count, a half-added package hid its makes from the check).
+        internal static void AddRows(SqliteDatabase db, SqliteDatabase merge, bool skipDuplicates)
+        {
             Dictionary<string, List<string>> own = DbIds.Schema(db);
             foreach (KeyValuePair<string, List<string>> table in DbIds.Schema(merge))
             {
@@ -184,7 +191,7 @@ namespace ForzaStudio
                 string marks = string.Join(", ", shared.ConvertAll<string>(delegate(string c) { return "?"; }).ToArray());
                 foreach (object[] row in merge.Query("SELECT " + names + " FROM " + SqliteDatabase.Quote(table.Key)).Rows)
                 {
-                    db.Execute("INSERT INTO " + SqliteDatabase.Quote(table.Key) + " (" + names + ") VALUES (" + marks + ")", row);
+                    db.Execute((skipDuplicates ? "INSERT OR IGNORE INTO " : "INSERT INTO ") + SqliteDatabase.Quote(table.Key) + " (" + names + ") VALUES (" + marks + ")", row);
                 }
             }
         }

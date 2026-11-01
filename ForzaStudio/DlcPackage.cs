@@ -790,6 +790,23 @@ namespace ForzaStudio
                 return layer;
             }
 
+            // The keys of a table ("Data_Car.str") this layer holds in any language, with the name each carries.
+            public void Collect(string file, Dictionary<int, string> keys)
+            {
+                string suffix = "/" + file;
+                foreach (KeyValuePair<string, ForzaZip.Entry> item in this.entries)
+                {
+                    if (!item.Key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) || item.Key.IndexOf('/') != item.Key.Length - suffix.Length)
+                    {
+                        continue;
+                    }
+                    foreach (StrFile.Entry text in new StrFile(this.zip.Read(item.Value)).Entries)
+                    {
+                        keys[text.Key] = text.Name;
+                    }
+                }
+            }
+
             // The layers' strings of a table into 'result', each key set to the highest layer's text.
             // file: "Data_Car.str".
             public static void Merge(StrFile result, List<StringLayer> layers, string language, string file)

@@ -282,6 +282,10 @@ namespace ForzaStudio
 
         private void OpenMerge()
         {
+            if (this.merge != null)
+            {
+                return;     // already open: reading it again would drop what Relocate / RepairMakes changed in memory
+            }
             foreach (FLayer layer in this.layers)
             {
                 foreach (string k in this.Keys(layer))
@@ -393,6 +397,10 @@ namespace ForzaStudio
 
         private void LoadStrings()
         {
+            if (this.strings != null)
+            {
+                return;     // loaded: a second load would drop the tables a step before changed (RekeyStrings, then MoveStrings)
+            }
             this.strings = new Dictionary<string, Dictionary<string, StrRef>>(StringComparer.OrdinalIgnoreCase);
             foreach (FLayer layer in this.layers)
             {

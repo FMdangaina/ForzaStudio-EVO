@@ -2182,10 +2182,30 @@ namespace ForzaStudio
         // car ported before finds its string again by name (IDS_...).
         private void PortStrings()
         {
-            this.PortStrings("Data_Car", "Id", this.carId, "DisplayName", "ModelShort");
-            if (this.newMake.HasValue)
+            // The packs installed in Xenia's content folder hold string keys too (a pack's table is a layer over the game's):
+            // a new key goes above everything the game and those packs use.
+            string layerTemp = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "StringLayers_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
+            try
             {
-                this.PortStrings("List_CarMake", "ID", this.newMake.Value, "DisplayName", "Profile");
+                List<DlcPackage.StringLayer> layers = DlcPackage.StringLayer.Installed(this.XeniaContent, layerTemp, new StringBuilder());
+                this.PortStrings("Data_Car", "Id", this.carId, layers, "DisplayName", "ModelShort");
+                if (this.newMake.HasValue)
+                {
+                    this.PortStrings("List_CarMake", "ID", this.newMake.Value, layers, "DisplayName", "Profile");
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(layerTemp))
+                    {
+                        Directory.Delete(layerTemp, true);
+                    }
+                }
+                catch (IOException)
+                {
+                }
             }
         }
 
@@ -2300,8 +2320,13 @@ namespace ForzaStudio
 
         // The strings of one row (table.keyColumn = id) into <table>.str of every FM4 language; a
         // language the source lacks gets the source's EN text (FM3 has no BR, GB, NL).
-        private void PortStrings(string table, string keyColumn, long id, params string[] columns)
+        private void PortStrings(string table, string keyColumn, long id, List<DlcPackage.StringLayer> layers, params string[] columns)
         {
+            Dictionary<int, string> installedKeys = new Dictionary<int, string>();
+            foreach (DlcPackage.StringLayer layer in layers)
+            {
+                layer.Collect(table + ".str", installedKeys);
+            }
             string targetTables = Path.Combine(Path.Combine(this.TargetRoot, "Media"), "StringTables");
             string sourceTables = Path.Combine(Path.Combine(this.SourceRoot, "Media"), "StringTables");
             string strName = table + ".str";
@@ -2351,8 +2376,7 @@ namespace ForzaStudio
                 }
                 // A renamed car (beside FM4's own) never reuses FM4's string of that name: it gets a key of its own.
                 bool renamed = this.RenameTo != null && table == "Data_Car";
-                int newKey = this.StringKey(targetFiles, key, renamed ? null : name);
-                uint high = this.TargetStringHigh(table, column, rowWhere, id, stringId & 0xFFFF0000u);
+                int newKey = this.StringKey(targetFiles, installedKeys, key, renamed ? null : name);                uint high = this.TargetStringHigh(table, column, rowWhere, id, stringId & 0xFFFF0000u);
                 if (high != (stringId & 0xFFFF0000u))
                 {
                     this.Line("  {0}.{1}: string table id {2:X4} is FM4's {3:X4}", table, column, stringId >> 16, high >> 16);
@@ -2419,9 +2443,12 @@ namespace ForzaStudio
         // The FM4 key for an FH2 string: its own when free in every language or already holding this
         // string (same name), the key a port before gave the name, else the highest key free everywhere
         // (FFFF ends the key list).
-        private int StringKey(Dictionary<string, StrFile> files, int key, string name)
+        // 'installed': the keys of this table that the installed packs hold. Such a key is never free (its owner's strings would
+        // hide or be hidden), and a new key is the highest key in use + 1 across the game, the packs and this port, so two
+        // ports in a row never meet on the same key; only when that passes FFFE does the search go down from FFFE.
+        private int StringKey(Dictionary<string, StrFile> files, Dictionary<int, string> installed, int key, string name)
         {
-            bool free = true;
+            bool free = !installed.ContainsKey(key);
             foreach (StrFile file in files.Values)
             {
                 StrFile.Entry existing = Find(file, key);
@@ -2447,9 +2474,31 @@ namespace ForzaStudio
                     }
                 }
             }
+            int highest = 0;
+            foreach (StrFile file in files.Values)
+            {
+                foreach (StrFile.Entry entry in file.Entries)
+                {
+                    if (entry.Key < 0xFFFF && entry.Key > highest)
+                    {
+                        highest = entry.Key;
+                    }
+                }
+            }
+            foreach (int used in installed.Keys)
+            {
+                if (used < 0xFFFF && used > highest)
+                {
+                    highest = used;
+                }
+            }
+            if (highest < 0xFFFE)
+            {
+                return highest + 1;
+            }
             for (int candidate = 0xFFFE; candidate > 0; candidate--)
             {
-                bool used = false;
+                bool used = installed.ContainsKey(candidate);
                 foreach (StrFile file in files.Values)
                 {
                     used = used || file.Contains(candidate);
