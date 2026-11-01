@@ -259,6 +259,7 @@
     </Compile>
     <Compile Include="ForzaStudio\CarMake.cs" />
     <Compile Include="ForzaStudio\MakeTitles.cs" />
+    <Compile Include="ForzaStudio\ShaderViewport.cs" />
     <Compile Include="ForzaStudio\MakeDecals.cs" />
     <Compile Include="ForzaStudio\NewMakeForm.cs">
       <SubType>Form</SubType>

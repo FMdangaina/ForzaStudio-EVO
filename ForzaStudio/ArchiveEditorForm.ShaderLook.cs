@@ -110,14 +110,68 @@ namespace ForzaStudio
             {
                 form.Text = "Shader preview - " + this.SelectedTechnique;
                 form.StartPosition = FormStartPosition.CenterParent;
-                form.ClientSize = new Size(560, 560);
+                form.ClientSize = new Size(640, 640);
                 form.BackColor = ForzaTheme.Surface;
-                ShaderSphere big = new ShaderSphere();
+                ShaderViewport big = new ShaderViewport();
                 big.Dock = DockStyle.Fill;
                 big.SetLook(this.sphereShader.Look);
                 big.SetTexture(this.sphereShader.Texture);
+
+                // Shape and (optionally) one mesh of the model: the mesh is drawn with this technique's look, with its own texture when it has one.
+                ComboBox shapes = new ComboBox();
+                shapes.DropDownStyle = ComboBoxStyle.DropDownList;
+                shapes.Items.AddRange(new object[] { "Sphere", "Cube", "Plane", "Cylinder" });
+                shapes.SelectedIndex = 0;
+                shapes.Width = 110;
+                ComboBox meshes = new ComboBox();
+                meshes.DropDownStyle = ComboBoxStyle.DropDownList;
+                meshes.Width = 360;
+                meshes.DropDownWidth = 520;
+                List<ForzaMesh> list = new List<ForzaMesh>();
+                meshes.Items.Add("(shape)");
+                CollectMeshes(this.tvModel.Nodes, list, meshes);
+                meshes.SelectedIndex = 0;
+                shapes.SelectedIndexChanged += delegate
+                {
+                    meshes.SelectedIndex = 0;
+                    big.SetShape((PreviewShape) shapes.SelectedIndex);
+                };
+                meshes.SelectedIndexChanged += delegate
+                {
+                    if (meshes.SelectedIndex <= 0)
+                    {
+                        big.SetMesh(null);
+                        big.SetTexture(this.sphereShader.Texture);
+                        return;
+                    }
+                    ForzaMesh mesh = list[meshes.SelectedIndex - 1];
+                    string source;
+                    Bitmap own = this.meshTextures.TryGetValue(mesh, out source) ? this.LoadPreview(source, true) : null;
+                    big.SetTexture(own ?? this.sphereShader.Texture);
+                    big.SetMesh(mesh);
+                };
+                FlowLayoutPanel bar = new FlowLayoutPanel();
+                bar.Dock = DockStyle.Top;
+                bar.AutoSize = true;
+                bar.Controls.AddRange(new Control[] { shapes, meshes });
                 form.Controls.Add(big);
+                form.Controls.Add(bar);
                 form.ShowDialog(this);
+            }
+        }
+
+        // Every mesh of the model tree, in tree order: "node > material" in the combo, the mesh in the list (same index + 1).
+        private static void CollectMeshes(TreeNodeCollection nodes, List<ForzaMesh> list, ComboBox combo)
+        {
+            foreach (TreeNode node in nodes)
+            {
+                ForzaMesh mesh = node.Tag as ForzaMesh;
+                if (mesh != null && mesh.VertexCount > 0)
+                {
+                    list.Add(mesh);
+                    combo.Items.Add(node.Text + "  [" + (mesh.Technique ?? mesh.MaterialName) + "]");
+                }
+                CollectMeshes(node.Nodes, list, combo);
             }
         }
 

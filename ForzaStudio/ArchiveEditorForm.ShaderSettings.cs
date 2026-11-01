@@ -22,7 +22,7 @@ namespace ForzaStudio
         private ListView lvParameters;
         private ToolStripLabel lblShaderSummary;
         private Label lblShaderTechnique;
-        private ShaderSphere sphereShader;
+        private ShaderViewport sphereShader;
         private ComboBox cmbAddParameter;
         private ComboBox cmbCopyFrom;
         private ComboBox cmbCopyCar;
@@ -121,7 +121,7 @@ namespace ForzaStudio
             this.lblShaderTechnique = new Label();
             this.lblShaderTechnique.Dock = DockStyle.Fill;
             this.lblShaderTechnique.Padding = new Padding(6, 6, 6, 6);
-            this.sphereShader = new ShaderSphere();
+            this.sphereShader = new ShaderViewport();
             this.sphereShader.Dock = DockStyle.Fill;
             this.sphereShader.DoubleClick += delegate { this.ShowBigSphere(); };
             Button sphereFile = new Button();
@@ -197,7 +197,7 @@ namespace ForzaStudio
             this.btnRemoveEntry.AutoSize = true;
             this.btnRemoveEntry.Click += delegate { this.RemoveShaderEntry(); };
             Label addLabel = new Label();
-            addLabel.Text = "Add (green = FM4 sets it):";
+            addLabel.Text = "Add (green = the game's own cars set it):";
             addLabel.AutoSize = true;
             addLabel.Margin = new Padding(3, 7, 3, 3);
             edit.Controls.AddRange(new Control[] { addLabel, this.cmbAddParameter, this.btnAddParameter, this.btnRemoveParameter, this.btnRemoveEntry });
@@ -427,6 +427,38 @@ namespace ForzaStudio
             get { return (this.lvTechniques.SelectedItems.Count > 0) ? (string) this.lvTechniques.SelectedItems[0].Tag : null; }
         }
 
+        // A name with the cockpit_ prefix, a leading z_ (Horizon draw-order marker), underscores and case dropped:
+        // cockpit_gauge_emissive_alpha and cockpit_z_gauge_emissive_alpha compare equal.
+        private static string LookalikeKey(string technique)
+        {
+            string key = technique.ToLowerInvariant();
+            if (key.StartsWith("cockpit_"))
+            {
+                key = key.Substring(8);
+            }
+            if (key.StartsWith("z_"))
+            {
+                key = key.Substring(2);
+            }
+            return key.Replace("_", "");
+        }
+
+        // For an entry no model uses: the technique a model does use that looks like it (a typo or a missing z_ in the
+        // car's file, e.g. the Alfa 8C's cockpit_gauge_emissive_alpha against cockpit_z_gauge_emissive_alpha), as a tooltip line.
+        private string LookalikeHint(string technique)
+        {
+            string key = LookalikeKey(technique);
+            List<string> twins = new List<string>();
+            foreach (string used in this.shaderUsed.Keys)
+            {
+                if (used != technique && LookalikeKey(used) == key && this.shaderData.Find(used) == null)
+                {
+                    twins.Add(used);
+                }
+            }
+            return (twins.Count == 0) ? "" : "\nA model uses " + string.Join(", ", twins.ToArray()) + ", which has no settings: the entry may have been meant for it (misspelt name).";
+        }
+
         // M main, L lod0, C cockpit, B brakes.
         private string UsedIn(string technique)
         {
@@ -455,12 +487,32 @@ namespace ForzaStudio
             return string.Join(", ", words.ToArray());
         }
 
+        // The game whose cars' settings are the reference: the shown model's (ShaderProfiles.Detect), else the game
+        // folder the archive is in, else FM4.
+        private ShaderProfile SettingsProfile
+        {
+            get
+            {
+                if (this.shaderProfile != ShaderProfile.Unknown)
+                {
+                    return this.shaderProfile;
+                }
+                ShaderProfile fromFolder = (this.GameRoot != null) ? ShaderProfiles.ForGame(GameInfo.Detect(this.GameRoot)) : ShaderProfile.Unknown;
+                return (fromFolder != ShaderProfile.Unknown) ? fromFolder : ShaderProfile.Fm4;
+            }
+        }
+
+        private string SettingsGame
+        {
+            get { return ShaderProfiles.Tag(this.SettingsProfile); }
+        }
+
         private int ErrorsOf(ShaderSettings.Entry entry)
         {
             int errors = 0;
             foreach (ShaderSettings.Parameter p in entry.Parameters)
             {
-                errors += (ShaderSettings.Check(entry.Name, p, this.shaderKnown) == ShaderSettings.Problem.UnknownParameter) ? 1 : 0;
+                errors += (ShaderSettings.Check(this.SettingsProfile, entry.Name, p, this.shaderKnown) == ShaderSettings.Problem.UnknownParameter) ? 1 : 0;
             }
             return errors;
         }
@@ -486,13 +538,13 @@ namespace ForzaStudio
                 {
                     errors += bad;
                     item.ForeColor = ForzaTheme.Red;
-                    item.ToolTipText = bad + " parameter(s) FM4 does not use on " + entry.Name;
+                    item.ToolTipText = bad + " parameter(s) " + this.SettingsGame + " does not use on " + entry.Name;
                 }
                 else if (!this.shaderUsed.ContainsKey(entry.Name))
                 {
                     unused++;
                     item.ForeColor = ForzaTheme.Yellow;
-                    item.ToolTipText = "No model of the car uses " + entry.Name + ": the game ignores it (harmless).";
+                    item.ToolTipText = "No model of the car uses " + entry.Name + ": the game ignores it (harmless)." + this.LookalikeHint(entry.Name);
                 }
                 this.lvTechniques.Items.Add(item);
             }
@@ -540,18 +592,18 @@ namespace ForzaStudio
             }
             else
             {
-                string[] fm4 = ShaderSettings.Fm4Parameters(technique);
-                this.lblShaderTechnique.Text = string.Format("{0}  -  used in: {1}{2}\nFM4 cars set on it: {3}", technique, this.UsedIn(technique),
+                string[] fm4 = ShaderProfiles.ParametersOf(this.SettingsProfile, technique);
+                this.lblShaderTechnique.Text = string.Format("{0}  -  used in: {1}{2}\n{4} cars set on it: {3}", technique, this.UsedIn(technique),
                     (entry == null) ? "  -  no settings: shader defaults" : "",
-                    (fm4 != null) ? string.Join(", ", fm4) : "nothing (no FM4 car lists it)");
+                    (fm4 != null) ? string.Join(", ", fm4) : "nothing (no " + this.SettingsGame + " car lists it)", this.SettingsGame);
                 this.UpdateShaderSphere(technique);
                 if (entry != null)
                 {
                     foreach (ShaderSettings.Parameter p in entry.Parameters)
                     {
-                        ShaderSettings.Problem problem = ShaderSettings.Check(technique, p, this.shaderKnown);
+                        ShaderSettings.Problem problem = ShaderSettings.Check(this.SettingsProfile, technique, p, this.shaderKnown);
                         string note = (problem == ShaderSettings.Problem.UnknownParameter) ? "ERROR: no shader of the game has this parameter"
-                            : (problem == ShaderSettings.Problem.UnusualParameter) ? "unusual: no FM4 car sets it on " + technique + " (not an error)" : "";
+                            : (problem == ShaderSettings.Problem.UnusualParameter) ? "unusual: no " + this.SettingsGame + " car sets it on " + technique + " (not an error)" : "";
                         ListViewItem item = new ListViewItem(new string[] { p.Name, ShaderValueText(p), note });
                         item.Tag = p;
                         if (problem == ShaderSettings.Problem.UnknownParameter)

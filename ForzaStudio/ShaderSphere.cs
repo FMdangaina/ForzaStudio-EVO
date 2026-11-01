@@ -90,8 +90,8 @@ namespace ForzaStudio
             this.Invalidate();
         }
 
-        // The picture of a look, size x size. A texture is laid flat across the disc (planar, so the whole map reads), over the
-        // lit sphere; its alpha is not used (the viewport does not either).
+        // The picture of a look, size x size. A texture is wrapped on the sphere (longitude/latitude over the visible hemisphere, so the
+        // whole map reads and it curves), under the lighting; its alpha is not used (the viewport does not either).
         public static Bitmap Render(ShaderLookValues look, int size, Bitmap texture)
         {
             int[] pixels = null;
@@ -138,8 +138,11 @@ namespace ForzaStudio
                     float[] albedo = { baseColor.X * look.Diffuse.X, baseColor.Y * look.Diffuse.Y, baseColor.Z * look.Diffuse.Z };
                     if (pixels != null)
                     {
-                        int tx = Math.Max(0, Math.Min(tw - 1, (int) ((0.5f + (nx * 0.5f)) * tw)));
-                        int ty = Math.Max(0, Math.Min(th - 1, (int) ((0.5f + (ny * 0.5f)) * th)));
+                        // longitude/latitude of the visible hemisphere: the whole map wraps over the front, so it curves with the sphere
+                        float u = 0.5f + ((float) Math.Atan2(nx, nz) / (float) Math.PI);
+                        float v = 0.5f + ((float) Math.Asin(ny) / (float) Math.PI);
+                        int tx = Math.Max(0, Math.Min(tw - 1, (int) (u * tw)));
+                        int ty = Math.Max(0, Math.Min(th - 1, (int) (v * th)));
                         int argb = pixels[(ty * tw) + tx];
                         bool tinted = look.Kind != ShaderKind.Glass || look.GlassTinted;
                         albedo[0] = ((argb >> 16) & 255) / 255f * (tinted ? look.Diffuse.X : 1f);
