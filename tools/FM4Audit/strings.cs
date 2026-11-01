@@ -125,7 +125,7 @@ class Au
                 js.Append("]").Append(++ti < keysByTable.Count ? ",\n" : "\n");
             }
             js.Append("  }\n}\n");
-            File.WriteAllText(@"C:\Users\Dan\Desktop\ForzaEditor\docs\GameStringKeys.json", js.ToString(), new UTF8Encoding(false));
+            File.WriteAllText(@"C:\Users\Dan\Desktop\ForzaEditor\docs\FM4\GameStringKeys.json", js.ToString(), new UTF8Encoding(false));
         }
         Console.WriteLine("=== cross-set key conflicts (EN)");
         var nm = new Dictionary<string, string>(); var conf = new Dictionary<string, int>(); int nameClash = 0, textDiff = 0, textDiffEmpty = 0; var clashSamples = new List<string>(); var owner = new Dictionary<string, string>(); var text = new Dictionary<string, string>();

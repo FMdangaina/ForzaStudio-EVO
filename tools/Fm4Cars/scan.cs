@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Text;
 using ForzaStudio;
 
-// Builds docs/Fm4Cars.tsv: every car of FM4 (the game's database) and of its official DLC packages installed in Xenia.
+// Builds docs/FM4/Fm4Cars.tsv: every car of FM4 (the game's database) and of its official DLC packages installed in Xenia.
 // Id, MediaName, name, year, make, placement, drive, type, weight, PI, DLC package (empty = the game itself).
 class Scan
 {

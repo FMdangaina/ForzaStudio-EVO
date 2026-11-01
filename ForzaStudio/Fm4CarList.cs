@@ -7,7 +7,7 @@ namespace ForzaStudio
     using System.Reflection;
     using System.Text;
 
-    // Every car of Forza Motorsport 4 and of its official DLC packages (docs/Fm4Cars.tsv, built by tools/Fm4Cars; embedded in
+    // Every car of Forza Motorsport 4 and of its official DLC packages (docs/FM4/Fm4Cars.tsv, built by tools/Fm4Cars; embedded in
     // the exe), so the program does not read the game's database and the installed packages to know what FM4 already has.
     // One line per car: Id, MediaName, name, year, make, engine placement, drive, car type, weight, PI, DLC package (empty = the game).
     public static class Fm4CarList

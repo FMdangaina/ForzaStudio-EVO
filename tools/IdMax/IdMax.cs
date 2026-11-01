@@ -6,11 +6,11 @@ using System.Reflection;
 using System.Text;
 using ForzaStudio;
 
-// IdMax: one file per game (docs/IdMax/FM2.json ... FH2.json) with EVERY table of the game's database, its key and the
+// IdMax: one file per game (docs/FM2/IdMax.json, FM3, FM4, docs/HZN/IdMax.FH1.json and FH2) with EVERY table of the game's database, its key and the
 // largest Id of each key / id column in the game and in its official DLC packages. Forza Studio embeds the files
 // (GameIdLimits.cs): a new row's key is one above the largest of its column. Replaces the combined GameIdLimits.json.
 //
-//   idmax <output folder> [skip words]    "skip words": packages whose name contains one are not official (default: Trial)
+//   idmax <docs folder> [skip words]    "skip words": packages whose name contains one are not official (default: Trial)
 //
 // Sources: <games>\<GAME>_Extracted (every .slt below) and the packages of Xenia's content folder (every .slt in the
 // package and in its Media\DLCZips\*.zip, the string table zips left out).
@@ -119,7 +119,13 @@ class IdMax
                 catch (Exception e) { Console.WriteLine("ERR " + f + " " + rel + ": " + e.Message); }
             }
         }
-        foreach (string k in Keys) WriteGame(k, Path.Combine(output, k + ".json"));
+        foreach (string k in Keys)
+        {
+            bool horizon = k.StartsWith("FH", StringComparison.Ordinal);
+            string dir = Path.Combine(output, horizon ? "HZN" : k);
+            Directory.CreateDirectory(dir);
+            WriteGame(k, Path.Combine(dir, horizon ? "IdMax." + k + ".json" : "IdMax.json"));
+        }
         try { Directory.Delete(temp, true); } catch (IOException) { }
         return 0;
     }

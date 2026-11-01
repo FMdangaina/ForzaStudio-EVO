@@ -5,7 +5,7 @@ using System.Reflection;
 
 namespace ForzaStudio
 {
-    // The materials FM4 itself uses, per kind of model file and LOD (docs\Fm4MaterialUse.txt, measured on the base
+    // The materials FM4 itself uses, per kind of model file and LOD (docs\FM4\Fm4MaterialUse.txt, measured on the base
     // game + every installed DLC, SLOD cars of the Autovista pack left out because they have their own special
     // materials). A material is valid in a list when one FM4 carbin of that list has it. The compiled shaders
     // are not the test: FM4 has techniques (lights_amber, Bentley_paint) that no normal car uses and that render black.
@@ -73,7 +73,7 @@ namespace ForzaStudio
             return (lod == 0) ? "car_LOD0" : "car_LOD1-5";
         }
 
-        // ---- what FM4 cars give each part (docs\Fm4PartMaterials.txt: list, part, material, cars) ----
+        // ---- what FM4 cars give each part (docs\FM4\Fm4PartMaterials.txt: list, part, material, cars) ----
 
         private static Dictionary<string, Dictionary<string, int>> partUse;   // "list|part" -> material -> cars
 

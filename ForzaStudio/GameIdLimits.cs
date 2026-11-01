@@ -8,7 +8,7 @@ namespace ForzaStudio
     using System.Text;
 
     // The largest Id of every table column in each game, base game plus every DLC / title update
-    // package: one file per game, docs/IdMax/<FM2|FM3|FM4|FH1|FH2>.json, every table of the game's database
+    // package: one file per game, docs/<FM2|FM3|FM4>/IdMax.json, docs/HZN/IdMax.<FH1|FH2>.json, every table of the game's database
     // (built by tools/IdMax; embedded in the exe as IdMax.<game>.json). A new row never takes an Id at or
     // below it (user 2026-10-21: inserts in any table start from these limits), so a ported or created row
     // cannot share an Id with a row of an official package that is installed later.

@@ -145,7 +145,7 @@ limits table (`docs/GameIdLimits.json`, `tools/IdLimits`).
 
 All with every FM4 DLC present (Ids free in the game AND in all packs). Code committed in 638a573.
 
-- [x] 2.2 Duplicate car in the game folder (`CarDuplicate.cs`, `GameStringKeys.cs` + `docs/GameStringKeys.json`: every .str key of FM4 + all
+- [x] 2.2 Duplicate car in the game folder (`CarDuplicate.cs`, `GameStringKeys.cs` + `docs/FM4/GameStringKeys.json`: every .str key of FM4 + all
       packs): tested on a copy (`E:\DEV\fm4dev\Duplicate`: NSX '97 → ACU_NSX_97_B, id 1638, 95 rows in 28 tables, new string keys 65534 / 65533
       in 18 languages, 36-file zip renamed, `Thumbnail_1638.xds`, manifest line, original untouched).
   - [x] 2.2.1 Copy into a **DLC pack** (`CarDuplicate.PackContent / PackOffer / PackName`: staged copy of the game, then `DlcPackage.BuildFolder`; tested on a copy of FM4 DVD1; in-game check pending)

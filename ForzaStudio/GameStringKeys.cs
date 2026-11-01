@@ -7,7 +7,7 @@ namespace ForzaStudio
     using System.Text;
 
     // Every string key used in each .str table of FM4, base game and every DLC package, all languages
-    // (docs/GameStringKeys.json, built by tools/FM4Audit/strings.cs; embedded in the exe). A new key of
+    // (docs/FM4/GameStringKeys.json, built by tools/FM4Audit/strings.cs; embedded in the exe). A new key of
     // a table is never one of these, so a string added to the game cannot be blanked or replaced by a
     // package (the audit found 909 shared keys empty in one package and filled in another).
     public static class GameStringKeys

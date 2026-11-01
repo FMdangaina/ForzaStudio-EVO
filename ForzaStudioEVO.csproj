@@ -6,9 +6,10 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{C2E72113-B299-4B3C-B970-01048D01CC32}</ProjectGuid>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
     <AssemblyName>ForzaStudioEVO</AssemblyName>
     <OutputType>WinExe</OutputType>
-    <TargetFrameworkVersion>v2.0</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
@@ -28,6 +29,7 @@
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
@@ -37,9 +39,23 @@
     <ApplicationIcon>logo2.ico</ApplicationIcon>
   </PropertyGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
+  <!-- Prerequisites: stop with a clear message instead of dozens of compiler errors -->
+  <Target Name="CheckPrerequisites" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(windir)\assembly\GAC_32\Microsoft.Xna.Framework\3.1.0.0__6d5c3888ef60e27d\Microsoft.Xna.Framework.dll')"
+           Text="XNA Game Studio 3.1 (Microsoft.Xna.Framework 3.1) is not installed. Install the XNA 3.1 Redistributable (or XNA Game Studio 3.1), then build again. See README.md, section Build." />
+    <Warning Condition="!Exists('!ForzaStudio release\xds.dll')"
+             Text="!ForzaStudio release\xds.dll is missing: the program builds but does not run. Put the local files listed in README.md in that folder." />
+  </Target>
+  <!-- Runtime files (xds.dll, xcompress.dll, bundler...) live in '!ForzaStudio release': copy them next to the exe -->
+  <Target Name="CopyRuntimeFiles" AfterTargets="Build">
+    <ItemGroup>
+      <RuntimeFile Include="!ForzaStudio release\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(RuntimeFile)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" ContinueOnError="true" />
+  </Target>
   <!-- x86 exe: set IMAGE_FILE_LARGE_ADDRESS_AWARE (0x20 in the PE Characteristics) so a 64-bit Windows gives it 4 GB instead of 2 GB -->
   <Target Name="AfterBuild">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$p='$(TargetPath)'; $b=[IO.File]::ReadAllBytes($p); $o=[BitConverter]::ToInt32($b,60)+22; if(($b[$o] -band 0x20) -eq 0){ $b[$o]=$b[$o] -bor 0x20; [IO.File]::WriteAllBytes($p,$b) }&quot;" />
+    <Exec ContinueOnError="true" Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$p='$(TargetPath)'; $b=[IO.File]::ReadAllBytes($p); $o=[BitConverter]::ToInt32($b,60)+22; if(($b[$o] -band 0x20) -eq 0){ $b[$o]=$b[$o] -bor 0x20; [IO.File]::WriteAllBytes($p,$b) }&quot;" />
   </Target>
   <ItemGroup>
     <Compile Include="ForzaStudio\CustomColor.cs">
@@ -243,6 +259,7 @@
     <Compile Include="ForzaStudio\ShaderSettings.cs" />
     <Compile Include="ForzaStudio\ShaderLook.cs" />
     <Compile Include="ForzaStudio\ShaderSphere.cs" />
+    <Compile Include="ForzaStudio\ShaderViewport.cs" />
     <Compile Include="ForzaStudio\ShaderLookNames.cs" />
     <Compile Include="ForzaStudio\ShaderTextures.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Camera.cs">
@@ -259,7 +276,6 @@
     </Compile>
     <Compile Include="ForzaStudio\CarMake.cs" />
     <Compile Include="ForzaStudio\MakeTitles.cs" />
-    <Compile Include="ForzaStudio\ShaderViewport.cs" />
     <Compile Include="ForzaStudio\MakeDecals.cs" />
     <Compile Include="ForzaStudio\NewMakeForm.cs">
       <SubType>Form</SubType>
@@ -372,25 +388,25 @@
       <SubType>Component</SubType>
     </Compile>
     <EmbeddedResource Include="ForzaStudio.Properties.Resources.resources" />
-    <EmbeddedResource Include="docs\GameStringKeys.json">
+    <EmbeddedResource Include="docs\FM4\GameStringKeys.json">
       <LogicalName>GameStringKeys.json</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="docs\Fm4Cars.tsv">
+    <EmbeddedResource Include="docs\FM4\Fm4Cars.tsv">
       <LogicalName>Fm4Cars.tsv</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="docs\IdMax\FM2.json">
+    <EmbeddedResource Include="docs\FM2\IdMax.json">
       <LogicalName>IdMax.FM2.json</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="docs\IdMax\FM3.json">
+    <EmbeddedResource Include="docs\FM3\IdMax.json">
       <LogicalName>IdMax.FM3.json</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="docs\IdMax\FM4.json">
+    <EmbeddedResource Include="docs\FM4\IdMax.json">
       <LogicalName>IdMax.FM4.json</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="docs\IdMax\FH1.json">
+    <EmbeddedResource Include="docs\HZN\IdMax.FH1.json">
       <LogicalName>IdMax.FH1.json</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="docs\IdMax\FH2.json">
+    <EmbeddedResource Include="docs\HZN\IdMax.FH2.json">
       <LogicalName>IdMax.FH2.json</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="Resources\EnvMap.png">
@@ -400,12 +416,19 @@
     <Compile Include="ForzaStudio\Fm4MaterialUse.cs" />
     <Compile Include="ForzaStudio\AppIni.cs" />
     <Compile Include="ForzaStudio\IniEditorPanel.cs" />
-    <EmbeddedResource Include="docs\Fm4MaterialUse.txt">
+    <EmbeddedResource Include="docs\FM4\Fm4MaterialUse.txt">
       <LogicalName>Fm4MaterialUse.txt</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="docs\Fm4PartMaterials.txt">
+    <EmbeddedResource Include="docs\FM4\Fm4PartMaterials.txt">
       <LogicalName>Fm4PartMaterials.txt</LogicalName>
     </EmbeddedResource>
+    <Compile Include="ForzaStudio\ShaderProfile.cs" />
+    <EmbeddedResource Include="docs\FM2\MaterialUse.txt"><LogicalName>MaterialUse_FM2.txt</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="docs\FM3\MaterialUse.txt"><LogicalName>MaterialUse_FM3.txt</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="docs\HZN\MaterialUse.txt"><LogicalName>MaterialUse_FH.txt</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="docs\FM2\SsParams.txt"><LogicalName>SsParams_FM2.txt</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="docs\FM3\SsParams.txt"><LogicalName>SsParams_FM3.txt</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="docs\HZN\SsParams.txt"><LogicalName>SsParams_FH.txt</LogicalName></EmbeddedResource>
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
@@ -457,5 +480,11 @@
     <None Include="Resources\IconDecom2.png" />
     <None Include="Resources\IconDecom1.png" />
     <None Include="Resources\IconHex1.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Service\OffroadTires\*.zip">
+      <Link>Service\OffroadTires\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 </Project>
