@@ -103,7 +103,7 @@ namespace ForzaStudio
         private readonly CheckBox arcade;
         private readonly ComboBox makes;    // "the source's" + FM4's makes
         private readonly ComboBox sounds;   // "the source's" + FM4's cars
-        private readonly ComboBox tires;    // Normal (the source's tire models, if it has any) / Offroad (FM4 H1 tires)
+        private readonly ComboBox tires;    // Normal (the source's tire models, if it has any) / Offroad (program tires)
         private readonly ComboBox frontCaliper, rearCaliper;   // brakes of a car that has none
         private readonly TextBox frontAngle, rearAngle;
         private readonly ToolStripStatusLabel details;
@@ -382,9 +382,9 @@ namespace ForzaStudio
             this.tires.Location = new Point(646, 60);
             this.tires.Width = 120;
             this.tires.Items.Add("Normal");
-            this.tires.Items.Add("Offroad (H1)");
+            this.tires.Items.Add("Offroad");
             this.tires.SelectedIndex = 0;
-            new ToolTip().SetToolTip(this.tires, "Normal: the tire models the source car has (FH1 / FH2 Raptor, Wrangler), else FM4's generic tires.\nOffroad: the tire models of FM4's Hummer H1 (TireA/B/C) put under this car's name, with the deep tread of an off-road tire");
+            new ToolTip().SetToolTip(this.tires, "Normal: the tire models the source car has (FH1 / FH2 Raptor, Wrangler), else FM4's generic tires.\nOffroad: the program's own offroad tire models (Service\\OffroadTires, same size as the normal tires) put under this car's name");
             options.Controls.Add(tiresLabel);
             options.Controls.Add(this.tires);
             // Brakes for a car whose source has none (traffic, FM2...): the game's generic ones, chosen here.

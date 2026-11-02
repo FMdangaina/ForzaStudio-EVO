@@ -27,6 +27,21 @@ namespace ForzaStudio
             public float[] U, V, U0, V0;
             public double[] Positions;
             public string Label;
+            private bool[] editFlags;
+
+            // True when face f is one of the faces being edited (EditFaces is fixed once the session is built).
+            public bool IsEditFace(int f)
+            {
+                if (this.editFlags == null)
+                {
+                    this.editFlags = new bool[this.Faces.Count];
+                    foreach (int e in this.EditFaces)
+                    {
+                        this.editFlags[e] = true;
+                    }
+                }
+                return this.editFlags[f];
+            }
         }
 
         public readonly CarbinModel Model;

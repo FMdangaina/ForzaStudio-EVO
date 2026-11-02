@@ -37,6 +37,7 @@ namespace ForzaStudio
         private readonly Canvas canvas;
         private readonly ToolStripLabel lblInfo;
         private readonly ToolStripButton[] toolButtons = new ToolStripButton[4];
+        private ToolStripButton faceModeButton;
 
         public UvMapperForm(UvSession session, string title, List<UvTexture> textures, int initialTexture, MethodInvoker edited)
         {
@@ -74,9 +75,11 @@ namespace ForzaStudio
                 this.toolButtons[i] = tool;
                 bar.Items.Add(tool);
             }
-            this.canvas.CurrentTool = Tool.Move;
-            this.toolButtons[(int) Tool.Move].Checked = true;
+            this.canvas.CurrentTool = Tool.Select;
+            this.toolButtons[(int) Tool.Select].Checked = true;
             bar.Items.Add(new ToolStripSeparator());
+            this.faceModeButton = Button(ToolIcons.Linked(), "Face mode: Select picks whole faces (click inside a triangle, or a box around their centres) instead of points  (S)", delegate { this.ToggleFaceMode(); });
+            bar.Items.Add(this.faceModeButton);
             bar.Items.Add(Button(ToolIcons.Select(true), "Select all the points  (A)", delegate { this.canvas.SelectAll(); }));
             bar.Items.Add(Button(ToolIcons.Select(false), "Select no point  (Ctrl+D)", delegate { this.canvas.SelectNone(); }));
             bar.Items.Add(Button(ToolIcons.Linked(), "Select the piece (island) the selected points belong to  (L)", delegate { this.canvas.SelectLinked(); }));
@@ -121,7 +124,6 @@ namespace ForzaStudio
             this.Controls.Add(bottom);
             ForzaTheme.Apply(this);
             this.canvas.BackColor = System.Drawing.Color.FromArgb(24, 24, 26);
-            this.canvas.SelectAll();
             this.UpdateInfo();
         }
 
@@ -416,6 +418,13 @@ namespace ForzaStudio
             return true;
         }
 
+        private void ToggleFaceMode()
+        {
+            this.canvas.FaceMode = !this.canvas.FaceMode;
+            this.faceModeButton.Checked = this.canvas.FaceMode;
+            this.SetTool(Tool.Select);
+        }
+
         private void SetTool(Tool tool)
         {
             this.canvas.CurrentTool = tool;
@@ -539,6 +548,7 @@ namespace ForzaStudio
                     }
                     this.DrawFaces(g, part, editing, false, System.Drawing.Color.FromArgb(70, 70, 76));
                     this.DrawFaces(g, part, editing, true, System.Drawing.Color.FromArgb(120, 210, 140));
+                    this.FillSelectedFaces(g, part, this.session.Parts.IndexOf(part));
                 }
                 int partCount = this.session.Parts.Count;
                 bool dots = this.session.EditVertexCount <= 30000;
@@ -569,6 +579,32 @@ namespace ForzaStudio
                     {
                         pen.DashStyle = DashStyle.Dash;
                         g.DrawRectangle(pen, this.BoxRectangle());
+                    }
+                }
+            }
+
+            // The faces whose three points are all selected get a translucent fill.
+            private void FillSelectedFaces(Graphics g, UvSession.Part part, int partIndex)
+            {
+                if (this.Selection.Count == 0)
+                {
+                    return;
+                }
+                using (GraphicsPath path = new GraphicsPath())
+                using (Brush fill = new SolidBrush(System.Drawing.Color.FromArgb(90, 255, 150, 30)))
+                {
+                    foreach (int f in part.EditFaces)
+                    {
+                        int[] t = part.Faces[f];
+                        if (this.Selection.Contains(UvSession.Key(partIndex, t[0])) && this.Selection.Contains(UvSession.Key(partIndex, t[1])) && this.Selection.Contains(UvSession.Key(partIndex, t[2])))
+                        {
+                            path.StartFigure();
+                            path.AddPolygon(new PointF[] { this.ToScreen(part.U[t[0]], part.V[t[0]]), this.ToScreen(part.U[t[1]], part.V[t[1]]), this.ToScreen(part.U[t[2]], part.V[t[2]]) });
+                        }
+                    }
+                    if (path.PointCount > 0)
+                    {
+                        g.FillPath(fill, path);
                     }
                 }
             }
@@ -624,6 +660,64 @@ namespace ForzaStudio
                     }
                 }
                 return key >= 0;
+            }
+
+            // Face mode: Select picks whole faces (the 3 points of each) instead of single points.
+            public bool FaceMode;
+
+            private static float Side(PointF p, PointF a, PointF b)
+            {
+                return ((p.X - b.X) * (a.Y - b.Y)) - ((a.X - b.X) * (p.Y - b.Y));
+            }
+
+            private static bool InTriangle(PointF p, PointF a, PointF b, PointF c)
+            {
+                float d1 = Side(p, a, b), d2 = Side(p, b, c), d3 = Side(p, c, a);
+                bool negative = d1 < 0 || d2 < 0 || d3 < 0, positive = d1 > 0 || d2 > 0 || d3 > 0;
+                return !(negative && positive);
+            }
+
+            // A box takes the faces whose centre is inside it, a click the face under the pointer.
+            // Ctrl on a face that is already selected deselects its points (the others are added by the caller).
+            private void HitFaces(bool box, System.Drawing.Point click, bool toggle, List<long> hit)
+            {
+                System.Drawing.Rectangle rectangle = this.BoxRectangle();
+                PointF pointer = new PointF(click.X, click.Y);
+                for (int i = 0; i < this.session.Parts.Count; i++)
+                {
+                    UvSession.Part part = this.session.Parts[i];
+                    for (int f = part.Faces.Count - 1; f >= 0; f--)
+                    {
+                        if (!part.IsEditFace(f))
+                        {
+                            continue;
+                        }
+                        int[] t = part.Faces[f];
+                        PointF a = this.ToScreen(part.U[t[0]], part.V[t[0]]), b = this.ToScreen(part.U[t[1]], part.V[t[1]]), c = this.ToScreen(part.U[t[2]], part.V[t[2]]);
+                        bool inside = box ? rectangle.Contains((int) ((a.X + b.X + c.X) / 3f), (int) ((a.Y + b.Y + c.Y) / 3f)) : InTriangle(pointer, a, b, c);
+                        if (!inside)
+                        {
+                            continue;
+                        }
+                        long k0 = UvSession.Key(i, t[0]), k1 = UvSession.Key(i, t[1]), k2 = UvSession.Key(i, t[2]);
+                        if (toggle && this.Selection.Contains(k0) && this.Selection.Contains(k1) && this.Selection.Contains(k2))
+                        {
+                            this.Selection.Remove(k0);
+                            this.Selection.Remove(k1);
+                            this.Selection.Remove(k2);
+                        }
+                        else
+                        {
+                            hit.Add(k0);
+                            hit.Add(k1);
+                            hit.Add(k2);
+                        }
+                        if (!box)
+                        {
+                            return;
+                        }
+                    }
+                }
             }
 
             protected override void OnMouseDown(MouseEventArgs e)
@@ -717,7 +811,11 @@ namespace ForzaStudio
                     }
                     bool box = Math.Abs(e.X - this.dragStart.X) > 3 || Math.Abs(e.Y - this.dragStart.Y) > 3;
                     List<long> hit = new List<long>();
-                    if (box)
+                    if (this.FaceMode)
+                    {
+                        this.HitFaces(box, e.Location, toggle, hit);
+                    }
+                    else if (box)
                     {
                         System.Drawing.Rectangle rectangle = this.BoxRectangle();
                         for (int i = 0; i < this.session.Parts.Count; i++)
@@ -743,7 +841,7 @@ namespace ForzaStudio
                     }
                     foreach (long key in hit)
                     {
-                        if (toggle && this.Selection.Contains(key))
+                        if (toggle && !this.FaceMode && this.Selection.Contains(key))
                         {
                             this.Selection.Remove(key);
                         }
@@ -775,6 +873,7 @@ namespace ForzaStudio
                     case Keys.W: this.owner.SetTool(Tool.Move); return true;
                     case Keys.E: this.owner.SetTool(Tool.Rotate); return true;
                     case Keys.R: this.owner.SetTool(Tool.Scale); return true;
+                    case Keys.S: this.owner.ToggleFaceMode(); return true;
                     case Keys.A: this.SelectAll(); return true;
                     case Keys.L: this.SelectLinked(); return true;
                     case Keys.F: this.FitView(); return true;

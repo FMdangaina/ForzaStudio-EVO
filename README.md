@@ -38,16 +38,15 @@ based on is MIT-licensed (Copyright (C) 2012 Mike Davis); its notice is kept in
 
 ## Build
 
-- Visual Studio 2022 (MSBuild), .NET Framework 2.0 target, **x86 only**
-- XNA Game Studio 3.1 (Microsoft.Xna.Framework in the GAC)
+1. Install **Visual Studio 2022** with the workload *.NET desktop development* (it includes the .NET Framework 4.8 targeting pack).
+2. Install **XNA Game Studio 3.1** (or the XNA Framework 3.1 Redistributable). The build stops with a clear message if it is missing.
+3. Get the local files from the project owner and put them in `!ForzaStudio release\` (they are not in the repository): `xds.dll`, `xcompress.dll`, `xdevkit.dll`, `bundler.exe`, `unbundler.exe`, `scr.org`, `scr.rdf`.
+4. Open `ForzaStudioEVO.sln` in Visual Studio and press **Ctrl+Shift+B** (Build > Build Solution). The configuration is already *Debug / x86*.
+5. The program is `bin\Debug\ForzaStudioEVO.exe`. The build copies everything from `!ForzaStudio release\` next to it and writes `ForzaStudioEVO.exe.config`.
 
-```
-MSBuild ForzaStudioEVO.csproj -p:Configuration=Debug -p:Platform=x86
-```
+Command line, the same thing: `MSBuild ForzaStudioEVO.sln -p:Configuration=Debug -p:Platform=x86`
 
-`!ForzaStudio release/` must also contain the non-redistributable files listed in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-At runtime the editor expects `texconv.exe`, `xds.dll` and the other tools next to the exe.
+The project is **x86 only**. If the build fails, send the first line that says `error`. Close a running copy of the program before building (it locks the exe).
 
 ## Repository policy
 

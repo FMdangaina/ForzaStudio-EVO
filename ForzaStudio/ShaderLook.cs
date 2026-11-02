@@ -188,7 +188,7 @@ namespace ForzaStudio
             {
                 if (p.TryGetValue(key, out v)) { amount = Math.Max(0f, Math.Min(1.5f, v[0])); hasSpecular = true; break; }
             }
-            if (p.TryGetValue("SpecularColor", out v) && v.Length >= 3)
+            if ((p.TryGetValue("SpecularColor", out v) || p.TryGetValue("CockpitSpecularColor", out v)) && v.Length >= 3)
             {
                 look.Specular = Mul(Clamp3(v, 1f), new Vector3Lite(amount));
             }
@@ -211,7 +211,8 @@ namespace ForzaStudio
             }
             // Self-lit gauges: GaugeEmissiveScale is the glow, GaugeAmbientAmt a bit of base light.
             float glow = 0f;
-            if (p.TryGetValue("GaugeEmissiveScale", out v)) glow = Math.Max(glow, 0.45f * Math.Min(1f, v[0]));
+            // FM3 files spell it "GuageEmissiveScale" on some cars
+            if (p.TryGetValue("GaugeEmissiveScale", out v) || p.TryGetValue("GuageEmissiveScale", out v)) glow = Math.Max(glow, 0.45f * Math.Min(1f, v[0]));
             if (p.TryGetValue("GaugeAmbientAmt", out v)) glow = Math.Max(glow, 0.3f * Math.Min(1f, v[0]));
             if (glow > 0f)
             {
@@ -219,7 +220,9 @@ namespace ForzaStudio
             }
             if (look.Kind == ShaderKind.Light)
             {
-                foreach (string key in new string[] { "ReverseLightColor", "BrakeColor" })
+                // FM4 names first, then the Horizon lamp colours (FH1 / FH2 shadersettings.xml; values up to 2.0, clamped)
+                foreach (string key in new string[] { "ReverseLightColor", "BrakeColor", "TailLightColor", "XenonHeadlightColor", "HidHeadlightColor", "OldHeadlightColor", "FullbeamColor",
+                    "DRLWhiteColor", "DRLOrangeColor", "DRLRedColor", "FogWhiteColor", "FogRedColor", "IndicatorLightColor", "IndicatorRedLightColor", "SideLightsOrangeColor", "NumberPlateLightColor" })
                 {
                     if (p.TryGetValue(key, out v) && v.Length >= 3)
                     {

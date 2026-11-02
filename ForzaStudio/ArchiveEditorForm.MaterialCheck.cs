@@ -15,6 +15,7 @@ namespace ForzaStudio
         private int modelType;                                   // carbin type of the shown model, 0 if not checked
         private string materialFile = "";                        // file name and kind of the shown model, for Fm4MaterialUse
         private bool materialWheels;
+        private ShaderProfile shaderProfile = ShaderProfile.Unknown;   // game of the shown model (ShaderProfiles.Detect)
         private readonly List<string> unknownMaterials = new List<string>();
 
         private ToolStripLabel BuildMaterialWarning()
@@ -39,29 +40,47 @@ namespace ForzaStudio
             this.unknownMaterials.Clear();
             this.modelType = 0;
             this.lblMaterialWarning.Visible = false;
-            CarbinModel model;
-            try
+            // The game of the model decides the lists: FM4 as before, the others against what their own cars use
+            // (ShaderProfiles, docs\SHADERS_OTHER_GAMES.md). A file that cannot be read is not checked.
+            this.shaderProfile = ShaderProfiles.Detect(data);
+            if (this.shaderProfile == ShaderProfile.Unknown && this.GameRoot != null)
             {
-                model = new CarbinModel(data);
+                this.shaderProfile = ShaderProfiles.ForGame(GameInfo.Detect(this.GameRoot));   // 4 of the 411 FM2 wheel files
             }
-            catch (Exception)
+            string game = ShaderProfiles.Tag(this.shaderProfile);
+            if (this.shaderProfile == ShaderProfile.Unknown)
             {
                 return;
             }
-            if (model.IsHorizon)
-            {
-                return;
-            }
-            this.modelType = (int) model.Type;
-            // A file holding LOD 0 and the others together is a wheel set (cars keep LOD 0 in _lod0 / _cockpit files);
-            // the check uses the FM4 list of its kind and LOD (Fm4MaterialUse).
             bool lodZero = false;
             bool lodOther = false;
-            foreach (CarbinModel.Section section in model.Sections)
+            if (this.shaderProfile != ShaderProfile.Fm4)
             {
-                foreach (CarbinModel.SubSection sub in section.SubSections)
+                foreach (TreeNode lodNode in root.Nodes)
                 {
-                    if (sub.Lod == 0) { lodZero = true; } else { lodOther = true; }
+                    if (lodNode.Text == "LOD0") { lodZero = true; } else { lodOther = true; }
+                }
+            }
+            else
+            {
+                CarbinModel model;
+                try
+                {
+                    model = new CarbinModel(data);
+                }
+                catch (Exception)
+                {
+                    return;
+                }
+                this.modelType = (int) model.Type;
+                // A file holding LOD 0 and the others together is a wheel set (cars keep LOD 0 in _lod0 / _cockpit files);
+                // the check uses the FM4 list of its kind and LOD (Fm4MaterialUse).
+                foreach (CarbinModel.Section section in model.Sections)
+                {
+                    foreach (CarbinModel.SubSection sub in section.SubSections)
+                    {
+                        if (sub.Lod == 0) { lodZero = true; } else { lodOther = true; }
+                    }
                 }
             }
             this.materialFile = root.Text;
@@ -69,8 +88,9 @@ namespace ForzaStudio
             this.MarkUnknownMaterials(root.Nodes);
             if (this.unknownMaterials.Count > 0)
             {
-                this.lblMaterialWarning.Text = string.Format("{0} material{1} not in FM4: click to fix", this.unknownMaterials.Count, (this.unknownMaterials.Count == 1) ? "" : "s");
-                this.lblMaterialWarning.ToolTipText = "No FM4 car uses " + string.Join(", ", this.unknownMaterials.ToArray())
+                this.lblMaterialWarning.Text = string.Format("{0} material{1} not in {2}{3}", this.unknownMaterials.Count, (this.unknownMaterials.Count == 1) ? "" : "s", game,
+                    (this.shaderProfile == ShaderProfile.Fm2 || this.shaderProfile == ShaderProfile.Fm3) ? " (this game's models cannot be edited)" : ": click to fix");
+                this.lblMaterialWarning.ToolTipText = "No " + game + " car uses " + string.Join(", ", this.unknownMaterials.ToArray())
                     + ": they may render black in game.\nRed in the tree. Click here to select the first one, then Rename Material in the Part tab.";
                 this.lblMaterialWarning.Visible = true;
             }
@@ -104,7 +124,7 @@ namespace ForzaStudio
         // True when FM4 uses the mesh's material in a model of this kind and LOD (the tree is file > LODn > part > material).
         private bool IsUsedByFm4(TreeNode mesh)
         {
-            if (this.modelType == 1)
+            if (this.modelType == 1 && this.shaderProfile == ShaderProfile.Fm4)
             {
                 return CarPort.IsFm4Material(mesh.Text, 1);
             }
@@ -114,7 +134,7 @@ namespace ForzaStudio
             {
                 uint.TryParse(lodNode.Text.Substring(3), out lod);
             }
-            return Fm4MaterialUse.IsUsed(Fm4MaterialUse.ListName(this.materialWheels, this.materialFile, lod), mesh.Text);
+            return ShaderProfiles.IsUsed(this.shaderProfile, Fm4MaterialUse.ListName(this.materialWheels, this.materialFile, lod), mesh.Text);
         }
 
         // Selecting a node lights up its meshes in the viewport (a part, a LOD or one material); the file node lights none.

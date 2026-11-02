@@ -120,6 +120,36 @@ namespace ForzaStudio
             return carbinName.EndsWith("_cockpit.carbin", StringComparison.OrdinalIgnoreCase) ? "cockpit_" + material : material;
         }
 
+        // The material (subsection) names of a model of any of the four games: FM2 through the viewer's reader, FM3 as
+        // "study" files, FM4 / Horizon as they are.
+        public static List<string> MaterialNames(byte[] data, string name)
+        {
+            List<string> names = new List<string>();
+            if (CarModelFolder.IsMotorsport2(data))
+            {
+                using (ForzaCarBin bin = new ForzaCarBin(name, data))
+                {
+                    foreach (ForzaCarSection section in bin.Sections)
+                    {
+                        foreach (ForzaCarSubSection sub in section.SubSections)
+                        {
+                            names.Add(sub.Name);
+                        }
+                    }
+                }
+                return names;
+            }
+            CarbinModel model = CarbinModel.IsMotorsport3File(data) ? new CarbinModel(data, true) : new CarbinModel(data);
+            foreach (CarbinModel.Section section in model.Sections)
+            {
+                foreach (CarbinModel.SubSection sub in section.SubSections)
+                {
+                    names.Add(sub.Name);
+                }
+            }
+            return names;
+        }
+
         // Technique -> model files using it, over every .carbin of the car folder (main, lod0, cockpit,
         // brakes). Files that cannot be read are skipped.
         public static SortedDictionary<string, List<string>> Techniques(ForzaZip zip, string folder)
@@ -132,21 +162,20 @@ namespace ForzaStudio
                 {
                     continue;
                 }
-                CarbinModel model;
+                List<string> materials;
                 try
                 {
-                    model = new CarbinModel(zip.Read(entry));
+                    materials = MaterialNames(zip.Read(entry), entry.Name);
                 }
                 catch (Exception)
                 {
                     continue;
                 }
                 string file = entry.Name.Substring(entry.Name.LastIndexOf('/') + 1);
-                foreach (CarbinModel.Section section in model.Sections)
                 {
-                    foreach (CarbinModel.SubSection sub in section.SubSections)
+                    foreach (string material in materials)
                     {
-                        string technique = TechniqueName(sub.Name, entry.Name);
+                        string technique = TechniqueName(material, entry.Name);
                         List<string> files;
                         if (!used.TryGetValue(technique, out files))
                         {
@@ -257,15 +286,22 @@ namespace ForzaStudio
         // error; one the survey never saw on this technique is just unusual (the game's shaders accept it).
         public static Problem Check(string technique, Parameter parameter, ICollection<string> known)
         {
+            return Check(ShaderProfile.Fm4, technique, parameter, known);
+        }
+
+        // The same for the cars of another game: a name its own cars set (ShaderProfiles) is never an error and the
+        // "unusual" test uses the parameters its cars set on the technique.
+        public static Problem Check(ShaderProfile profile, string technique, Parameter parameter, ICollection<string> known)
+        {
             // A name some stock FM4 car sets (CarPort.ShaderParameters) is never an error, even where the shader
             // files do not list it (CockpitMetalPaintScale, CubeMultiplier, a typo in VOL_C30): the game ships it.
-            bool exists = CarPort.IsShaderParameter(parameter.Name)
+            bool exists = CarPort.IsShaderParameter(parameter.Name) || ShaderProfiles.IsParameter(profile, parameter.Name)
                 || (known != null && (known.Contains(parameter.Name) || parameter.Name.StartsWith("D3DRS_", StringComparison.Ordinal)));
             if (!exists)
             {
                 return Problem.UnknownParameter;
             }
-            string[] seen = Fm4Parameters(technique);
+            string[] seen = ShaderProfiles.ParametersOf(profile, technique);
             return (seen != null && Array.IndexOf(seen, parameter.Name) < 0) ? Problem.UnusualParameter : Problem.None;
         }
 
