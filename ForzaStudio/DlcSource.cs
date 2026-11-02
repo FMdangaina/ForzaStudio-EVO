@@ -1278,7 +1278,7 @@ namespace ForzaStudio
 
         // The rows of a package's merge database put into the game's (same table, the columns both have), a row with the
         // same key replaced; the number of rows.
-        private static int MergeRows(SqliteDatabase target, string mergePath)
+        internal static int MergeRows(SqliteDatabase target, string mergePath)
         {
             int count = 0;
             using (SqliteDatabase patch = SqliteDatabase.FromBytes(File.ReadAllBytes(mergePath)))

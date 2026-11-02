@@ -127,6 +127,12 @@ namespace ForzaStudio
                 // FM3 brakes carry no bounds; FM4's are centred on the vertices.
                 SetBounds(section, lodPositions, lod0Positions);
             }
+            else if (Escapes(section.Bounds, lodPositions) || Escapes(section.Bounds, lod0Positions))
+            {
+                // Some FM3 vertices lie outside their section's bounds; Encode would pull them in (up to 53 mm), so the bounds grow.
+                GrowBounds(section, lodPositions, lod0Positions);
+                report.AppendFormat(CultureInfo.InvariantCulture, "{0}: vertices outside the FM3 bounds, bounds grown\r\n", section.Name);
+            }
 
             bool deformable = HasMotorsport3Damage(section.Lod) || HasMotorsport3Damage(section.Lod0);
             section.DamageLod = deformable ? Motorsport3Damage(section.Lod) : new Table();
@@ -263,6 +269,54 @@ namespace ForzaStudio
                 }
             }
             return true;
+        }
+
+        // True when a vertex is farther from the bounds' centre than the half diagonal, the limit Encode keeps vertices within.
+        private static bool Escapes(float[] bounds, double[] positions)
+        {
+            double scale = Scale(bounds);
+            for (int i = 0; i < positions.Length; i += 3)
+            {
+                double length = 0;
+                for (int c = 0; c < 3; c++)
+                {
+                    double q = (positions[i + c] - bounds[c] - ((bounds[3 + c] + bounds[6 + c]) / 2)) / scale;
+                    length += q * q;
+                }
+                if (Math.Sqrt(length) > 1.0)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // The game's bounds (origin at the vertices' AABB centre, symmetric, rounded outwards) for the vertices of both buffers.
+        private static void GrowBounds(Section section, double[] a, double[] b)
+        {
+            double[] min = { double.MaxValue, double.MaxValue, double.MaxValue };
+            double[] max = { double.MinValue, double.MinValue, double.MinValue };
+            foreach (double[] p in new double[][] { a, b })
+            {
+                for (int i = 0; i < p.Length; i++)
+                {
+                    min[i % 3] = Math.Min(min[i % 3], p[i]);
+                    max[i % 3] = Math.Max(max[i % 3], p[i]);
+                }
+            }
+            if (min[0] > max[0])
+            {
+                return;
+            }
+            float[] origin;
+            float[] half;
+            SymmetricBounds(min, max, out origin, out half);
+            for (int c = 0; c < 3; c++)
+            {
+                section.Bounds[c] = origin[c];
+                section.Bounds[3 + c] = -half[c];
+                section.Bounds[6 + c] = half[c];
+            }
         }
 
         private static void SetBounds(Section section, double[] a, double[] b)

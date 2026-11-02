@@ -164,6 +164,9 @@
     <Compile Include="ForzaStudio\CarbinFile.cs" />
     <Compile Include="ForzaStudio\CarbinModel.cs" />
     <Compile Include="ForzaStudio\CarbinModelMotorsport3.cs" />
+    <Compile Include="ForzaStudio\CarbinModelToMotorsport3.cs" />
+    <Compile Include="ForzaStudio\CarPortToFm3.cs" />
+    <Compile Include="ForzaStudio\Fm3Textures.cs" />
     <Compile Include="ForzaStudio\CarbinExhaust.cs" />
     <Compile Include="ForzaStudio\Fm2Source.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Exhaust.cs" />
@@ -184,6 +187,11 @@
     </Compile>
     <Compile Include="ForzaStudio\StrFile.cs" />
     <Compile Include="ForzaStudio\CarPort.cs" />
+    <Compile Include="ForzaStudio\CarPort.Database.cs" />
+    <Compile Include="ForzaStudio\CarPort.Strings.cs" />
+    <Compile Include="ForzaStudio\CarPort.Zips.cs" />
+    <Compile Include="ForzaStudio\CarPort.Sound.cs" />
+    <Compile Include="ForzaStudio\CarPort.Files.cs" />
     <Compile Include="ForzaStudio\CarUninstall.cs" />
     <Compile Include="ForzaStudio\DlcCarDelete.cs" />
     <Compile Include="ForzaStudio\DlcPackageAdd.cs" />
