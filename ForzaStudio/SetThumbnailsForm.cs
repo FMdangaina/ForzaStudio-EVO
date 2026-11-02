@@ -65,6 +65,35 @@ namespace ForzaStudio
         private StfsReader package;         // set when the DLC is a package file
         private string gameRoot;           // set when the cars come from an FM4 game folder
 
+        // The game of the DLC or folder being edited: FM4 thumbnails are 768 x 288, FM3's 512 x 256 (same A8R8G8B8 xds, same .xdc), each in its own profile folder.
+        private ForzaGame thumbGame = ForzaGame.Motorsport4;
+
+        private int ThumbWidth
+        {
+            get { return (this.thumbGame == ForzaGame.Motorsport3) ? 512 : 768; }
+        }
+
+        private int ThumbHeight
+        {
+            get { return (this.thumbGame == ForzaGame.Motorsport3) ? 256 : 288; }
+        }
+
+        private string ThumbTitle
+        {
+            get { return (this.thumbGame == ForzaGame.Motorsport3) ? "4D53084D" : "4D530910"; }
+        }
+
+        private void SetGame(ForzaGame game)
+        {
+            if ((game != ForzaGame.Motorsport3 && game != ForzaGame.Motorsport4) || game == this.thumbGame)
+            {
+                return;
+            }
+            this.thumbGame = game;
+            this.LoadXenia(XeniaThumbnails.FindFolder(this.ThumbTitle));
+        }
+
+
         public SetThumbnailsForm()
         {
             this.AutoScaleMode = AutoScaleMode.None;
@@ -151,7 +180,7 @@ namespace ForzaStudio
             this.filterBox.SetBounds(300, 50, 210, 24);
             this.filterBox.TextChanged += delegate { this.RebuildList(); };
             Button game = new Button();
-            game.Text = "FM4 game folder...";
+            game.Text = "Game folder...";
             game.SetBounds(850, 8, 180, 28);
             game.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             game.Click += delegate { this.OpenGameFolder(); };
@@ -231,6 +260,7 @@ namespace ForzaStudio
                     this.status.Text = "Extracting " + Path.GetFileName(dialog.FileName) + "...";
                     this.status.Refresh();
                     StfsReader opened = StfsReader.Open(dialog.FileName);
+                    this.SetGame(GameInfo.FromTitleId(opened.TitleId));
                     string work = Path.Combine(WorkRoot, Path.GetFileName(dialog.FileName));
                     if (Directory.Exists(work))
                     {
@@ -274,6 +304,7 @@ namespace ForzaStudio
                 }
                 this.package = null;
                 this.dlcBox.Text = dialog.SelectedPath;
+                this.SetGame(dialog.SelectedPath.IndexOf("4D53084D", StringComparison.OrdinalIgnoreCase) >= 0 ? ForzaGame.Motorsport3 : ForzaGame.Motorsport4);
                 try
                 {
                     Cursor.Current = Cursors.WaitCursor;
@@ -382,7 +413,7 @@ namespace ForzaStudio
         {
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
             {
-                dialog.Description = "The FM4 game folder (the one that contains Media), the test copy FM4_Extracted_DEV.";
+                dialog.Description = "The FM4 or FM3 game folder (the one that contains Media): the test copies FM4_Extracted_DEV, FM3_Extracted_DEV.";
                 if (dialog.ShowDialog(this) != DialogResult.OK)
                 {
                     return;
@@ -408,12 +439,14 @@ namespace ForzaStudio
             string db = Path.Combine(Path.Combine(Path.Combine(folder, "Media"), "db"), "gamedb.slt");
             if (!File.Exists(db))
             {
-                throw new FileNotFoundException("Media\\db\\gamedb.slt not found: choose the FM4 game folder (the one that contains Media).");
+                throw new FileNotFoundException("Media\\db\\gamedb.slt not found: choose the FM4 or FM3 game folder (the one that contains Media).");
             }
-            if (Path.GetFullPath(folder).TrimEnd('\\').EndsWith("\\FM4_Extracted", StringComparison.OrdinalIgnoreCase))
+            string clean = Path.GetFullPath(folder).TrimEnd('\\');
+            if (clean.EndsWith("\\FM4_Extracted", StringComparison.OrdinalIgnoreCase) || clean.EndsWith("\\FM3_Extracted", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException("FM4_Extracted is the clean game and is never written: use the test copy FM4_Extracted_DEV.");
+                throw new InvalidOperationException(Path.GetFileName(clean) + " is the clean game and is never written: use the test copy " + Path.GetFileName(clean) + "_DEV.");
             }
+            this.SetGame(GameInfo.Detect(folder));
             this.package = null;
             this.gameRoot = folder;
             this.root = folder;
@@ -583,7 +616,7 @@ namespace ForzaStudio
                 dialog.Description = "The ForzaProfile\\Thumbnails folder of the Xenia profile (it holds Thumbnail_N.xdc).";
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
-                    XeniaThumbnails.Remember(dialog.SelectedPath);
+                    XeniaThumbnails.Remember(dialog.SelectedPath, this.ThumbTitle);
                     this.LoadXenia(dialog.SelectedPath);
                 }
             }
@@ -603,7 +636,7 @@ namespace ForzaStudio
             Cursor.Current = Cursors.WaitCursor;
             try
             {
-                foreach (XeniaThumbnails.Item item in XeniaThumbnails.Load(folder, 768, 288, "A8R8G8B8"))
+                foreach (XeniaThumbnails.Item item in XeniaThumbnails.Load(folder, this.ThumbWidth, this.ThumbHeight, "A8R8G8B8"))
                 {
                     this.pickImages.Images.Add(XeniaThumbnails.Preview(item.Texture, PickWidth, PickHeight));
                     this.picks.Add(item);

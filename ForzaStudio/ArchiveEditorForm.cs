@@ -274,8 +274,31 @@
             };
 
             ToolStripMenuItem tools = new ToolStripMenuItem("&Tools");
-            tools.DropDownItems.Add(new ToolStripMenuItem("&Import Car From Another Forza...", null, delegate { this.ShowCarPort(PortMode.Import); }));
-            tools.DropDownItems.Add(new ToolStripMenuItem("Create &DLC Package...", null, delegate { this.ShowCarPort(PortMode.Dlc); }));
+            // Target game first, then the source (import only); routes without a conversion + window yet are greyed (PortPairs).
+            ToolStripMenuItem importCar = new ToolStripMenuItem("&Import Car From Another Forza");
+            ToolStripMenuItem createDlc = new ToolStripMenuItem("Create &DLC Package");
+            foreach (string target in PortPairs.Games)
+            {
+                string t = target;
+                ToolStripMenuItem into = new ToolStripMenuItem("Into " + t);
+                foreach (string source in PortPairs.Games)
+                {
+                    if (source == t)
+                    {
+                        continue;
+                    }
+                    string s = source;
+                    ToolStripMenuItem from = new ToolStripMenuItem("From " + s + "...", null, delegate { this.ShowCarPort(PortMode.Import, t, s); });
+                    from.Enabled = PortPairs.CanImport(t, s);
+                    into.DropDownItems.Add(from);
+                }
+                importCar.DropDownItems.Add(into);
+                ToolStripMenuItem pack = new ToolStripMenuItem("For " + t + "...", null, delegate { this.ShowCarPort(PortMode.Dlc, t, null); });
+                pack.Enabled = PortPairs.CanCreateDlc(t);
+                createDlc.DropDownItems.Add(pack);
+            }
+            tools.DropDownItems.Add(importCar);
+            tools.DropDownItems.Add(createDlc);
             tools.DropDownItems.Add(new ToolStripMenuItem("Duplicate &Car...", null, delegate { this.ShowDuplicateCar(); }));
             tools.DropDownItems.Add(new ToolStripMenuItem("Database &SQL...", null, delegate { this.ShowSqlConsole(); }));
             tools.DropDownItems.Add(new ToolStripMenuItem("Car &Performance From Game...", null, delegate { this.ShowPerformanceFromGame(); }));
@@ -358,11 +381,20 @@
 
         // The port window works on the FM4 folder open here, if any (its target box locked), and an
         // install or uninstall there reloads this window, so the change shows at once.
-        private void ShowCarPort(PortMode mode)
+        private void ShowCarPort(PortMode mode, string targetGame, string sourceGame)
         {
+            if (targetGame == "FM3")
+            {
+                new CarPortFm3Form(mode).Show(this);
+                return;
+            }
             string root = (this.zip == null) ? null : GamePaths.FindRoot(this.zip.FilePath);
             bool fm4 = root != null && GameInfo.Detect(root) == ForzaGame.Motorsport4;
             CarPortForm port = new CarPortForm(fm4 ? root : null, mode);
+            if (mode == PortMode.Import && sourceGame != null)
+            {
+                port.Text = "Import Car From Another Forza: " + sourceGame + " > " + targetGame;
+            }
             if (fm4)
             {
                 port.MainWindowUnsaved = delegate { return this.zip != null && this.zip.IsModified; };

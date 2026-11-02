@@ -24,7 +24,8 @@ namespace ForzaStudio
             {
                 throw new InvalidOperationException("The package has no merge database (Media\\db\\patch\\*_merge.slt).");
             }
-            DlcRelocate relocate = new DlcRelocate(this.merge, world.Others, ForzaGame.Motorsport4);
+            this.Game = world.Game;
+            DlcRelocate relocate = new DlcRelocate(this.merge, world.Others, this.Game);
             relocate.UsedMediaNames = world.MediaNames;
             relocate.UsedOffers = world.Offers;
             relocate.FileTaken = world.FileTaken;
@@ -42,13 +43,32 @@ namespace ForzaStudio
             this.RenameCars(relocate);
             this.CarSounds(relocate, world);
             this.RenameThumbnails(relocate);
-            this.RenameOffer(relocate);
+            if (this.Fm3)
+            {
+                this.RenameOfferFm3(relocate);
+                this.FixCarIdsFm3(relocate);
+            }
+            else
+            {
+                this.RenameOffer(relocate);
+            }
         }
 
         // Car and wheel folders and files under the new MediaName; the text files that name the car follow.
         private void RenameCars(DlcRelocate relocate)
         {
             Encoding latin = Encoding.GetEncoding(28591);
+            HashSet<string> engines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (this.merge != null && DbIds.HasTable(this.merge, "Data_Engine"))
+            {
+                foreach (object[] row in this.merge.Query("SELECT MediaName FROM Data_Engine").Rows)
+                {
+                    if (row[0] is string)
+                    {
+                        engines.Add((string) row[0]);
+                    }
+                }
+            }
             foreach (KeyValuePair<string, string> pair in relocate.MediaNames)
             {
                 string now = pair.Value;
@@ -66,6 +86,12 @@ namespace ForzaStudio
                     }
                     foreach (ForzaZip.Entry entry in new List<ForzaZip.Entry>(layer.Zip.Entries))
                     {
+                        // The engine's tuning is named after the ENGINE (Data_Engine.MediaName), which does not change with the car: a car sharing its name with its engine
+                        // (CIT_C1_11) keeps CIT_C1_11_ET.xml, else the engine goes silent.
+                        if (engines.Contains(pair.Key) && string.Equals(Path.GetFileName(entry.Name), pair.Key + "_ET.xml", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
                         string spelled = name.Replace(entry.Name, keep);
                         if (spelled == entry.Name)
                         {
@@ -248,6 +274,11 @@ namespace ForzaStudio
 
         public void MoveStrings(DlcWorld world)
         {
+            if (this.Fm3)
+            {
+                this.MoveStringsFm3(world);
+                return;
+            }
             if (this.merge == null)
             {
                 throw new InvalidOperationException("The package has no merge database.");
@@ -454,6 +485,10 @@ namespace ForzaStudio
         // The same with a world already loaded (the install wizard has one): the game and the other packs it holds count.
         public int RepairMakes(DlcWorld world)
         {
+            if (this.Fm3)
+            {
+                return 0;   // FM3: DlcRelocate moves a make that clashes; the title rules (BadgesAndTitles) are FM4's
+            }
             this.OpenMerge();
             if (this.merge == null)
             {
@@ -515,6 +550,10 @@ namespace ForzaStudio
 
         public int RekeyStrings(string content)
         {
+            if (this.Fm3)
+            {
+                return 0;   // FM3: MoveStringsFm3 moves the keys that clash
+            }
             string layerTemp = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "StringLayers_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
             try
             {
@@ -740,6 +779,10 @@ namespace ForzaStudio
         // Returns the number of tables dropped.
         public int DropRedundantTables(string content, string gameRoot)
         {
+            if (this.Fm3)
+            {
+                return 0;
+            }
             string layerTemp = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "StringLayers_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
             try
             {

@@ -744,6 +744,9 @@ namespace ForzaStudio
             this.Controls.Add(body);
             this.Controls.Add(folders);
             this.Controls.Add(status);
+            GameBanner banner = new GameBanner("FORZA MOTORSPORT 4", (mode == PortMode.Dlc) ? "DLC PACKAGE" : "FROM  ANOTHER FORZA", Color.FromArgb(60, 140, 230));
+            banner.Dock = DockStyle.Top;
+            this.Controls.Add(banner);
             this.Controls.Add(header);
             this.MainMenuStrip = header;
             this.BackColor = ForzaTheme.Background;
@@ -789,7 +792,7 @@ namespace ForzaStudio
         }
 
         // An upper-case section title over a thin red rule, like the game's menu headers.
-        private static Control SectionHeader(string text)
+        internal static Control SectionHeader(string text)
         {
             Label label = new Label();
             label.Text = text.ToUpperInvariant();
@@ -809,7 +812,7 @@ namespace ForzaStudio
 
         // The game-style tab strip over a TabControl whose own tabs and border are hidden (as the
         // main window's database view).
-        private static Control TabHost(TabControl tabs)
+        internal static Control TabHost(TabControl tabs)
         {
             Panel host = new Panel();
             host.Dock = DockStyle.Fill;

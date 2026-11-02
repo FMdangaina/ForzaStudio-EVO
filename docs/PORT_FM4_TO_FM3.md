@@ -173,9 +173,18 @@ so the game probably sorts by text at runtime, but that is a guess. Other tables
 To ask tomorrow: where does MG appear in the make list (first, last, elsewhere) and what exactly is wrong with the name (blank, other
 text, other language)? And what does "stringhe errate" refer to besides MG (car names? other makes?).
 
+### Checked in game 2026-11-02 (after the rebuild)
+- Six cars OK, wheels OK (lod0 rims), "as if made by T10". The MG make problem was NOT a port bug: the user had other DLC packs
+  installed in the test game; with them removed MG (name, order, logos) is fine. So id 98 / rank 107 need no change and the
+  Livery_DecalsSortOrder / Rewards_CarPartDiscounts rows are not needed. (Test the six cars WITHOUT other DLC installed.)
+
+### UI (2026-11-02, compiled, not yet seen)
+- Tools > Import Car From Another Forza > Into FM3 > From FM4 opens `CarPortFm3Form.cs` (own window, game banner "FORZA MOTORSPORT 3 / from
+  FORZA MOTORSPORT 4"): FM4 folder + optional FM4 DLC packages, FM3 folder, car list, FM3 donor (default TOY_SupraRZ_98), Trial Run
+  (temp folder + report) and Install in FM3 (refuses while Xenia runs, replaced files go to bak\). Menu routes live in `PortPairs.cs`.
+- Create DLC Package for FM3: NOT done (menu entry greyed). Needs the FM3 DLC package format studied first.
+
 ### To do
-- Check the six cars in game after the wheel fix (lod0 rims, MG make name/order, logos).
-- MG: after the observation, test an alphabetical id/rank, rows in Livery_DecalsSortOrder / Rewards_CarPartDiscounts.
 - UI entry for the FM4 -> FM3 port (waiting for the user), commit (user: later; my files: CarPortToFm3.cs, CarbinModelMotorsport3.cs,
   CarbinModelToMotorsport3.cs, CarPort.Database.cs, DlcSource.cs (MergeRows internal), Fm3Textures.cs, docs).
 - Not done: supercharger bank check (works in game), FM4 `HarmonicTunings` are dropped (FM3 has none), zero-throttle torque curve shape is

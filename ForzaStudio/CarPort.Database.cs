@@ -180,7 +180,7 @@ namespace ForzaStudio
                 this.CopyTorqueCurves(from, to, engines);
             }
             object wheel = this.source.Scalar("SELECT StockWheelID FROM Data_Car WHERE Id = ?", this.carId);
-            if (wheel != null && (this.motorsport3 || this.fm2Stage) && this.Motorsport3Wheel(from, to, Convert.ToInt64(wheel)))
+            if (wheel != null && this.Motorsport3Wheel(from, to, Convert.ToInt64(wheel)))
             {
                 wheel = null;   // mapped to another FM4 id (Motorsport3Wheel)
             }

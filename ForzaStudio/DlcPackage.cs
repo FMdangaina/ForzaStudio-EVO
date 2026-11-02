@@ -24,7 +24,7 @@ namespace ForzaStudio
     //                                          plus the new ones): it replaces the game's table
     //   Media\DLCZips\<offer>_pri_65\Media\... loose files laid out like the game's Media folder,
     //                                          among them db\patch\<offer>000_merge.slt
-    public static class DlcPackage
+    public static partial class DlcPackage
     {
         public const string TitleId = "4D530910";
 
@@ -166,15 +166,20 @@ namespace ForzaStudio
         // the game mounts it like the folder. The *_build_report.html files stay out.
         public static string BuildConsolePackage(string packageFolder, string output, string name, byte[] thumbnail, StringBuilder report)
         {
+            return BuildConsolePackage(packageFolder, output, name, thumbnail, report, TitleId, "Forza Motorsport 4");
+        }
+
+        public static string BuildConsolePackage(string packageFolder, string output, string name, byte[] thumbnail, StringBuilder report, string title, string game)
+        {
             string stage = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "Stfs_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
             string temp = stage + ".package";
             try
             {
                 System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
-                CopyForConsole(packageFolder, stage, report);
+                CopyForConsole(packageFolder, stage, report, title != TitleId);
                 Time(report, watch, "console folder (zips of the _pri folders)");
-                string id = StfsPackage.Write(stage, temp, uint.Parse(TitleId, NumberStyles.HexNumber, CultureInfo.InvariantCulture), 2, name,
-                    "ForzaStudio EVO DLC pack", "Forza Motorsport 4", thumbnail);
+                string id = StfsPackage.Write(stage, temp, uint.Parse(title, NumberStyles.HexNumber, CultureInfo.InvariantCulture), 2, name,
+                    "ForzaStudio EVO DLC pack", game, thumbnail);
                 Time(report, watch, "STFS package");
                 // Straight into the folder the user chose: no Content\0000000000000000\<title>\00000002
                 // tree (user 2026-10-20); the file name is the content id, as the console wants it.
@@ -202,7 +207,8 @@ namespace ForzaStudio
         }
 
         // The package folder copied for the console: every <x>_pri_<n> folder under DLCZips as a zip.
-        private static void CopyForConsole(string from, string to, StringBuilder report)
+        // keepBanksLoose (FM3): the .fsb sound banks stay loose beside the zip, as in the official FM3 packs: the game streams them from the file system, not from a compressed zip.
+        private static void CopyForConsole(string from, string to, StringBuilder report, bool keepBanksLoose)
         {
             Directory.CreateDirectory(to);
             foreach (string file in Directory.GetFiles(from))
@@ -214,11 +220,22 @@ namespace ForzaStudio
                 string name = Path.GetFileName(folder);
                 if (name.IndexOf("_pri_", StringComparison.OrdinalIgnoreCase) > 0 && string.Equals(Path.GetFileName(from), "DLCZips", StringComparison.OrdinalIgnoreCase))
                 {
-                    int count = WriteStoredZip(folder, Path.Combine(to, name + ".zip"));
+                    int count = WriteStoredZip(folder, Path.Combine(to, name + ".zip"), keepBanksLoose ? ".fsb" : null);
+                    if (keepBanksLoose)
+                    {
+                        foreach (string bank in Directory.GetFiles(folder, "*.fsb", SearchOption.AllDirectories))
+                        {
+                            string relative = bank.Substring(folder.Length).TrimStart('\\');
+                            string copy = Path.Combine(Path.Combine(to, name), relative);
+                            Directory.CreateDirectory(Path.GetDirectoryName(copy));
+                            File.Copy(bank, copy, true);
+                            report.AppendLine("  " + name + "\\" + relative + " (loose)");
+                        }
+                    }
                     report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}.zip: {1} files", name, count));
                     continue;
                 }
-                CopyForConsole(folder, Path.Combine(to, name), report);
+                CopyForConsole(folder, Path.Combine(to, name), report, keepBanksLoose);
             }
         }
 
@@ -228,10 +245,16 @@ namespace ForzaStudio
         // 0x1123 extra field of the central record holding the data offset the game reads.
         internal static int WriteStoredZip(string folder, string path)
         {
+            return WriteStoredZip(folder, path, null);
+        }
+
+        // leaveOut: an extension (".fsb") of files that stay out of the zip.
+        internal static int WriteStoredZip(string folder, string path, string leaveOut)
+        {
             List<string> files = new List<string>();
             foreach (string file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
             {
-                if (!file.EndsWith("_build_report.html", StringComparison.OrdinalIgnoreCase))
+                if (!file.EndsWith("_build_report.html", StringComparison.OrdinalIgnoreCase) && (leaveOut == null || !file.EndsWith(leaveOut, StringComparison.OrdinalIgnoreCase)))
                 {
                     files.Add(file);
                 }
@@ -509,14 +532,19 @@ namespace ForzaStudio
         // followed at 0x971A by the folder name.
         public static byte[] XeniaHeader(string folder, string displayName)
         {
+            return XeniaHeader(folder, displayName, TitleId, "Forza Motorsport 4");
+        }
+
+        public static byte[] XeniaHeader(string folder, string displayName, string title, string game)
+        {
             byte[] header = new byte[0xA000];
             Encoding.ASCII.GetBytes("CON ").CopyTo(header, 0);
             PutBig(header, 0x340, 0x971A);
             PutBig(header, 0x344, 2);                                       // content type: marketplace content
             PutBig(header, 0x348, 2);                                       // metadata version
-            PutBig(header, 0x360, uint.Parse(TitleId, NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+            PutBig(header, 0x360, uint.Parse(title, NumberStyles.HexNumber, CultureInfo.InvariantCulture));
             PutText(header, 0x411, 0x80, displayName);
-            PutText(header, 0x1691, 0x80, "Forza Motorsport 4");
+            PutText(header, 0x1691, 0x80, game);
             byte[] name = Encoding.ASCII.GetBytes(folder);
             Buffer.BlockCopy(name, 0, header, 0x971A, name.Length);
             return header;
@@ -716,6 +744,11 @@ namespace ForzaStudio
             // extracted folders. Unreadable ones are reported and skipped.
             public static List<StringLayer> Installed(string content, string temp, StringBuilder report)
             {
+                return Installed(content, temp, report, ForzaGame.Motorsport4);
+            }
+
+            public static List<StringLayer> Installed(string content, string temp, StringBuilder report, ForzaGame game)
+            {
                 List<StringLayer> layers = new List<StringLayer>();
                 if (string.IsNullOrEmpty(content) || !Directory.Exists(content))
                 {
@@ -745,7 +778,7 @@ namespace ForzaStudio
                         else if (StfsReader.IsPackage(item))
                         {
                             StfsReader package = StfsReader.Open(item);
-                            if (GameInfo.FromTitleId(package.TitleId) != ForzaGame.Motorsport4)
+                            if (GameInfo.FromTitleId(package.TitleId) != game)
                             {
                                 continue;
                             }
@@ -1236,6 +1269,12 @@ namespace ForzaStudio
         // clean database are reported.
         public static byte[] BuildMerge(byte[] clean, byte[] ported, int offer, StringBuilder report)
         {
+            return BuildMerge(clean, ported, offer, report, false);
+        }
+
+        // fm3: the pack row is a MultiDiscContentPacks one (AddFm3Offer) instead of ContentOffers + ContentOffersMapping.
+        internal static byte[] BuildMerge(byte[] clean, byte[] ported, int offer, StringBuilder report, bool fm3)
+        {
             using (SqliteDatabase before = SqliteDatabase.FromBytes(clean))
             using (SqliteDatabase after = SqliteDatabase.FromBytes(ported))
             using (SqliteDatabase merge = SqliteDatabase.FromBytes(new byte[0]))
@@ -1307,7 +1346,14 @@ namespace ForzaStudio
                 {
                     throw new InvalidOperationException("The ported database has no new car.");
                 }
-                AddOffer(before, merge, offer, cars, report);
+                if (fm3)
+                {
+                    AddFm3Offer(before, merge, offer, report);
+                }
+                else
+                {
+                    AddOffer(before, merge, offer, cars, report);
+                }
                 report.AppendLine(string.Format(CultureInfo.InvariantCulture, "merge: {0} rows in {1} tables, {2} cars, offer {3}; {4} rows already in the game, {5} removed", rows, tables, cars.Count, offer, replaced, removed));
                 return merge.ToBytes();
             }

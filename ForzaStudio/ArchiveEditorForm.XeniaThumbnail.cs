@@ -116,7 +116,7 @@ namespace ForzaStudio
                 this.BackColor = ForzaTheme.Background;
                 this.ForeColor = ForzaTheme.Text;
                 ForzaTheme.Apply(this);
-                this.Shown += delegate { this.LoadFolder(XeniaThumbnails.FindFolder()); };
+                this.Shown += delegate { this.LoadFolder(XeniaThumbnails.FindFolder(this.width == 512 ? "4D53084D" : "4D530910")); };
             }
 
             private void BrowseFolder()
@@ -126,7 +126,7 @@ namespace ForzaStudio
                     dialog.Description = "The ForzaProfile\\Thumbnails folder of the Xenia profile (it holds Thumbnail_N.xdc).";
                     if (dialog.ShowDialog(this) == DialogResult.OK)
                     {
-                        XeniaThumbnails.Remember(dialog.SelectedPath);
+                        XeniaThumbnails.Remember(dialog.SelectedPath, this.width == 512 ? "4D53084D" : "4D530910");
                         this.LoadFolder(dialog.SelectedPath);
                     }
                 }

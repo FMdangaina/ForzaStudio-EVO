@@ -958,6 +958,23 @@ namespace ForzaStudio
                 {
                     cx.Add(cx.BaseRoot == null ? Warning : Error, car, "wheel model " + media + " is in neither the package nor the game (the car has no wheels).");
                 }
+                else if (cx.Base != null && !HasPrefix(cx, "Media/wheels/" + media + "/") && cx.Source.MountedSize("Media/wheels/" + media + ".zip") < 0)
+                {
+                    // The package brings no wheel of its own: the id resolves to a wheel the game gives another car
+                    // (a source-game wheel id that means a different wheel in the game: 599XX got Sauber's).
+                    object other = null;
+                    try
+                    {
+                        other = cx.Base.Scalar("SELECT MediaName FROM Data_Car WHERE StockWheelID = ? AND Id <> ? LIMIT 1", wheelId, id);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    if (other != null)
+                    {
+                        cx.Add(Warning, car, "StockWheelID " + wheelId.ToString(CultureInfo.InvariantCulture) + " is wheel " + media + ", the stock wheel of the game's " + Convert.ToString(other, CultureInfo.InvariantCulture) + ": check it is the car's own wheel.");
+                    }
+                }
             }
         }
 

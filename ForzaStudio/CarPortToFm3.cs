@@ -1160,7 +1160,12 @@ namespace ForzaStudio
                     continue;
                 }
                 ForzaZip zip = new ForzaZip(this.Read(path));
-                byte[] data = convert ? this.ConvertedTuning(zip, kind) : null;
+                if (convert && kind[2] == "_ET.xml")
+                {
+                    this.PortEngineTunings(zip, kind, path);
+                    continue;
+                }
+                byte[] data = convert ? this.ConvertedTuning(zip, kind, this.MediaName, this.carName) : null;
                 if (data == null)
                 {
                     ForzaZip.Entry file = zip.Find(sound + kind[2]);
@@ -1187,23 +1192,67 @@ namespace ForzaStudio
             }
         }
 
+        // The game looks the engine tuning up by the ENGINE's MediaName (Data_Engine), not the car's: the C1 uses CIT_DS3_11_ET.xml, the DS3's. Every engine of the
+        // car that FM3 has no tuning for gets FM4's file of that engine name, converted (found by the DLC validator on the first FM3 pack, 2026-11-02).
+        private void PortEngineTunings(ForzaZip zip, string[] kind, string path)
+        {
+            bool changed = false;
+            foreach (object[] row in this.target.Query("SELECT DISTINCT e.MediaName FROM List_UpgradeEngine u JOIN Data_Engine e ON e.EngineID = u.EngineID WHERE u.Ordinal = ?", this.carId).Rows)
+            {
+                string media = row[0] as string;
+                if (media == null)
+                {
+                    continue;
+                }
+                if (zip.Find(media + kind[2]) != null)
+                {
+                    this.Line("sound: {0}{1} is FM3's own", media, kind[2]);
+                    continue;
+                }
+                byte[] data = this.ConvertedTuning(zip, kind, media, media);
+                if (data == null)
+                {
+                    this.Line("sound: WARNING no engine tuning for {0}: the engine stays silent", media);
+                    continue;
+                }
+                zip.Add(media + kind[2], data);
+                changed = true;
+            }
+            // Also under the car's own name (what this port wrote before): harmless, and right if some path looks it up by car.
+            if (zip.Find(this.carName + kind[2]) == null)
+            {
+                byte[] own = this.ConvertedTuning(zip, kind, this.MediaName, this.carName);
+                if (own != null)
+                {
+                    zip.Add(this.carName + kind[2], own);
+                    changed = true;
+                }
+            }
+            if (changed)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(this.Out(path)));
+                zip.Save(this.Out(path));
+                this.changedZips.Add(path);
+            }
+        }
+
         // FM4's <car>_ET.xml / <car>_CMT.xml cut to the elements and attributes FM3's own files have (FM4 added HarmonicTunings, cylinder and
         // blow-off settings, the electric motor volume), or null when FM4 has none. For the engine tuning the harmonic tuning files and sound
         // banks it points at are made sure to exist in FM3.
-        private byte[] ConvertedTuning(ForzaZip fm3Zip, string[] kind)
+        private byte[] ConvertedTuning(ForzaZip fm3Zip, string[] kind, string fm4Name, string fm3Name)
         {
             ForzaZip fm4;
-            ForzaZip.Entry entry = FindEntry(this.SourceAudioZips(kind[0] ?? string.Empty, kind[1]), this.MediaName + kind[2], out fm4);
+            ForzaZip.Entry entry = FindEntry(this.SourceAudioZips(kind[0] ?? string.Empty, kind[1]), fm4Name + kind[2], out fm4);
             if (entry == null)
             {
-                this.Line("sound: FM4 has no {0}{1}", this.MediaName, kind[2]);
+                this.Line("sound: FM4 has no {0}{1}", fm4Name, kind[2]);
                 return null;
             }
             System.Xml.XmlDocument doc = new System.Xml.XmlDocument();
             doc.LoadXml(Encoding.UTF8.GetString(fm4.Read(entry)).TrimStart('﻿'));
             HashSet<string> shape = XmlShape(fm3Zip, kind[2]);
             int cut = Prune(doc.DocumentElement, string.Empty, shape);
-            this.Line("sound: {0}{1} converted from FM4's {2}{1} ({3} elements/attributes FM3 does not have left out)", this.carName, kind[2], this.MediaName, cut);
+            this.Line("sound: {0}{1} converted from FM4's {2}{1} ({3} elements/attributes FM3 does not have left out)", fm3Name, kind[2], fm4Name, cut);
             if (kind[2] == "_ET.xml")
             {
                 this.HarmonicTunings(doc);

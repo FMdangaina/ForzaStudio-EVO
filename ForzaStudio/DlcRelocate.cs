@@ -380,8 +380,60 @@ namespace ForzaStudio
 
         // ----- 2. offer -----
 
+        // FM3: the pack is a MultiDiscContentPacks row (ID = 4D53084D0CCF + the offer as 4 hex digits, intID = PubOfferingID = the offer).
+        // The offer is free when no other package or the game has the number or the ID.
+        private void MoveOfferFm3()
+        {
+            if (Convert.ToInt64(this.db.Scalar("SELECT count(*) FROM MultiDiscContentPacks")) == 0)
+            {
+                return;
+            }
+            object[] own = this.db.Query("SELECT ID, intID FROM MultiDiscContentPacks ORDER BY intID LIMIT 1").Rows[0];
+            string ownId = Text(own[0]);
+            this.OldOffer = Convert.ToInt32(own[1], CultureInfo.InvariantCulture);
+            this.Offer = this.OldOffer;
+            long top = Math.Max(99, GameIdLimits.Max(this.game, "MultiDiscContentPacks", "intID"));
+            bool clash = false;
+            foreach (int used in this.UsedOffers)
+            {
+                top = Math.Max(top, used);
+                clash = clash || used == this.OldOffer;
+            }
+            foreach (Other other in this.others)
+            {
+                if (!DbIds.HasTable(other.Db, "MultiDiscContentPacks"))
+                {
+                    continue;
+                }
+                foreach (object[] row in other.Db.Query("SELECT ID, intID FROM MultiDiscContentPacks").Rows)
+                {
+                    if (row[1] is long)
+                    {
+                        top = Math.Max(top, (long) row[1]);
+                        clash = clash || (long) row[1] == this.OldOffer;
+                    }
+                    clash = clash || string.Equals(Text(row[0]), ownId, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            if (!clash)
+            {
+                this.Log.Add("offer " + this.OldOffer + ": free, kept");
+                return;
+            }
+            this.Offer = (int) top + 1;
+            string id = DlcPackage.OfferIdFm3(this.Offer);
+            this.db.Execute("UPDATE MultiDiscContentPacks SET ID = ?, intID = ?, PubOfferingID = ? WHERE ID = ?", id, (long) this.Offer, (long) this.Offer, ownId);
+            this.Log.Add("offer " + this.OldOffer + " is used by another package or the game: now " + this.Offer + " (ID " + id + ")");
+            this.Forget();
+        }
+
         public void MoveOffer()
         {
+            if (!DbIds.HasTable(this.db, "ContentOffers") && DbIds.HasTable(this.db, "MultiDiscContentPacks"))
+            {
+                this.MoveOfferFm3();
+                return;
+            }
             if (!DbIds.HasTable(this.db, "ContentOffers") || Convert.ToInt64(this.db.Scalar("SELECT count(*) FROM ContentOffers")) == 0)
             {
                 return;

@@ -24,7 +24,13 @@ namespace ForzaStudio
 
         public static string FindFolder()
         {
-            string remembered = AppSettings.Get(FolderKey, "");
+            return FindFolder("4D530910");
+        }
+
+        // title: the game's title id (FM4 4D530910, FM3 4D53084D: its thumbnails are 512 x 256, the same .xdc container); each game remembers its own folder.
+        public static string FindFolder(string title)
+        {
+            string remembered = AppSettings.Get(KeyOf(title), "");
             if (Directory.Exists(remembered))
             {
                 return remembered;
@@ -39,7 +45,7 @@ namespace ForzaStudio
                 {
                     foreach (string folder in Directory.GetDirectories(content, "Thumbnails", SearchOption.AllDirectories))
                     {
-                        if (folder.IndexOf("4D530910", StringComparison.OrdinalIgnoreCase) >= 0 && Directory.GetFiles(folder, "*.xdc").Length > 0)
+                        if (folder.IndexOf(title, StringComparison.OrdinalIgnoreCase) >= 0 && Directory.GetFiles(folder, "*.xdc").Length > 0)
                         {
                             DateTime time = Directory.GetLastWriteTime(folder);
                             if (best == null || time > bestTime)
@@ -62,7 +68,17 @@ namespace ForzaStudio
 
         public static void Remember(string folder)
         {
-            AppSettings.Set(FolderKey, folder);
+            Remember(folder, "4D530910");
+        }
+
+        public static void Remember(string folder, string title)
+        {
+            AppSettings.Set(KeyOf(title), folder);
+        }
+
+        private static string KeyOf(string title)
+        {
+            return string.Equals(title, "4D530910", StringComparison.OrdinalIgnoreCase) ? FolderKey : FolderKey + "." + title;
         }
 
         // Every thumbnail of the folder with the given size and format, newest first.

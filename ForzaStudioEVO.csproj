@@ -288,6 +288,8 @@
     <Compile Include="ForzaStudio\NewMakeForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="ForzaStudio\PortPairs.cs" />
+    <Compile Include="ForzaStudio\CarPortFm3Form.cs" />
     <Compile Include="ForzaStudio\CarPortForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -350,6 +352,9 @@
     </Compile>
     <Compile Include="ForzaStudio\SqliteDatabase.cs" />
     <Compile Include="ForzaStudio\DlcPackage.cs" />
+    <Compile Include="ForzaStudio\DlcPackage.Fm3.cs" />
+    <Compile Include="ForzaStudio\GameBanner.cs" />
+    <Compile Include="ForzaStudio\DlcFixer.Fm3.cs" />
     <Compile Include="ForzaStudio\DlcSource.cs" />
     <Compile Include="ForzaStudio\InstalledDlc.cs" />
     <Compile Include="ForzaStudio\SoundBankIndex.cs" />

@@ -324,8 +324,8 @@ namespace ForzaStudio
                 {
                     string name = layer;
                     string number = name.Substring(0, name.IndexOf("_pri_", StringComparison.OrdinalIgnoreCase));
-                    // Decimal digits (0016), or hex when a letter is in it (001B, 000A: the FM3 packs Jalopnik, Pre-Order, April, March).
-                    if (int.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out offer) || int.TryParse(number, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out offer))
+                    // Hex always (0016 = offer 22: the Hyundai pack's merge is 22005_merge.slt and its MultiDiscContentPacks.intID 22; 0010 = 16, VIP; 001B, 000A).
+                    if (int.TryParse(number, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out offer))
                     {
                         return offer;
                     }

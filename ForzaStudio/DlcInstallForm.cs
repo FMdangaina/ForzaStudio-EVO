@@ -63,8 +63,7 @@ namespace ForzaStudio
             contentBrowse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             contentBrowse.Click += delegate { this.BrowseContent(); };
 
-            string baseFolder = GameInfo.ConfiguredFolder(ForzaGame.Motorsport4);
-            this.game.Text = "FM4 folder (Tools > Settings): " + (baseFolder ?? "not set");
+            this.game.Text = "The game folder is the package's own game (FM4: the port target, FM3: Tools > Settings > Folders).";
             this.game.SetBounds(128, 116, 820, 20);
 
             this.check.Text = "Check";
@@ -145,16 +144,35 @@ namespace ForzaStudio
             this.Release();
             string path = this.package.Text.Trim();
             string folder = this.content.Text.Trim();
-            string baseFolder = GameInfo.ConfiguredFolder(ForzaGame.Motorsport4);
             if (!File.Exists(path) || !StfsReader.IsPackage(path))
             {
                 MessageBox.Show(this, "Choose a DLC package file (an Xbox 360 STFS package).", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+            ForzaGame packageGame = GameInfo.FromTitleId(StfsReader.Open(path).TitleId);
+            if (packageGame != ForzaGame.Motorsport4 && packageGame != ForzaGame.Motorsport3)
+            {
+                MessageBox.Show(this, "This package is not for Forza Motorsport 4 or 3.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            string baseFolder = GameInfo.ConfiguredFolder(packageGame);
             if (baseFolder == null)
             {
-                MessageBox.Show(this, "Set the FM4 folder in Tools > Settings > Folders first: the game's database is what the package is checked against.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "Set the " + GameInfo.Name(packageGame) + " folder in Tools > Settings > Folders first: the game's database is what the package is checked against.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
+            }
+            this.game.Text = GameInfo.Name(packageGame) + " folder: " + baseFolder;
+            // The folder of the packages already installed is the package's own game's: FM4's content folder would be the wrong "world" for an FM3 pack.
+            string title = (packageGame == ForzaGame.Motorsport3) ? "4D53084D" : "4D530910";
+            if (folder.Length == 0 || folder.IndexOf(title, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                string xenia = AppSettings.Get(SettingsForm.XeniaKey, "");
+                string own = (xenia.Length > 0 && Directory.Exists(xenia)) ? DlcPackage.XeniaContent(xenia, title) : null;
+                if (own != null)
+                {
+                    folder = own;
+                    this.content.Text = own;
+                }
             }
             Cursor previous = this.Cursor;
             this.Cursor = Cursors.WaitCursor;
@@ -183,7 +201,7 @@ namespace ForzaStudio
                 this.fixer.MoveStrings(this.world);
                 this.fixer.DropRedundantTables(folder, baseFolder);
                 text.Append(this.fixer.Log.ToString().Replace("\r\n", "\n").Replace("\n", "\r\n"));
-                DbIntegrity.Result merged = DbIntegrity.CheckMerge(this.world.GameDb, this.world.MergeFiles, this.fixer.MergeBytes(), ForzaGame.Motorsport4);
+                DbIntegrity.Result merged = DbIntegrity.CheckMerge(this.world.GameDb, this.world.MergeFiles, this.fixer.MergeBytes(), packageGame);
                 text.AppendLine();
                 text.AppendLine(merged.Ok ? "The database of the changed package merges into the game and the installed packages: references and rules OK." : "THE DATABASE STILL HAS PROBLEMS:");
                 foreach (string error in merged.Errors)
