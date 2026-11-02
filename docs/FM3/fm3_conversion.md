@@ -97,3 +97,13 @@ All in `E:\DEV\fm4dev` (not in the repository). `Fm3Dlc\mk.cs` (port a car again
 `val.cs` (validator), `inst.cs` (install wizard on a package and a content folder), `shot3.cs` (renders the FM3 window to a PNG without showing it);
 `PortRefactor\fm4fm3\six.cs` and `reset_dev.sh` (the six test cars and the reset of `FM3_Extracted_DEV`). Build them against `bin\Debug\ForzaStudioEVO.exe`
 (x86, with a `.exe.config` next to them).
+
+## 9. Resume here (2026-11-03)
+
+State: all committed (`81187e8`), release 0.0.0.1 built in `bin\ForzaStudioEVO_0.0.0.1.zip`. Next, in this order:
+
+1. Click through the new FM3 windows: Create DLC Package > For FM3 (several cars, Trial Pack, Build DLC Package, Xbox 360 package, Remove Pack) and Import Car > Into FM3 (Trial Run, Install into `FM3_Extracted_DEV`); check Review and Upgrades with a trial run.
+2. Click through Validate DLC for Installation with an FM3 package, then Set Generated Thumbnail on an FM3 package and on `FM3_Extracted_DEV` (save one thumbnail, look at it in game).
+3. Try the STFS package of the test pack on a console (the `.fsb` banks are loose beside the zip); the Xenia copy to compare is `content\...\4D53084D\00000002\D3470C99...` / the newest `*4D` file there.
+4. Review fixes for FM3 ports (the Review tab only lists), then the greyed routes in `PortPairs.cs`.
+The old "Resume here" in PORT_FM4_TO_FM3.md (MG make) is closed: it was other DLC installed in the test game.
