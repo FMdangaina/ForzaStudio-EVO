@@ -47,6 +47,24 @@ Gauges with a bar (oil / water temp, fuel) also have their own behaviour (contra
 
 ## .bgf tail (after the graph), five blocks of `u32 size + bytes`
 
+### Names are hashes (2026-11-03)
+
+The **element hash** is the full 32-bit `h = (h + c) * 65599` of the element's name in the .fbf (`Scene` = 068C6274, `Layer` = 81A3C24F,
+`TEXT_TACH_DATA` = FF6889DB...); a **behaviour's** hash is its contract's name (`UIContract` = BAFC7A1A; others in the corpus: 20B25330 x549,
+00CE884D x324, AE4BB809 x147, 1D469C91 x3 unnamed, `CAR_PRES_GAUGE_ANIM` = 8BC40DE5 x11). Property hashes are the same hash masked to 27
+bits (+ kind bits): the FM3 "unnamed" parameters of a behaviour are named after the elements it drives (`A896D74C` = string kind + 16 +
+`TEXT_SPEED_DATA`). A **slide's** name hashes to the words of the event table.
+
+### Event table (block 3)
+
+Words: element indexes and name hashes. The hash of a slide label ("START UP" = B2D91FA7, "IDLE", "DOOR OPEN" = 941A7024, "ON" = 2734DC01,
+"OFF" = 7E58B971...) appears with bit 31 set or cleared (same name). In the car-presentation dashes (`CAR_PRES_GAUGE_ANIM`, Autovista) it reads
+as 2 header words (behaviour element, node) and then 7-word records: **event name hash**, behaviour, component, 0 (scene), `1195C23B`
+(in every record, an unnamed action, probably "play slide"), **slide hash**, 0. Example: event "DOOR CLOSE" (1CDF13DA, a name the game's code
+sends, with a space) plays slide "DOOR_CLOSE" (516FC599) of component START_UP. The gauge dashes (ON/OFF per light, 60 of the 154 FM3 dashes)
+use shorter records with the same words (event ON/OFF, two component indexes, `1195C23B`, slide ON/OFF, 0). The record grammar for the gauges is
+not settled. The Dash view's structure report (`DashReport`) now prints every word with its name.
+
 1. behaviour table: per behaviour `u32 element index, u32 n, n slot numbers`
 2. animation tracks: `u32 element, u32 property hash, u32 type|key count, 6 words per key` (time ms, value, ...)
 3. events (not decoded; element indexes and hashes)

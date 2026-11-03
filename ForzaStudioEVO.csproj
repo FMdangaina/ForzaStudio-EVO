@@ -296,6 +296,7 @@
     <Compile Include="ForzaStudio\AnarkFbf.cs" />
     <Compile Include="ForzaStudio\AnarkBgf.cs" />
     <Compile Include="ForzaStudio\DashFonts.cs" />
+    <Compile Include="ForzaStudio\Fm3Dash.cs" />
     <Compile Include="ForzaStudio\AnarkBsg.cs" />
     <Compile Include="ForzaStudio\AnarkDash.cs" />
     <Compile Include="ForzaStudio\DashInspector.cs" />

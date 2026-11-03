@@ -25,6 +25,7 @@ namespace ForzaStudio
         public string DonorMediaName;   // a FM3 car whose rows and zip headers are the templates (default: the same car in FM3, else the first FM3 car with a zip)
         public string SoundDonorMediaName;   // an FM3 car whose engine and model tuning files the car takes (default: the same car in FM3, else the donor)
         public string RenameTo;         // the car's name in FM3 (default: MediaName, with _FM4 added when FM3 has a car of that name)
+        public bool AllowFm4OnlyDash;   // port a dash that uses properties no FM3 dash has (default: such a dash is left out, GaugeID -1)
         public readonly StringBuilder Report = new StringBuilder();
 
         private SqliteDatabase source;
@@ -509,7 +510,7 @@ namespace ForzaStudio
             }
             this.target.Execute("DELETE FROM Data_Car WHERE Id = ?", this.carId);
             this.Insert("Data_Car", toColumns, values);
-            this.Line("  Data_Car: FM4 row on the FM3 row of {0} (GaugeID {1} kept)", this.DonorMediaName, this.target.Scalar("SELECT GaugeID FROM Data_Car WHERE Id = ?", this.carId));
+            this.Line("  Data_Car: FM4 row on the FM3 row of {0} (GaugeID: the dash step sets it)", this.DonorMediaName);
         }
 
         private int CopyRows(string table, List<string> sourceColumns, List<string> targetColumns, string where, string donorWhere, bool deleteFirst)
@@ -721,6 +722,10 @@ namespace ForzaStudio
                 {
                     continue;
                 }
+                if (name.StartsWith("digitalgauge/") || name.StartsWith("digitalgauge\\"))
+                {
+                    continue;   // FM3 keeps the dash outside the car zip (PortDash)
+                }
                 byte[] data = from.Read(entry);
                 if (name == "shadersettings.xml" && donor.Find("shadersettings.xml") != null)
                 {
@@ -753,7 +758,145 @@ namespace ForzaStudio
             }
             string target = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "Cars"), this.carName + ".zip");
             this.Line("car zip: {0} models, {1} textures converted, {2} entries (headers of {3})", models, textures, car.Entries.Count, this.DonorMediaName);
-            this.SaveNew(car, target);
+            this.SaveNew(car, target, null);
+            this.PortDash(from);
+        }
+
+        // The FM4 car's digital dash as FM3 keeps it: Data_Car.GaugeID -> List_DigitalGauges.MediaName "Dash_<car>" -> Media\DigitalGauges\Dash_<car>.zip
+        // (dash_<car>.fbf/.bgf/.bsg, Fm3Dash) and the images in Media\UI\Textures.zip under UI4\Dashboards\<car>\ (converted by Fm3Textures; an image
+        // whose file FM3's shared MFD_* folders already hold keeps FM3's). A car without a dash gets GaugeID -1, not the donor's dash. A dash that
+        // uses properties no FM3 dash has is left out unless AllowFm4OnlyDash.
+        private void PortDash(ForzaZip from)
+        {
+            string stem = "digitalgauge/dash_" + this.MediaName.ToLowerInvariant();
+            ForzaZip.Entry fbfEntry = from.Find(stem + ".fbf") ?? from.Find(stem.Replace('/', (char) 92) + ".fbf");
+            ForzaZip.Entry bgfEntry = from.Find(stem + ".bgf") ?? from.Find(stem.Replace('/', (char) 92) + ".bgf");
+            ForzaZip.Entry bsgEntry = from.Find(stem + ".bsg") ?? from.Find(stem.Replace('/', (char) 92) + ".bsg");
+            if (fbfEntry == null || bgfEntry == null || bsgEntry == null)
+            {
+                this.target.Execute("UPDATE Data_Car SET GaugeID = -1 WHERE Id = ?", this.carId);
+                this.Line("dash: the FM4 car has none, GaugeID -1 (not the donor's)");
+                return;
+            }
+            byte[] bgfData = from.Read(bgfEntry);
+            AnarkBgf bgf = AnarkBgf.Read(bgfData);
+            List<string> fm4Only = Fm3Dash.Fm4OnlyProperties(bgf);
+            if (fm4Only.Count > 0)
+            {
+                this.Line("dash: uses properties no FM3 dash has ({0}){1}", string.Join(", ", fm4Only.ToArray()), this.AllowFm4OnlyDash ? ", ported anyway" : ", left out (GaugeID -1)");
+                if (!this.AllowFm4OnlyDash)
+                {
+                    this.target.Execute("UPDATE Data_Car SET GaugeID = -1 WHERE Id = ?", this.carId);
+                    return;
+                }
+            }
+            string texturesPath = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "UI"), "Textures.zip");
+            ForzaZip textures = new ForzaZip(this.Read(texturesPath));
+            Dictionary<string, string> shared = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ForzaZip.Entry entry in textures.Entries)
+            {
+                string entryName = entry.Name.Replace((char) 92, '/');
+                if (entryName.StartsWith("UI4/Dashboards/MFD_", StringComparison.OrdinalIgnoreCase) && !shared.ContainsKey(Path.GetFileNameWithoutExtension(entryName)))
+                {
+                    shared[Path.GetFileNameWithoutExtension(entryName)] = entryName;
+                }
+            }
+            Dictionary<string, byte[]> images = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            List<string> sharedUsed = new List<string>();
+            List<string> missing = new List<string>();
+            const string ui = @"GAME:\MEDIA\UI\TEXTURES\";
+            string folder = this.carName.ToUpperInvariant();
+            List<string> unknownFonts = new List<string>();
+            byte[] fbf = Fm3Dash.ToMotorsport3(from.Read(fbfEntry), bgf, delegate(string path)
+            {
+                string name = Path.GetFileNameWithoutExtension(path.Replace((char) 92, '/'));
+                string sharedEntry;
+                if (shared.TryGetValue(name, out sharedEntry))
+                {
+                    if (!sharedUsed.Contains(name))
+                    {
+                        sharedUsed.Add(name);
+                    }
+                    return ui + sharedEntry.Substring(0, sharedEntry.Length - 4).Replace('/', (char) 92).ToUpperInvariant() + ".TGA";
+                }
+                if (!images.ContainsKey(name))
+                {
+                    ForzaZip.Entry image = from.Find("digitalgauge/" + name + ".xds") ?? from.Find("digitalgauge\\" + name + ".xds");
+                    if (image == null)
+                    {
+                        if (!missing.Contains(name))
+                        {
+                            missing.Add(name);
+                        }
+                        return null;
+                    }
+                    images[name] = Fm3Textures.FromMotorsport4(from.Read(image), image.Name);
+                }
+                return ui + @"UI4\DASHBOARDS\" + folder + (char) 92 + name.ToUpperInvariant() + ".TGA";
+            }, unknownFonts);
+            int fontsChanged;
+            List<string> unknownBgf = new List<string>();
+            bgfData = DashFonts.Fix(bgfData, out fontsChanged, unknownBgf, true);
+            foreach (string font in unknownBgf)
+            {
+                if (!unknownFonts.Contains(font))
+                {
+                    unknownFonts.Add(font);
+                }
+            }
+            string mediaName = "Dash_" + this.carName;
+            object existing = this.target.Scalar("SELECT GaugeID FROM List_DigitalGauges WHERE MediaName = ? COLLATE NOCASE", mediaName);
+            long gauge = (existing == null) ? DbIds.Next(this.target, "List_DigitalGauges", "GaugeID", ForzaGame.Motorsport3) : Convert.ToInt64(existing, CultureInfo.InvariantCulture);
+            if (existing == null)
+            {
+                this.target.Execute("INSERT INTO List_DigitalGauges (GaugeID, MediaName) VALUES (?, ?)", gauge, mediaName);
+            }
+            this.target.Execute("UPDATE Data_Car SET GaugeID = ? WHERE Id = ?", gauge, this.carId);
+            // The new gauge zip takes its headers from an FM3 dash zip.
+            string likeName = this.target.Scalar("SELECT g.MediaName FROM List_DigitalGauges g WHERE g.GaugeID <> ? ORDER BY g.GaugeID LIMIT 1", gauge) as string;
+            string like = (likeName == null) ? null : Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "DigitalGauges"), likeName + ".zip");
+            if (like == null || !File.Exists(like))
+            {
+                this.Line("dash: WARNING no FM3 dash zip to copy headers from, the car goes without a dash");
+                this.target.Execute("UPDATE Data_Car SET GaugeID = -1 WHERE Id = ?", this.carId);
+                return;
+            }
+            ForzaZip gauges = ForzaZip.CreateLike(new ForzaZip(like));
+            string entryStem = "dash_" + this.carName.ToLowerInvariant();
+            gauges.Add(entryStem + ".fbf", fbf);
+            gauges.Add(entryStem + ".bgf", bgfData);
+            gauges.Add(entryStem + ".bsg", from.Read(bsgEntry));
+            this.SaveNew(gauges, Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "DigitalGauges"), mediaName + ".zip"), like);
+            if (images.Count > 0)
+            {
+                foreach (KeyValuePair<string, byte[]> image in images)
+                {
+                    string entryName = "UI4/Dashboards/" + this.carName + "/" + image.Key;
+                    if (textures.Find(entryName + ".xds") != null)
+                    {
+                        textures.Replace(textures.Find(entryName + ".xds"), image.Value);
+                    }
+                    else
+                    {
+                        textures.Add(entryName + ".xds", image.Value);
+                    }
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(this.Out(texturesPath)));
+                textures.Save(this.Out(texturesPath));
+                if (!this.changedZips.Contains(texturesPath))
+                {
+                    this.changedZips.Add(texturesPath);
+                }
+            }
+            this.Line("dash: gauge {0} {1}: {2} images added to UI\\Textures.zip, {3} shared MFD images of FM3 used, {4} font names changed", gauge, mediaName, images.Count, sharedUsed.Count, fontsChanged);
+            if (missing.Count > 0)
+            {
+                this.Line("dash: WARNING images not in the FM4 zip, left as they were: {0}", string.Join(", ", missing.ToArray()));
+            }
+            if (unknownFonts.Count > 0)
+            {
+                this.Line("dash: WARNING font {0} has no FM3 equivalent rule", string.Join(", ", unknownFonts.ToArray()));
+            }
         }
 
         // Materials FM4 added that FM3 draws with another name (lights_glass is FM3's detail_glass_clear on the Supra's headlights).
@@ -824,17 +967,24 @@ namespace ForzaStudio
                 }
                 string target = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "Wheels"), media + ".zip");
                 this.Line("wheel zip {0}: {1} entries (headers of {2})", media, wheel.Entries.Count, donorWheel);
-                this.SaveNew(wheel, target);
+                this.SaveNew(wheel, target, null);
             }
         }
 
-        private void SaveNew(ForzaZip archive, string targetPath)
+        // likePath: the existing FM3 zip whose zipmanifest.xml line the new zip's line copies (null: the donor car's zip, or a wheel's).
+        private void SaveNew(ForzaZip archive, string targetPath, string likePath)
         {
             string output = this.Out(targetPath);
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             archive.Save(output);
             this.newZips.Add(targetPath);
+            if (likePath != null)
+            {
+                this.newZipLike[targetPath] = likePath;
+            }
         }
+
+        private readonly Dictionary<string, string> newZipLike = new Dictionary<string, string>();
 
         private void UpdateManifest()
         {
@@ -854,7 +1004,8 @@ namespace ForzaStudio
             foreach (string path in this.newZips)
             {
                 bool wheel = path.IndexOf(Path.DirectorySeparatorChar + "Wheels" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) >= 0;
-                string like = wheel ? GamePaths.FindMedia(this.TargetRoot, "wheels", this.target.Scalar("SELECT w.MediaName FROM List_Wheels w JOIN Data_Car c ON c.StockWheelID = w.ID WHERE c.Id = ?", this.donorId) as string) : this.donorZip;
+                string explicitLike;
+                string like = this.newZipLike.TryGetValue(path, out explicitLike) ? explicitLike : wheel ? GamePaths.FindMedia(this.TargetRoot, "wheels", this.target.Scalar("SELECT w.MediaName FROM List_Wheels w JOIN Data_Car c ON c.StockWheelID = w.ID WHERE c.Id = ?", this.donorId) as string) : this.donorZip;
                 if (like == null || !ZipManifest.Add(manifest, ZipManifest.GamePath(this.TargetRoot, path), this.Out(path), ZipManifest.GamePath(this.TargetRoot, like)))
                 {
                     this.Line("zipmanifest.xml: no line like {0} to copy for {1}", like, Path.GetFileName(path));

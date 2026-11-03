@@ -314,6 +314,8 @@ Background C3 (research). Paused by the user 2026-10-19.
 
 ### 12. Digital dash (Anark) editor 🔧
 
+- [ ] 12.10 🧪 Dash in the FM4 → FM3 port (2026-11-03): `CarPortToFm3.PortDash` + `Fm3Dash` + `DashFonts.ToFm3` (GaugeID no longer the donor's; own dash into `Media\DigitalGauges`, images into `UI\Textures.zip`); 234/234 FM4 dashes convert and compose, 30 use FM4-only properties (left out unless `AllowFm4OnlyDash`). **In game pending**: `AST_One77_10` (plain) and `LEX_LFA_10` (FM4-only) are in `FM3_Extracted_DEV` (donor Supra). Details in `docs/PORT_FM4_TO_FM3.md` §4
+- [ ] 12.11 🔧 Event table decoded in part (2026-11-03): names are full-32-bit hashes (elements, contracts, slides, events "ON"/"OFF"/"DOOR CLOSE"...); record grammar of the car-presentation dashes known, of the gauges not; `DashReport` prints every word with its name (`docs/ANARK_DASH.md`). Next: grammar of the gauge records, contract names 20B25330 / 00CE884D / AE4BB809 / action 1195C23B, then 12.8
 - [ ] 12.1 Slides (pages shown one at a time)
 - [ ] 12.2 Behaviour parameter names
 - [ ] 12.3 🔧 Property inspector (PropertyGrid: lists, check boxes, numbers, text, colour) + drag on the preview (move, 8 resize handles, arrows); coded 2026-10-23, not tested. Next: text size by handle, undo, snapping, material properties

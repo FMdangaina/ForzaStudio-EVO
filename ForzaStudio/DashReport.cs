@@ -9,6 +9,61 @@ namespace ForzaStudio
     // (behaviours, animation tracks, events, slides) and the .bsg table. For reading, not for editing.
     public static class DashReport
     {
+        // Words the game's code sends or the editor's authors typed, whose hash is not a name in this file.
+        private static readonly string[] KnownNames = { "ON", "OFF", "IDLE", "UIContract", "Scene", "GAUGES", "PROGRESS", "FLASH", "IN GAME", "START UP", "SHUT OFF", "DOOR OPEN", "DOOR_CLOSE", "DOOR CLOSE" };
+
+        // The event table (block 3). Every word is shown with what it is: an element index of the .bgf (name), or a hash that is the name of
+        // a slide, an element or a known word (bit 31 may be set or cleared: the same name). 1195C23B is in every record and unnamed.
+        // Records are 7 words in the car-presentation dashes: event name hash, behaviour, component, 0, 1195C23B, slide hash, 0.
+        private static void AppendEvents(StringBuilder s, AnarkDash dash)
+        {
+            List<uint> words = dash.Bgf.EventWords();
+            if (words == null || words.Count == 0)
+            {
+                s.AppendLine("  event table: empty");
+                return;
+            }
+            Dictionary<uint, string> names = new Dictionary<uint, string>();
+            foreach (string known in KnownNames)
+            {
+                names[AnarkBgf.HashFull(known) & 0x7FFFFFFF] = known;
+            }
+            foreach (AnarkDash.Node n in dash.Nodes)
+            {
+                if (n.Record != null && !string.IsNullOrEmpty(n.Name))
+                {
+                    names[AnarkBgf.HashFull(n.Name) & 0x7FFFFFFF] = "element " + n.Name;
+                }
+            }
+            if (dash.Bgf.Slides != null)
+            {
+                foreach (AnarkBgf.Slide slide in dash.Bgf.Slides)
+                {
+                    names[AnarkBgf.HashFull(slide.Label) & 0x7FFFFFFF] = "slide '" + slide.Label + "'";
+                }
+            }
+            s.AppendFormat("  event table, {0} words (hash = name hash; the same name with bit 31 set or cleared):\r\n", words.Count);
+            for (int i = 0; i < words.Count; i++)
+            {
+                uint w = words[i];
+                string label = "";
+                string name;
+                if (w < dash.Nodes.Count)
+                {
+                    label = "element " + w + " " + dash.Nodes[(int) w].Name;
+                }
+                else if (names.TryGetValue(w & 0x7FFFFFFF, out name))
+                {
+                    label = name;
+                }
+                else if (w == 0x1195C23B)
+                {
+                    label = "(in every record)";
+                }
+                s.AppendFormat("    [{0,3}] {1:X8}  {2}\r\n", i, w, label);
+            }
+        }
+
         public static string Build(AnarkDash dash)
         {
             AnarkFbf fbf = dash.Fbf;
@@ -128,6 +183,7 @@ namespace ForzaStudio
                     s.AppendFormat("    element {0} \"{1}\" property {2} ({3} keys)\r\n", t[0], element, AnarkBgf.PropertyName(t[1]) ?? ("hash " + (t[1] & 0x07FFFFFF).ToString("X7")), t[2]);
                 }
             }
+            AppendEvents(s, dash);
             if (bgf.Slides == null)
             {
                 s.AppendLine("  (slides not understood in this file)");

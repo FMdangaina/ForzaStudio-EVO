@@ -62,8 +62,47 @@ namespace ForzaStudio
             return !string.IsNullOrEmpty(font) && !Fm4Names.Contains(font) && !Map.ContainsKey(font);
         }
 
+        // FM3 (target of the FM4 -> FM3 port). The 12 font names of the 154 FM3 dashes plus the names its fontmap.xml resolves by
+        // prefix and FM4 dashes also use: arial, d_endurancepro-condsemibold (D_Endurance), e_endurancepro-cond (E_Endurance).
+        private static readonly Set<string> Fm3Names = new Set<string>(new string[]
+        {
+            "a_endurancepro", "arial bold", "b_endurancepro bold", "dg1_arial bold", "dg2_lcd bold", "dg3_moire bold",
+            "dg4_pf_ronda_seven", "dg5_quartzms", "eurostile bold", "franklin gothic demi cond", "lcd bold", "lcd light",
+            "arial", "d_endurancepro-condsemibold", "e_endurancepro-cond",
+        }, StringComparer.OrdinalIgnoreCase);
+
+        // FM4 name -> the FM3 name of the same family (FM3 maps A_Endurance, B_Endurance, D_Endurance, E_Endurance to its UI fonts;
+        // FM4's Swiss 721 names have no entry there).
+        private static readonly Dictionary<string, string> MapFm3 = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "a_swiss_721_bold_condensed bold", "a_endurancepro" },
+            { "b_swiss_721_medium medium", "b_endurancepro bold" },
+            { "d_swiss_721_roman_condensed roman", "d_endurancepro-condsemibold" },
+            { "d_swiss_721_roman_ condensed roman", "d_endurancepro-condsemibold" },
+        };
+
+        public static string ToFm3(string font)
+        {
+            if (string.IsNullOrEmpty(font) || Fm3Names.Contains(font))
+            {
+                return font;
+            }
+            string mapped;
+            return MapFm3.TryGetValue(font, out mapped) ? mapped : font;
+        }
+
+        public static bool UnknownFm3(string font)
+        {
+            return !string.IsNullOrEmpty(font) && !Fm3Names.Contains(font) && !MapFm3.ContainsKey(font);
+        }
+
         // .fbf: the default fonts of the text records. Returns how many were changed.
         public static int Fix(AnarkFbf fbf, List<string> unknown)
+        {
+            return Fix(fbf, unknown, false);
+        }
+
+        public static int Fix(AnarkFbf fbf, List<string> unknown, bool toFm3)
         {
             int changed = 0;
             foreach (AnarkFbf.Record record in fbf.Records)
@@ -72,13 +111,13 @@ namespace ForzaStudio
                 {
                     continue;
                 }
-                string font = ToFm4(record.Font);
+                string font = toFm3 ? ToFm3(record.Font) : ToFm4(record.Font);
                 if (font != record.Font)
                 {
                     record.Font = font;
                     changed++;
                 }
-                else if (Unknown(record.Font) && unknown != null && !unknown.Contains(record.Font))
+                else if ((toFm3 ? UnknownFm3(record.Font) : Unknown(record.Font)) && unknown != null && !unknown.Contains(record.Font))
                 {
                     unknown.Add(record.Font);
                 }
@@ -90,6 +129,11 @@ namespace ForzaStudio
         // come back unchanged when nothing needs a new name.
         public static byte[] Fix(byte[] bgfData, out int changed, List<string> unknown)
         {
+            return Fix(bgfData, out changed, unknown, false);
+        }
+
+        public static byte[] Fix(byte[] bgfData, out int changed, List<string> unknown, bool toFm3)
+        {
             changed = 0;
             AnarkBgf bgf = AnarkBgf.Read(bgfData);
             foreach (AnarkBgf.Element element in bgf.Elements)
@@ -100,13 +144,13 @@ namespace ForzaStudio
                 {
                     continue;
                 }
-                string fm4 = ToFm4(font);
+                string fm4 = toFm3 ? ToFm3(font) : ToFm4(font);
                 if (fm4 != font)
                 {
                     bgf.Strings[(int) p.Value] = fm4;
                     changed++;
                 }
-                else if (Unknown(font) && unknown != null && !unknown.Contains(font))
+                else if ((toFm3 ? UnknownFm3(font) : Unknown(font)) && unknown != null && !unknown.Contains(font))
                 {
                     unknown.Add(font);
                 }

@@ -488,6 +488,41 @@ namespace ForzaStudio
             return false;
         }
 
+        // The full 32-bit form of the same hash: the .bgf element hash is this of the element's name in the .fbf ("Scene" = 068C6274, "Layer" = 81A3C24F; checked on one FM3 dash,
+        // 2026-11-03), a behaviour's is its contract's ("UIContract" = BAFC7A1A), and the
+        // event table names slides by it (the slide's name, "ON" = 2734DC01; some with bit 31 set or cleared).
+        public static uint HashFull(string name)
+        {
+            uint h = 0;
+            foreach (char c in name)
+            {
+                h = (h + c) * 65599;
+            }
+            return h;
+        }
+
+        // The words of the event table (block 3 of the tail), null when the tail did not read.
+        public List<uint> EventWords()
+        {
+            if (this.Slides == null)
+            {
+                return null;
+            }
+            byte[] d = this.Rest;
+            int o = 0;
+            for (int block = 0; block < 2; block++)
+            {
+                o += 4 + ReadU32(d, o);
+            }
+            int size = ReadU32(d, o);
+            List<uint> words = new List<uint>();
+            for (int i = 0; i + 4 <= size; i += 4)
+            {
+                words.Add((uint) ReadU32(d, o + 4 + i));
+            }
+            return words;
+        }
+
         public static uint HashName(string name)
         {
             uint h = 0;

@@ -94,8 +94,20 @@ FM3 and FM4 share almost every table (`GameDbSchema.cs`, 340-relation map). Diff
 - **Wheels** (`Media\wheels\*.zip`, FM3 folder `Media\Wheels`): the model is done (section 2); the zip: FM3 has
   `wheel0_lod0.xds` … `wheel3_lod0.xds` that FM4 lacks (copies of the LOD 0 textures?), FM4 has `versiondata.xml` and
   `buildnumber.txt`. 🔍
-- **Dash**: FM4 reads `digitalgauge\dash_<car>.*` from the car zip (GaugeID -1); FM3 has `Data_Car.GaugeID` →
-  `List_DigitalGauges` → `Media\DigitalGauges\<name>.zip` + textures in `Media\UI\Textures.zip` (inverse of `AddMotorsport3Dash`). 🔍
+- **Dash** (done 2026-11-03, offline checks; in-game check pending): FM4 reads `digitalgauge\dash_<car>.*` from the car zip (GaugeID -1);
+  FM3 has `Data_Car.GaugeID` → `List_DigitalGauges` (GaugeID, MediaName `Dash_<car>`) → `Media\DigitalGauges\Dash_<car>.zip`
+  (`dash_<car>.fbf/.bgf/.bsg`) + images in `Media\UI\Textures.zip` as `UI4/Dashboards/<CAR>/<name>.xds`, the .fbf naming them
+  `GAME:\MEDIA\UI\TEXTURES\UI4\DASHBOARDS\<CAR>\<NAME>.TGA`. `CarPortToFm3.PortDash` + `Fm3Dash` (inverse of `AddMotorsport3Dash`):
+  - the car keeps its OWN dash (before, `GaugeID` stayed the donor's: the Supra's dash on every port). No dash in FM4 → `GaugeID -1`;
+  - .bgf and .bsg unchanged but the font names (`DashFonts.ToFm3`: a_swiss_721 → a_endurancepro, b_swiss_721 → b_endurancepro bold,
+    d_swiss_721 → d_endurancepro-condsemibold; FM3's fontmap resolves A_/B_/D_/E_Endurance by prefix, DG1-5 as FM4);
+  - .fbf: version 0x3EE, text tails 33 bytes, the default text = the .bgf `textstring` (FM3: 303 of 303 text records, FM4 empties it);
+  - images: converted by `Fm3Textures`; a file FM3's shared `MFD_*` folders already hold keeps FM3's, the others go under the car's folder;
+  - 59 dashes both games have: with images and fonts as FM3's own, 35 come out byte-identical, the other 24 were re-authored in FM4;
+  - 234 FM4 dashes (corpus) convert, re-read as FM3 and compose: 0 failures; 30 use properties no FM3 dash has (the six-dash animation
+    behaviour, the "Overlays group" parameter, tach memory, image UV offsets; real cars: FER_F142_10, FER_F151_11, LEX_LFA_10, the rest are
+    Autovista `_slod` scenes). Such a dash is left out (`GaugeID -1`, reported) unless `AllowFm4OnlyDash`; in game test: AST_One77_10 (plain)
+    and LEX_LFA_10 (FM4-only, ported anyway) in `FM3_Extracted_DEV`. Gauge ids come from `DbIds.Next` (284, 285). 🔍 game
 - **Sound**: FM3's engine tuning has no DSP blocks (FM3 → FM4 completes them from FM4): FM4 → FM3 drops them; banks by name. 🔍
 - **Strings**: FM3 `.str` tables and their table ids (Data_Car high part). 🔍
 - **Thumbnails, make, decals**: FM3 has every FM4 make but those FM4 added. 🔍
