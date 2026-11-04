@@ -292,6 +292,7 @@ namespace ForzaStudio
             // engine's power). The upgrade levels follow it by the generic ratios.
             ConvertAspiration(db, schema, id, Convert.ToInt64(engine.Rows[0][Math.Max(0, aspIndex)], CultureInfo.InvariantCulture), plan);
             ConvertSupercharger(db, schema, id, Convert.ToInt64(engine.Rows[0][Math.Max(0, aspIndex)], CultureInfo.InvariantCulture), plan);
+            ConvertManifold(db, schema, id, plan);
             if (curvePlan != null)
             {
                 double fullBoostKw = KilowattsAtTorquePeak(db, id, curvePlan.NewStock((int) Math.Ceiling((curvePlan.StockRedline + margin) / 100.0) + 1), curvePlan.StockRedline);
@@ -554,6 +555,46 @@ namespace ForzaStudio
             }
             plan.Add(string.Format(CultureInfo.InvariantCulture, "engine: {0} stock turbo row made in {1} ({2} bar) on the pattern of engine {3} ({4} bar)", pattern.Rows.Count, to, bar, source, sourceBar));
             return Real(db.Scalar("SELECT d.SimPeakPower FROM Data_Car d JOIN List_UpgradeEngine u ON u.Ordinal = d.Id AND u.IsStock = 1 WHERE u.EngineID = ? LIMIT 1", source)) / 10.0;
+        }
+
+        // FM4's intake manifold part follows the aspiration: all 337 naturally aspirated engines have a stock manifold row, none of
+        // the 168 turbo / supercharged ones has one (checked on the game database 2026-11-03). A copy made natural gets the stock row
+        // (the generic rules then add its upgrade levels), a copy made turbo / supercharged loses its rows. Without the stock row a
+        // natural engine is incomplete in the menu and the car's performance falls apart (a Supra made natural showed F 100 after a
+        // turbo was bought and sold).
+        private static void ConvertManifold(SqliteDatabase db, Dictionary<string, List<string>> schema, long engine, List<string> plan)
+        {
+            const string table = "List_UpgradeEngineManifold";
+            if (!schema.ContainsKey(table))
+            {
+                return;
+            }
+            long aspiration = Convert.ToInt64(db.Scalar("SELECT AspirationID_Stock FROM Data_Engine WHERE EngineID = ?", engine), CultureInfo.InvariantCulture);
+            long rows = Convert.ToInt64(db.Scalar("SELECT count(*) FROM " + table + " WHERE EngineID = ?", engine), CultureInfo.InvariantCulture);
+            if (aspiration > 1 && rows > 0)
+            {
+                db.Execute("DELETE FROM " + table + " WHERE EngineID = ?", engine);
+                plan.Add(string.Format(CultureInfo.InvariantCulture, "engine: {0} manifold rows removed (FM4's turbo / supercharged engines have none)", rows));
+            }
+            else if (aspiration <= 1 && rows == 0)
+            {
+                List<string> columns = schema[table];
+                object[] row = new object[columns.Count];
+                for (int i = 0; i < columns.Count; i++)
+                {
+                    switch (columns[i].ToLowerInvariant())
+                    {
+                        case "id": row[i] = engine * 1000; break;
+                        case "engineid": row[i] = engine; break;
+                        case "level": row[i] = 1L; break;
+                        case "isstock": row[i] = 1L; break;
+                        case "torquescale": row[i] = 1.0; break;
+                        default: row[i] = 0L; break;
+                    }
+                }
+                Insert(db, table, columns.ToArray(), row);
+                plan.Add("engine: stock manifold row made (every FM4 natural engine has one), its upgrade levels follow from the generic rules");
+            }
         }
 
         // The power (kW) an engine of the database makes where its torque first reaches its peak (99.5%): the base curve (N.m,

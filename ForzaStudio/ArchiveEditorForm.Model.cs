@@ -362,6 +362,10 @@ namespace ForzaStudio
 
         private void pnlViewport_MouseMove(object sender, MouseEventArgs e)
         {
+            if (this.scene != null && e.Button == MouseButtons.None && this.MeshEditActive)
+            {
+                this.MeshEditHover(e);
+            }
             if (this.scene == null || e.Button == MouseButtons.None)
             {
                 return;

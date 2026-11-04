@@ -247,6 +247,8 @@
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
     </Compile>
     <Compile Include="ForzaStudio\ToolIcons.cs" />
+    <Compile Include="ForzaStudio\SelectionRegion.cs" />
+    <Compile Include="ForzaStudio\SubObject.cs" />
     <Compile Include="ForzaStudio\CarbinMeshEdit.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.UvMapperOpen.cs" />
     <Compile Include="ForzaStudio\UvSession.cs" />

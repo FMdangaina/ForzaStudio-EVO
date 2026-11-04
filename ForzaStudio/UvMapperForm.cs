@@ -37,7 +37,7 @@ namespace ForzaStudio
         private readonly Canvas canvas;
         private readonly ToolStripLabel lblInfo;
         private readonly ToolStripButton[] toolButtons = new ToolStripButton[4];
-        private ToolStripButton faceModeButton;
+        private EventHandler levelChanged;
 
         public UvMapperForm(UvSession session, string title, List<UvTexture> textures, int initialTexture, MethodInvoker edited)
         {
@@ -78,8 +78,14 @@ namespace ForzaStudio
             this.canvas.CurrentTool = Tool.Select;
             this.toolButtons[(int) Tool.Select].Checked = true;
             bar.Items.Add(new ToolStripSeparator());
-            this.faceModeButton = Button(ToolIcons.Linked(), "Face mode: Select picks whole faces (click inside a triangle, or a box around their centres) instead of points  (S)", delegate { this.ToggleFaceMode(); });
-            bar.Items.Add(this.faceModeButton);
+            bar.Items.Add(SelectionRegion.CreateButton());
+            foreach (ToolStripButton level in SubObject.CreateButtons(true))
+            {
+                bar.Items.Add(level);
+            }
+            this.levelChanged = delegate { this.SetTool(Tool.Select); this.canvas.Invalidate(); };
+            SubObject.LevelChanged += this.levelChanged;
+            this.FormClosed += delegate { SubObject.LevelChanged -= this.levelChanged; };
             bar.Items.Add(Button(ToolIcons.Select(true), "Select all the points  (A)", delegate { this.canvas.SelectAll(); }));
             bar.Items.Add(Button(ToolIcons.Select(false), "Select no point  (Ctrl+D)", delegate { this.canvas.SelectNone(); }));
             bar.Items.Add(Button(ToolIcons.Linked(), "Select the piece (island) the selected points belong to  (L)", delegate { this.canvas.SelectLinked(); }));
@@ -420,8 +426,7 @@ namespace ForzaStudio
 
         private void ToggleFaceMode()
         {
-            this.canvas.FaceMode = !this.canvas.FaceMode;
-            this.faceModeButton.Checked = this.canvas.FaceMode;
+            SubObject.CurrentLevel = SubObject.SelectsFaces(SubObject.CurrentLevel) ? SubLevel.Vertex : SubLevel.Face;
             this.SetTool(Tool.Select);
         }
 
@@ -467,6 +472,7 @@ namespace ForzaStudio
             public readonly Set<long> Selection = new Set<long>();
             public Tool CurrentTool = Tool.Move;
             private readonly List<List<float[][]>> undo = new List<List<float[][]>>();
+            private readonly SelectionRegion region = new SelectionRegion();
             private bool dragging, panning, boxing;
             private System.Drawing.Point dragStart, dragLast;
             private Vector2 pivot;
@@ -565,7 +571,7 @@ namespace ForzaStudio
                         PointF s = this.ToScreen(part.U[v], part.V[v]);
                         if (selected)
                         {
-                            g.FillRectangle(Brushes.Orange, s.X - 3, s.Y - 3, 6, 6);
+                            g.FillRectangle(Brushes.Red, s.X - 3, s.Y - 3, 6, 6);
                         }
                         else
                         {
@@ -573,12 +579,16 @@ namespace ForzaStudio
                         }
                     }
                 }
-                if (this.boxing)
+                if (this.boxing && this.region.Active && (this.region.Mode == RegionMode.Fence || !this.region.WasClick))
                 {
                     using (Pen pen = new Pen(System.Drawing.Color.White))
                     {
                         pen.DashStyle = DashStyle.Dash;
-                        g.DrawRectangle(pen, this.BoxRectangle());
+                        PointF[] outline = this.region.Outline();
+                        if (outline.Length > 1)
+                        {
+                            g.DrawLines(pen, outline);
+                        }
                     }
                 }
             }
@@ -591,7 +601,7 @@ namespace ForzaStudio
                     return;
                 }
                 using (GraphicsPath path = new GraphicsPath())
-                using (Brush fill = new SolidBrush(System.Drawing.Color.FromArgb(90, 255, 150, 30)))
+                using (Brush fill = new SolidBrush(System.Drawing.Color.FromArgb(90, 240, 30, 30)))
                 {
                     foreach (int f in part.EditFaces)
                     {
@@ -633,12 +643,6 @@ namespace ForzaStudio
                 }
             }
 
-            private System.Drawing.Rectangle BoxRectangle()
-            {
-                return System.Drawing.Rectangle.FromLTRB(Math.Min(this.dragStart.X, this.dragLast.X), Math.Min(this.dragStart.Y, this.dragLast.Y),
-                    Math.Max(this.dragStart.X, this.dragLast.X), Math.Max(this.dragStart.Y, this.dragLast.Y));
-            }
-
             // ---- mouse ----
 
             private bool NearestVertex(System.Drawing.Point p, out long key)
@@ -662,8 +666,8 @@ namespace ForzaStudio
                 return key >= 0;
             }
 
-            // Face mode: Select picks whole faces (the 3 points of each) instead of single points.
-            public bool FaceMode;
+            // Face, Polygon, Element: Select picks whole faces (the 3 points of each) instead of single points.
+            public bool FaceMode { get { return SubObject.SelectsFaces(SubObject.CurrentLevel); } }
 
             private static float Side(PointF p, PointF a, PointF b)
             {
@@ -677,11 +681,10 @@ namespace ForzaStudio
                 return !(negative && positive);
             }
 
-            // A box takes the faces whose centre is inside it, a click the face under the pointer.
+            // A region takes the faces whose centre is inside it, a click the face under the pointer.
             // Ctrl on a face that is already selected deselects its points (the others are added by the caller).
-            private void HitFaces(bool box, System.Drawing.Point click, bool toggle, List<long> hit)
+            private void HitFaces(bool box, System.Drawing.Point click, bool toggle, List<long> hit, List<int[]> faces)
             {
-                System.Drawing.Rectangle rectangle = this.BoxRectangle();
                 PointF pointer = new PointF(click.X, click.Y);
                 for (int i = 0; i < this.session.Parts.Count; i++)
                 {
@@ -694,10 +697,14 @@ namespace ForzaStudio
                         }
                         int[] t = part.Faces[f];
                         PointF a = this.ToScreen(part.U[t[0]], part.V[t[0]]), b = this.ToScreen(part.U[t[1]], part.V[t[1]]), c = this.ToScreen(part.U[t[2]], part.V[t[2]]);
-                        bool inside = box ? rectangle.Contains((int) ((a.X + b.X + c.X) / 3f), (int) ((a.Y + b.Y + c.Y) / 3f)) : InTriangle(pointer, a, b, c);
+                        bool inside = box ? this.region.Contains(new PointF((a.X + b.X + c.X) / 3f, (a.Y + b.Y + c.Y) / 3f)) : InTriangle(pointer, a, b, c);
                         if (!inside)
                         {
                             continue;
+                        }
+                        if (faces != null)
+                        {
+                            faces.Add(new int[] { i, f });
                         }
                         long k0 = UvSession.Key(i, t[0]), k1 = UvSession.Key(i, t[1]), k2 = UvSession.Key(i, t[2]);
                         if (toggle && this.Selection.Contains(k0) && this.Selection.Contains(k1) && this.Selection.Contains(k2))
@@ -736,7 +743,13 @@ namespace ForzaStudio
                 }
                 if (this.CurrentTool == Tool.Select)
                 {
-                    this.boxing = true;
+                    if (this.region.Press(e.Location, e.Clicks))
+                    {
+                        this.FinishRegion(e.Location);      // a fence closed by this click
+                        return;
+                    }
+                    this.boxing = this.region.Active;
+                    this.Invalidate();
                 }
                 else if (this.Selection.Count > 0)
                 {
@@ -760,6 +773,7 @@ namespace ForzaStudio
                 if (this.boxing)
                 {
                     this.dragLast = e.Location;
+                    this.region.Move(e.Location);
                     this.Invalidate();
                     return;
                 }
@@ -802,57 +816,196 @@ namespace ForzaStudio
                 this.dragging = false;
                 if (this.boxing && e.Button == MouseButtons.Left)
                 {
-                    this.boxing = false;
-                    this.dragLast = e.Location;
-                    bool add = (Control.ModifierKeys & Keys.Shift) != 0, toggle = (Control.ModifierKeys & Keys.Control) != 0;
-                    if (!add && !toggle)
+                    if (!this.region.Release(e.Location))
                     {
-                        this.Selection.Clear();
+                        return;         // a fence goes on with the next click
                     }
-                    bool box = Math.Abs(e.X - this.dragStart.X) > 3 || Math.Abs(e.Y - this.dragStart.Y) > 3;
-                    List<long> hit = new List<long>();
-                    if (this.FaceMode)
+                    this.FinishRegion(e.Location);
+                }
+            }
+
+            // Polygon / Element: the faces hit grow to their whole flat polygon (3D plane, SubObject.Polygons) or element (the
+            // UV island: triangles joined by their points). Ctrl on a polygon / element that is all selected deselects it.
+            private void HitGrown(bool box, System.Drawing.Point click, bool toggle, List<long> hit)
+            {
+                List<int[]> faces = new List<int[]>();
+                this.HitFaces(box, click, false, new List<long>(), faces);
+                Dictionary<int, Dictionary<int, bool>> wanted = new Dictionary<int, Dictionary<int, bool>>();
+                foreach (int[] pair in faces)
+                {
+                    int[] ids = this.GroupIds(pair[0]);
+                    Dictionary<int, bool> set;
+                    if (!wanted.TryGetValue(pair[0], out set))
                     {
-                        this.HitFaces(box, e.Location, toggle, hit);
+                        set = new Dictionary<int, bool>();
+                        wanted[pair[0]] = set;
                     }
-                    else if (box)
+                    set[ids[pair[1]]] = true;
+                }
+                foreach (KeyValuePair<int, Dictionary<int, bool>> part in wanted)
+                {
+                    UvSession.Part p = this.session.Parts[part.Key];
+                    int[] ids = this.GroupIds(part.Key);
+                    List<long> keys = new List<long>();
+                    foreach (int f in p.EditFaces)
                     {
-                        System.Drawing.Rectangle rectangle = this.BoxRectangle();
-                        for (int i = 0; i < this.session.Parts.Count; i++)
+                        if (part.Value.ContainsKey(ids[f]))
                         {
-                            UvSession.Part part = this.session.Parts[i];
-                            foreach (int v in part.EditVerts)
+                            foreach (int v in p.Faces[f])
                             {
-                                PointF s = this.ToScreen(part.U[v], part.V[v]);
-                                if (rectangle.Contains((int) s.X, (int) s.Y))
-                                {
-                                    hit.Add(UvSession.Key(i, v));
-                                }
+                                keys.Add(UvSession.Key(part.Key, v));
                             }
+                        }
+                    }
+                    bool all = keys.Count > 0 && keys.TrueForAll(delegate(long k) { return this.Selection.Contains(k); });
+                    if (toggle && all)
+                    {
+                        foreach (long k in keys)
+                        {
+                            this.Selection.Remove(k);
                         }
                     }
                     else
                     {
-                        long key;
-                        if (this.NearestVertex(e.Location, out key))
-                        {
-                            hit.Add(key);
-                        }
+                        hit.AddRange(keys);
                     }
-                    foreach (long key in hit)
-                    {
-                        if (toggle && !this.FaceMode && this.Selection.Contains(key))
-                        {
-                            this.Selection.Remove(key);
-                        }
-                        else
-                        {
-                            this.Selection.Add(key);
-                        }
-                    }
-                    this.owner.UpdateInfo();
-                    this.Invalidate();
                 }
+            }
+
+            private readonly Dictionary<int, int[]> polygonIds = new Dictionary<int, int[]>();
+            private readonly Dictionary<int, int[]> elementIds = new Dictionary<int, int[]>();
+
+            // Polygon or element id of each face of a part (by the level in use), made once.
+            private int[] GroupIds(int part)
+            {
+                bool polygon = SubObject.CurrentLevel == SubLevel.Polygon;
+                Dictionary<int, int[]> cache = polygon ? this.polygonIds : this.elementIds;
+                int[] ids;
+                if (!cache.TryGetValue(part, out ids))
+                {
+                    UvSession.Part p = this.session.Parts[part];
+                    ids = polygon ? SubObject.Polygons(p.Faces, null, p.Positions) : SubObject.Elements(p.Faces, null);
+                    cache[part] = ids;
+                }
+                return ids;
+            }
+
+            private static float SegmentDistance(PointF p, PointF a, PointF b)
+            {
+                float dx = b.X - a.X, dy = b.Y - a.Y, length = (dx * dx) + (dy * dy);
+                float t = (length <= 0f) ? 0f : Math.Max(0f, Math.Min(1f, (((p.X - a.X) * dx) + ((p.Y - a.Y) * dy)) / length));
+                float x = a.X + (t * dx) - p.X, y = a.Y + (t * dy) - p.Y;
+                return (float) Math.Sqrt((x * x) + (y * y));
+            }
+
+            // Edge: a click takes the edge nearest the pointer (within 8 pixels), a region the edges with both ends inside;
+            // an edge selects its two points.
+            private void HitEdges(bool box, System.Drawing.Point click, List<long> hit)
+            {
+                PointF pointer = new PointF(click.X, click.Y);
+                float best = 8f;
+                long bestA = -1, bestB = -1;
+                for (int i = 0; i < this.session.Parts.Count; i++)
+                {
+                    UvSession.Part part = this.session.Parts[i];
+                    foreach (int f in part.EditFaces)
+                    {
+                        int[] t = part.Faces[f];
+                        for (int e = 0; e < 3; e++)
+                        {
+                            int va = t[e], vb = t[(e + 1) % 3];
+                            PointF a = this.ToScreen(part.U[va], part.V[va]), b = this.ToScreen(part.U[vb], part.V[vb]);
+                            if (box)
+                            {
+                                if (this.region.Contains(a) && this.region.Contains(b))
+                                {
+                                    hit.Add(UvSession.Key(i, va));
+                                    hit.Add(UvSession.Key(i, vb));
+                                }
+                                continue;
+                            }
+                            float d = SegmentDistance(pointer, a, b);
+                            if (d < best)
+                            {
+                                best = d;
+                                bestA = UvSession.Key(i, va);
+                                bestB = UvSession.Key(i, vb);
+                            }
+                        }
+                    }
+                }
+                if (!box && bestA >= 0)
+                {
+                    hit.Add(bestA);
+                    hit.Add(bestB);
+                }
+            }
+
+            // The region is complete: the points (or faces) inside it, or the one under the pointer for a click, join the selection.
+            private void FinishRegion(System.Drawing.Point at)
+            {
+                this.boxing = false;
+                this.dragLast = at;
+                bool fence = this.region.Mode == RegionMode.Fence;
+                bool click = this.region.WasClick;
+                bool add = (Control.ModifierKeys & Keys.Shift) != 0, toggle = (Control.ModifierKeys & Keys.Control) != 0;
+                if (!add && !toggle)
+                {
+                    this.Selection.Clear();
+                }
+                bool box = fence || !click;
+                List<long> hit = new List<long>();
+                if (this.FaceMode)
+                {
+                    if (SubObject.CurrentLevel == SubLevel.Face)
+                    {
+                        this.HitFaces(box, at, toggle, hit, null);
+                    }
+                    else
+                    {
+                        this.HitGrown(box, at, toggle, hit);
+                    }
+                }
+                else if (SubObject.CurrentLevel == SubLevel.Edge)
+                {
+                    this.HitEdges(box, at, hit);
+                }
+                else if (box)
+                {
+                    for (int i = 0; i < this.session.Parts.Count; i++)
+                    {
+                        UvSession.Part part = this.session.Parts[i];
+                        foreach (int v in part.EditVerts)
+                        {
+                            if (this.region.Contains(this.ToScreen(part.U[v], part.V[v])))
+                            {
+                                hit.Add(UvSession.Key(i, v));
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    long key;
+                    if (this.NearestVertex(at, out key))
+                    {
+                        hit.Add(key);
+                    }
+                }
+                this.region.Finish();
+                foreach (long key in hit)
+                {
+                    if (toggle && !this.FaceMode && this.Selection.Contains(key))
+                    {
+                        this.Selection.Remove(key);
+                    }
+                    else
+                    {
+                        this.Selection.Add(key);
+                    }
+                }
+                this.owner.UpdateInfo();
+                this.Invalidate();
             }
 
             protected override void OnMouseWheel(MouseEventArgs e)
@@ -865,15 +1018,46 @@ namespace ForzaStudio
 
             // ---- actions ----
 
+            // Escape drops a region being drawn.
+            private bool CancelRegion()
+            {
+                if (!this.region.Active)
+                {
+                    return false;
+                }
+                this.region.Cancel();
+                this.boxing = false;
+                this.Invalidate();
+                return true;
+            }
+
+            // Enter closes a fence with the corners clicked so far.
+            private bool CloseFence()
+            {
+                if (!this.region.Active || this.region.Mode != RegionMode.Fence)
+                {
+                    return false;
+                }
+                this.FinishRegion(this.dragLast);
+                return true;
+            }
+
             public bool ProcessShortcut(Keys keyData)
             {
                 switch (keyData)
                 {
+                    case Keys.Escape: return this.CancelRegion();
+                    case Keys.Enter: return this.CloseFence();
                     case Keys.Q: this.owner.SetTool(Tool.Select); return true;
                     case Keys.W: this.owner.SetTool(Tool.Move); return true;
                     case Keys.E: this.owner.SetTool(Tool.Rotate); return true;
                     case Keys.R: this.owner.SetTool(Tool.Scale); return true;
                     case Keys.S: this.owner.ToggleFaceMode(); return true;
+                    case Keys.D1: SubObject.CurrentLevel = SubLevel.Vertex; return true;
+                    case Keys.D2: SubObject.CurrentLevel = SubLevel.Edge; return true;
+                    case Keys.D3: SubObject.CurrentLevel = SubLevel.Face; return true;
+                    case Keys.D4: SubObject.CurrentLevel = SubLevel.Polygon; return true;
+                    case Keys.D5: SubObject.CurrentLevel = SubLevel.Element; return true;
                     case Keys.A: this.SelectAll(); return true;
                     case Keys.L: this.SelectLinked(); return true;
                     case Keys.F: this.FitView(); return true;

@@ -74,7 +74,7 @@ namespace ForzaStudio
             this.tabSideDriver = this.tabSide.TabPages[5];
             FlowLayoutPanel meshEdit = this.AddSideTab("Mesh");
             this.tabSideMesh = this.tabSide.TabPages[6];
-            this.tabSide.SelectedIndexChanged += delegate { this.UpdateViewOverlay(); };
+            this.tabSide.SelectedIndexChanged += delegate { this.MeshWireframeFollowTab(); this.UpdateViewOverlay(); };
             host.Controls.Add(SideRailHost(this.tabSide));
 
             this.lblMeshInfo = SideNote("Select a part in the tree.");
@@ -254,6 +254,7 @@ namespace ForzaStudio
                 : (open == this.tabSideDriver) ? this.DriverOverlayLines()
                 : (open == this.tabSideMesh) ? this.MeshEditOverlayLines() : null;
             this.scene.Overlay = (lines != null && lines.Count >= 2) ? lines.ToArray() : null;
+            this.scene.OverlayFaces = (open == this.tabSideMesh) ? this.MeshEditFaceFill() : null;
             this.scene.Update(true);
         }
 

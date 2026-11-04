@@ -27,6 +27,7 @@ namespace ForzaStudio
             public List<int[]> Triangles;
             public double[] Positions;
             public int[] Group;               // vertex -> id of the vertices at the same place (UV seams split vertices)
+            public int[] ElementId, PolygonId;  // triangle -> its element / flat polygon (SubObject), made when first needed
         }
 
         private CarbinModel faceModel;
@@ -34,7 +35,8 @@ namespace ForzaStudio
         private bool pickDirty = true;
         private readonly Set<long> faceSelection = new Set<long>();
         private List<VertexPositionColor> faceLines;     // the selected faces' edges, rebuilt when the selection changes
-        private System.Drawing.Point dragStart, dragEnd;
+        private List<VertexPositionColor> faceFill;      // the selected faces as red translucent triangles, rebuilt with faceLines
+        private readonly SelectionRegion region = new SelectionRegion();
         private bool faceDragging;
 
         private static long FaceKey(int section, int sub, int face)
@@ -54,15 +56,39 @@ namespace ForzaStudio
             this.lblFaceSelection = SideNote("Select faces in the view.");
             this.lblFaceSelection.ForeColor = this.ForeColor;
             this.chkFrontFaces = new CheckBox();
-            this.chkFrontFaces.Text = "Box: only faces turned to the camera";
+            this.chkFrontFaces.Text = "Region: only faces turned to the camera";
             this.chkFrontFaces.Checked = true;
             this.chkFrontFaces.Size = new Size(SideWidth, 22);
 
             side.Controls.Add(SideHeading("Faces", true));
             side.Controls.Add(this.lblFaceSelection);
             side.Controls.Add(this.chkFrontFaces);
-            side.Controls.Add(SideNote("The tools (select all / none / linked, delete, detach, UV mapper) are in the tool bar above the view, with their keys in the hints. Click: pick a face. Shift+click: add. Ctrl+click: toggle. Drag: box (same keys). Middle drag: move the view, Alt + middle drag: turn it, wheel: zoom. Delete and Detach touch only the LOD of the mesh the faces are in; pending until File > Save."));
+            side.Controls.Add(SideNote("The tools (select all / none / linked, delete, detach, UV mapper) are in the tool bar above the view, with their keys in the hints. Click: pick a face. Shift+click: add. Ctrl+click: toggle. Drag: the region chosen in the tool bar (rectangle, circle, fence, lasso or brush; same keys; Esc cancels, a fence closes with a double click or Enter). Middle drag: move the view, Alt + middle drag: turn it, wheel: zoom. Delete and Detach touch only the LOD of the mesh the faces are in; pending until File > Save."));
+            SubObject.LevelChanged += this.SubLevelChanged;
+            this.Disposed += delegate { SubObject.LevelChanged -= this.SubLevelChanged; };
             this.UpdateFaceSelectionLabel();
+        }
+
+        // The MESH tab turns the wireframe on (an editing view, as in 3ds Max); leaving it puts the Wireframe button back as it was.
+        private bool wireframeBeforeMesh, meshWireframeOn;
+
+        private void MeshWireframeFollowTab()
+        {
+            bool mesh = this.tabSide != null && this.tabSide.SelectedTab == this.tabSideMesh;
+            if (this.btnWireframe == null || mesh == this.meshWireframeOn)
+            {
+                return;
+            }
+            this.meshWireframeOn = mesh;
+            if (mesh)
+            {
+                this.wireframeBeforeMesh = this.btnWireframe.Checked;
+                this.btnWireframe.Checked = true;
+            }
+            else
+            {
+                this.btnWireframe.Checked = this.wireframeBeforeMesh;
+            }
         }
 
         private static Button MakeButton(string text, EventHandler click)
@@ -89,6 +115,9 @@ namespace ForzaStudio
             this.faceSelection.Clear();
             this.faceLines = null;
             this.faceDragging = false;
+            this.region.Cancel();
+            this.vertexSelection.Clear();
+            this.edgeSelection.Clear();
             if (this.lblFaceSelection != null)
             {
                 this.UpdateFaceSelectionLabel();
@@ -233,7 +262,8 @@ namespace ForzaStudio
             return key >= 0;
         }
 
-        private List<long> FacesInBox(System.Drawing.Rectangle box, bool frontOnly)
+        // The faces whose centre falls inside the region drawn on the screen (rectangle, circle, fence, lasso or brush).
+        private List<long> FacesInRegion(bool frontOnly)
         {
             List<long> found = new List<long>();
             Camera camera = this.scene.Camera;
@@ -253,7 +283,7 @@ namespace ForzaStudio
                         continue;
                     }
                     float sx = ((clip.X / clip.W) + 1f) * 0.5f * w, sy = (1f - (clip.Y / clip.W)) * 0.5f * h;
-                    if (!box.Contains((int) sx, (int) sy))
+                    if (!this.region.Contains(new PointF(sx, sy)))
                     {
                         continue;
                     }
@@ -276,72 +306,389 @@ namespace ForzaStudio
 
         private void MeshEditMouseDown(MouseEventArgs e)
         {
-            this.dragStart = e.Location;
-            this.dragEnd = e.Location;
             this.faceDragging = true;
+            if (this.region.Press(e.Location, e.Clicks))
+            {
+                this.ApplyRegion(e.Location);       // a fence closed by this click
+            }
+            this.UpdateViewOverlay();
         }
 
         private void MeshEditMouseMove(MouseEventArgs e)
         {
-            if (!this.faceDragging)
+            if (!this.region.Active)
             {
                 return;
             }
-            this.dragEnd = e.Location;
-            if (this.DragIsBox)
+            this.region.Move(e.Location);
+            this.UpdateViewOverlay();
+        }
+
+        // The pointer moves with no button down: a fence being drawn follows it.
+        private void MeshEditHover(MouseEventArgs e)
+        {
+            if (this.region.Active && this.region.Mode == RegionMode.Fence)
             {
+                this.region.Move(e.Location);
                 this.UpdateViewOverlay();
             }
         }
 
-        private bool DragIsBox
+        // Escape cancels a region being drawn, Enter closes a fence.
+        private bool MeshEditRegionKey(Keys keyData)
         {
-            get { return Math.Abs(this.dragEnd.X - this.dragStart.X) > 4 || Math.Abs(this.dragEnd.Y - this.dragStart.Y) > 4; }
+            if (!this.region.Active)
+            {
+                return false;
+            }
+            if (keyData == Keys.Escape)
+            {
+                this.region.Cancel();
+                this.faceDragging = false;
+                this.UpdateViewOverlay();
+                return true;
+            }
+            if (keyData == Keys.Enter && this.region.Mode == RegionMode.Fence)
+            {
+                this.ApplyRegion(System.Drawing.Point.Empty);
+                return true;
+            }
+            return false;
         }
 
         private void MeshEditMouseUp(MouseEventArgs e)
         {
-            if (!this.faceDragging)
+            if (!this.faceDragging || !this.region.Active)
             {
                 return;
             }
+            if (!this.region.Release(e.Location))
+            {
+                return;         // a fence goes on with the next click
+            }
+            this.ApplyRegion(e.Location);
+        }
+
+        // The region is complete: what it holds at the sub-object level in use (or, for a click, what is under the pointer)
+        // joins the selection. Vertex and Edge keep their own selection; the faces they touch are what Delete, Detach and the
+        // UV mapper work on.
+        private void ApplyRegion(System.Drawing.Point click)
+        {
             this.faceDragging = false;
-            this.dragEnd = e.Location;
+            bool useRegion = !this.region.WasClick || this.region.Mode == RegionMode.Fence;
             if (!this.EnsurePickData())
             {
+                this.region.Finish();
                 this.UpdateViewOverlay();
                 return;
             }
             bool add = (Control.ModifierKeys & Keys.Shift) != 0, toggle = (Control.ModifierKeys & Keys.Control) != 0;
-            List<long> hit = new List<long>();
-            if (this.DragIsBox)
+            List<long> faces = new List<long>(), vertices = new List<long>();
+            List<string> edges = new List<string>();
+            this.LevelHits(useRegion, click, faces, vertices, edges);
+            this.region.Finish();
+            SubLevel level = SubObject.CurrentLevel;
+            if (level == SubLevel.Vertex)
             {
-                System.Drawing.Rectangle box = System.Drawing.Rectangle.FromLTRB(Math.Min(this.dragStart.X, this.dragEnd.X), Math.Min(this.dragStart.Y, this.dragEnd.Y),
-                    Math.Max(this.dragStart.X, this.dragEnd.X), Math.Max(this.dragStart.Y, this.dragEnd.Y));
-                hit = this.FacesInBox(box, this.chkFrontFaces.Checked);
+                Merge(this.vertexSelection, vertices, add, toggle);
+                this.SyncFacesFromSub();
+                return;
             }
-            else
+            if (level == SubLevel.Edge)
             {
-                long key;
-                if (this.PickFace(e.Location, out key))
-                {
-                    hit.Add(key);
-                }
+                Merge(this.edgeSelection, edges, add, toggle);
+                this.SyncFacesFromSub();
+                return;
             }
+            Merge(this.faceSelection, faces, add, toggle);
+            this.FaceSelectionChanged();
+        }
+
+        private static void Merge<T>(Set<T> selection, List<T> hit, bool add, bool toggle)
+        {
             if (!add && !toggle)
             {
-                this.faceSelection.Clear();
+                selection.Clear();
             }
-            foreach (long key in hit)
+            foreach (T key in hit)
             {
-                if (toggle && this.faceSelection.Contains(key))
+                if (toggle && selection.Contains(key))
                 {
-                    this.faceSelection.Remove(key);
+                    selection.Remove(key);
                 }
                 else
                 {
-                    this.faceSelection.Add(key);
+                    selection.Add(key);
                 }
+            }
+        }
+
+        // ---- sub-object levels (Vertex, Edge, Face, Polygon, Element; SubObject) ----
+
+        private readonly Set<long> vertexSelection = new Set<long>();       // FaceKey(section, mesh, weld group of the point)
+        private readonly Set<string> edgeSelection = new Set<string>();     // EdgeName(section, mesh, group, group)
+
+        private static string EdgeName(int section, int sub, int a, int b)
+        {
+            return (a < b) ? section + ":" + sub + ":" + a + ":" + b : section + ":" + sub + ":" + b + ":" + a;
+        }
+
+        private int[] ElementsOf(PickMesh mesh)
+        {
+            if (mesh.ElementId == null)
+            {
+                mesh.ElementId = SubObject.Elements(mesh.Triangles, this.GroupsOf(mesh));
+            }
+            return mesh.ElementId;
+        }
+
+        private int[] PolygonsOf(PickMesh mesh)
+        {
+            if (mesh.PolygonId == null)
+            {
+                mesh.PolygonId = SubObject.Polygons(mesh.Triangles, this.GroupsOf(mesh), mesh.Positions);
+            }
+            return mesh.PolygonId;
+        }
+
+        private PickMesh MeshOf(int section, int sub)
+        {
+            foreach (PickMesh mesh in this.pickMeshes)
+            {
+                if (mesh.Section == section && mesh.Sub == sub)
+                {
+                    return mesh;
+                }
+            }
+            return null;
+        }
+
+        // A model point on the screen (pixels); false behind the camera.
+        private bool ToScreen(Vector3 point, out PointF screen)
+        {
+            Camera camera = this.scene.Camera;
+            Vector4 clip = Vector4.Transform(new Vector4(point, 1f), camera.View * camera.Projection);
+            screen = PointF.Empty;
+            if (clip.W <= 1e-6f)
+            {
+                return false;
+            }
+            float w = Math.Max(1, this.pnlViewport.ClientSize.Width), h = Math.Max(1, this.pnlViewport.ClientSize.Height);
+            screen = new PointF(((clip.X / clip.W) + 1f) * 0.5f * w, (1f - (clip.Y / clip.W)) * 0.5f * h);
+            return true;
+        }
+
+        private bool FacesCamera(Vector3 a, Vector3 b, Vector3 c)
+        {
+            Camera camera = this.scene.Camera;
+            Vector3 toEye = camera.Orthographic ? -camera.ForwardDirection : camera.EyePosition - ((a + b + c) / 3f);
+            return Vector3.Dot(Vector3.Cross(b - a, c - a), toEye) > 0f;
+        }
+
+        private static float SegmentDistance(PointF p, PointF a, PointF b)
+        {
+            float dx = b.X - a.X, dy = b.Y - a.Y, length = (dx * dx) + (dy * dy);
+            float t = (length <= 0f) ? 0f : Math.Max(0f, Math.Min(1f, (((p.X - a.X) * dx) + ((p.Y - a.Y) * dy)) / length));
+            float x = a.X + (t * dx) - p.X, y = a.Y + (t * dy) - p.Y;
+            return (float) Math.Sqrt((x * x) + (y * y));
+        }
+
+        // What a click or the region hits at the level in use: faces (Face; Polygon and Element grown to their whole
+        // polygon / element), points (Vertex) or edges (Edge). A click on Vertex / Edge takes the point / edge of the face
+        // under the pointer that is nearest to it, so hidden ones are never picked.
+        private void LevelHits(bool useRegion, System.Drawing.Point click, List<long> faces, List<long> vertices, List<string> edges)
+        {
+            SubLevel level = SubObject.CurrentLevel;
+            bool frontOnly = this.chkFrontFaces.Checked;
+            if (SubObject.SelectsFaces(level))
+            {
+                List<long> seed = new List<long>();
+                long picked;
+                if (useRegion)
+                {
+                    seed = this.FacesInRegion(frontOnly);
+                }
+                else if (this.PickFace(click, out picked))
+                {
+                    seed.Add(picked);
+                }
+                if (level == SubLevel.Face)
+                {
+                    faces.AddRange(seed);
+                    return;
+                }
+                Dictionary<PickMesh, Dictionary<int, bool>> groups = new Dictionary<PickMesh, Dictionary<int, bool>>();
+                foreach (long key in seed)
+                {
+                    int s, k, f;
+                    FaceKeyParts(key, out s, out k, out f);
+                    PickMesh mesh = this.MeshOf(s, k);
+                    if (mesh == null)
+                    {
+                        continue;
+                    }
+                    int[] ids = (level == SubLevel.Polygon) ? this.PolygonsOf(mesh) : this.ElementsOf(mesh);
+                    Dictionary<int, bool> wanted;
+                    if (!groups.TryGetValue(mesh, out wanted))
+                    {
+                        wanted = new Dictionary<int, bool>();
+                        groups[mesh] = wanted;
+                    }
+                    wanted[ids[f]] = true;
+                }
+                foreach (KeyValuePair<PickMesh, Dictionary<int, bool>> pair in groups)
+                {
+                    int[] ids = (level == SubLevel.Polygon) ? pair.Key.PolygonId : pair.Key.ElementId;
+                    for (int f = 0; f < ids.Length; f++)
+                    {
+                        if (pair.Value.ContainsKey(ids[f]))
+                        {
+                            faces.Add(FaceKey(pair.Key.Section, pair.Key.Sub, f));
+                        }
+                    }
+                }
+                return;
+            }
+            if (!useRegion)
+            {
+                long key;
+                if (!this.PickFace(click, out key))
+                {
+                    return;
+                }
+                int s, k, f;
+                FaceKeyParts(key, out s, out k, out f);
+                PickMesh mesh = this.MeshOf(s, k);
+                if (mesh == null)
+                {
+                    return;
+                }
+                int[] t = mesh.Triangles[f], group = this.GroupsOf(mesh);
+                PointF[] corner = new PointF[3];
+                for (int i = 0; i < 3; i++)
+                {
+                    this.ToScreen(PointOf(mesh.Positions, t[i]), out corner[i]);
+                }
+                PointF p = new PointF(click.X, click.Y);
+                int best = 0;
+                float bestDistance = float.MaxValue;
+                for (int i = 0; i < 3; i++)
+                {
+                    float d = (level == SubLevel.Vertex)
+                        ? (float) Math.Sqrt(((corner[i].X - p.X) * (corner[i].X - p.X)) + ((corner[i].Y - p.Y) * (corner[i].Y - p.Y)))
+                        : SegmentDistance(p, corner[i], corner[(i + 1) % 3]);
+                    if (d < bestDistance)
+                    {
+                        bestDistance = d;
+                        best = i;
+                    }
+                }
+                if (level == SubLevel.Vertex)
+                {
+                    vertices.Add(FaceKey(s, k, group[t[best]]));
+                }
+                else
+                {
+                    edges.Add(EdgeName(s, k, group[t[best]], group[t[(best + 1) % 3]]));
+                }
+                return;
+            }
+            foreach (PickMesh mesh in this.pickMeshes)
+            {
+                int[] group = this.GroupsOf(mesh);
+                for (int f = 0; f < mesh.Triangles.Count; f++)
+                {
+                    int[] t = mesh.Triangles[f];
+                    Vector3 a = PointOf(mesh.Positions, t[0]), b = PointOf(mesh.Positions, t[1]), c = PointOf(mesh.Positions, t[2]);
+                    if (frontOnly && !this.FacesCamera(a, b, c))
+                    {
+                        continue;
+                    }
+                    bool[] inside = new bool[3];
+                    Vector3[] corners = { a, b, c };
+                    for (int i = 0; i < 3; i++)
+                    {
+                        PointF screen;
+                        inside[i] = this.ToScreen(corners[i], out screen) && this.region.Contains(screen);
+                    }
+                    for (int i = 0; i < 3; i++)
+                    {
+                        if (level == SubLevel.Vertex && inside[i])
+                        {
+                            vertices.Add(FaceKey(mesh.Section, mesh.Sub, group[t[i]]));
+                        }
+                        else if (level == SubLevel.Edge && inside[i] && inside[(i + 1) % 3])
+                        {
+                            edges.Add(EdgeName(mesh.Section, mesh.Sub, group[t[i]], group[t[(i + 1) % 3]]));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Vertex / Edge: the faces that touch the selected points / edges become the face selection (what the tools use).
+        private void SyncFacesFromSub()
+        {
+            this.faceSelection.Clear();
+            SubLevel level = SubObject.CurrentLevel;
+            foreach (PickMesh mesh in this.pickMeshes)
+            {
+                int[] group = this.GroupsOf(mesh);
+                for (int f = 0; f < mesh.Triangles.Count; f++)
+                {
+                    int[] t = mesh.Triangles[f];
+                    for (int i = 0; i < 3; i++)
+                    {
+                        bool touches = (level == SubLevel.Vertex)
+                            ? this.vertexSelection.Contains(FaceKey(mesh.Section, mesh.Sub, group[t[i]]))
+                            : this.edgeSelection.Contains(EdgeName(mesh.Section, mesh.Sub, group[t[i]], group[t[(i + 1) % 3]]));
+                        if (touches)
+                        {
+                            this.faceSelection.Add(FaceKey(mesh.Section, mesh.Sub, f));
+                            break;
+                        }
+                    }
+                }
+            }
+            this.FaceSelectionChanged();
+        }
+
+        // The points / edges of the selected faces (going to Vertex / Edge, Select All, Linked).
+        private void SubFromFaces()
+        {
+            this.vertexSelection.Clear();
+            this.edgeSelection.Clear();
+            foreach (long key in this.faceSelection)
+            {
+                int s, k, f;
+                FaceKeyParts(key, out s, out k, out f);
+                PickMesh mesh = this.MeshOf(s, k);
+                if (mesh == null || f >= mesh.Triangles.Count)
+                {
+                    continue;
+                }
+                int[] t = mesh.Triangles[f], group = this.GroupsOf(mesh);
+                for (int i = 0; i < 3; i++)
+                {
+                    this.vertexSelection.Add(FaceKey(s, k, group[t[i]]));
+                    this.edgeSelection.Add(EdgeName(s, k, group[t[i]], group[t[(i + 1) % 3]]));
+                }
+            }
+        }
+
+        // The level changes (tool bar): going to Vertex / Edge the selected faces become their points / edges, as 3ds Max
+        // converts a selection; going to Face / Polygon / Element the faces stay.
+        private void SubLevelChanged(object sender, EventArgs e)
+        {
+            if (this.lblFaceSelection == null || this.IsDisposed)
+            {
+                return;
+            }
+            if (!SubObject.SelectsFaces(SubObject.CurrentLevel) && this.EnsurePickData())
+            {
+                this.SubFromFaces();
+                this.SyncFacesFromSub();
+                return;
             }
             this.FaceSelectionChanged();
         }
@@ -358,7 +705,11 @@ namespace ForzaStudio
         private void UpdateFaceSelectionLabel()
         {
             bool any = this.faceSelection.Count > 0;
-            this.lblFaceSelection.Text = any ? string.Format("{0:N0} faces selected", this.faceSelection.Count) : "No face selected. Click or drag in the view.";
+            SubLevel level = SubObject.CurrentLevel;
+            string what = (level == SubLevel.Vertex) ? string.Format("{0:N0} points selected ({1:N0} faces)", this.vertexSelection.Count, this.faceSelection.Count)
+                : (level == SubLevel.Edge) ? string.Format("{0:N0} edges selected ({1:N0} faces)", this.edgeSelection.Count, this.faceSelection.Count)
+                : string.Format("{0:N0} faces selected", this.faceSelection.Count);
+            this.lblFaceSelection.Text = SubObject.Name(level) + ": " + (any ? what : "nothing selected. Click or drag in the view.");
             if (this.btnToolDelete != null)
             {
                 this.btnToolDelete.Enabled = any;
@@ -371,6 +722,8 @@ namespace ForzaStudio
         private void ClearFaceSelection()
         {
             this.faceSelection.Clear();
+            this.vertexSelection.Clear();
+            this.edgeSelection.Clear();
             this.FaceSelectionChanged();
         }
 
@@ -387,6 +740,10 @@ namespace ForzaStudio
                 {
                     this.faceSelection.Add(FaceKey(mesh.Section, mesh.Sub, f));
                 }
+            }
+            if (!SubObject.SelectsFaces(SubObject.CurrentLevel))
+            {
+                this.SubFromFaces();
             }
             this.FaceSelectionChanged();
         }
@@ -460,18 +817,82 @@ namespace ForzaStudio
                     }
                 }
             }
+            if (!SubObject.SelectsFaces(SubObject.CurrentLevel))
+            {
+                this.SubFromFaces();
+            }
             this.FaceSelectionChanged();
         }
 
-        // Selected faces' edges (orange), and the box being dragged (white) as lines 0.5 m in front of the camera.
+        // Vertex: a small cross on each selected point; Edge: the selected edges.
+        private void AddSubObjectLines(List<VertexPositionColor> lines, Microsoft.Xna.Framework.Graphics.Color color)
+        {
+            if ((this.vertexSelection.Count == 0 && this.edgeSelection.Count == 0) || !this.EnsurePickData())
+            {
+                return;
+            }
+            Vector3 min, max;
+            float size = this.ModelBounds(out min, out max) ? Math.Max(0.002f, (max - min).Length() * 0.004f) : 0.01f;
+            bool vertex = SubObject.CurrentLevel == SubLevel.Vertex;
+            foreach (PickMesh mesh in this.pickMeshes)
+            {
+                int[] group = this.GroupsOf(mesh);
+                Dictionary<long, bool> done = new Dictionary<long, bool>();
+                foreach (int[] t in mesh.Triangles)
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        int a = group[t[i]], b = group[t[(i + 1) % 3]];
+                        if (vertex)
+                        {
+                            if (done.ContainsKey(a) || !this.vertexSelection.Contains(FaceKey(mesh.Section, mesh.Sub, a)))
+                            {
+                                continue;
+                            }
+                            done[a] = true;
+                            Vector3 p = PointOf(mesh.Positions, t[i]);
+                            foreach (Vector3 axis in new Vector3[] { Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ })
+                            {
+                                lines.Add(new VertexPositionColor(p - (axis * size), color));
+                                lines.Add(new VertexPositionColor(p + (axis * size), color));
+                            }
+                        }
+                        else
+                        {
+                            long key = SubObject.EdgeKey(a, b);
+                            if (done.ContainsKey(key) || !this.edgeSelection.Contains(EdgeName(mesh.Section, mesh.Sub, a, b)))
+                            {
+                                continue;
+                            }
+                            done[key] = true;
+                            lines.Add(new VertexPositionColor(PointOf(mesh.Positions, t[i]), color));
+                            lines.Add(new VertexPositionColor(PointOf(mesh.Positions, t[(i + 1) % 3]), color));
+                        }
+                    }
+                }
+            }
+        }
+
+        // The selected faces filled red (Face, Polygon, Element), made with MeshEditOverlayLines.
+        private VertexPositionColor[] MeshEditFaceFill()
+        {
+            return (this.faceFill != null && this.faceFill.Count >= 3 && SubObject.SelectsFaces(SubObject.CurrentLevel)) ? this.faceFill.ToArray() : null;
+        }
+
+        // Selected faces' edges, points or edges (red), and the region being dragged (white) as lines 0.5 m in front of the camera.
         private List<VertexPositionColor> MeshEditOverlayLines()
         {
             List<VertexPositionColor> lines = new List<VertexPositionColor>();
-            Microsoft.Xna.Framework.Graphics.Color orange = new Microsoft.Xna.Framework.Graphics.Color(255, 150, 30, 255);
+            Microsoft.Xna.Framework.Graphics.Color red = new Microsoft.Xna.Framework.Graphics.Color(240, 30, 30, 255);     // as 3ds Max shows a selection
             if (this.faceLines == null)
             {
                 this.faceLines = new List<VertexPositionColor>();
-                if (this.faceSelection.Count > 0 && this.EnsurePickData())
+                this.faceFill = new List<VertexPositionColor>();
+                if (!SubObject.SelectsFaces(SubObject.CurrentLevel))
+                {
+                    this.AddSubObjectLines(this.faceLines, red);
+                }
+                else if (this.faceSelection.Count > 0 && this.EnsurePickData())
                 {
                     Dictionary<int, PickMesh> byKey = new Dictionary<int, PickMesh>();
                     foreach (PickMesh mesh in this.pickMeshes)
@@ -489,37 +910,38 @@ namespace ForzaStudio
                         }
                         int[] t = mesh.Triangles[f];
                         Vector3 a = PointOf(mesh.Positions, t[0]), b = PointOf(mesh.Positions, t[1]), c = PointOf(mesh.Positions, t[2]);
-                        this.faceLines.Add(new VertexPositionColor(a, orange));
-                        this.faceLines.Add(new VertexPositionColor(b, orange));
-                        this.faceLines.Add(new VertexPositionColor(b, orange));
-                        this.faceLines.Add(new VertexPositionColor(c, orange));
-                        this.faceLines.Add(new VertexPositionColor(c, orange));
-                        this.faceLines.Add(new VertexPositionColor(a, orange));
+                        Microsoft.Xna.Framework.Graphics.Color fill = new Microsoft.Xna.Framework.Graphics.Color(240, 30, 30, 110);
+                        this.faceFill.Add(new VertexPositionColor(a, fill));
+                        this.faceFill.Add(new VertexPositionColor(b, fill));
+                        this.faceFill.Add(new VertexPositionColor(c, fill));
+                        this.faceLines.Add(new VertexPositionColor(a, red));
+                        this.faceLines.Add(new VertexPositionColor(b, red));
+                        this.faceLines.Add(new VertexPositionColor(b, red));
+                        this.faceLines.Add(new VertexPositionColor(c, red));
+                        this.faceLines.Add(new VertexPositionColor(c, red));
+                        this.faceLines.Add(new VertexPositionColor(a, red));
                     }
                 }
             }
             lines.AddRange(this.faceLines);
-            if (this.faceDragging && this.DragIsBox)
+            if (this.region.Active && (this.region.Mode == RegionMode.Fence || !this.region.WasClick))
             {
                 Microsoft.Xna.Framework.Graphics.Color white = new Microsoft.Xna.Framework.Graphics.Color(255, 255, 255, 255);
-                System.Drawing.Point[] corners =
-                {
-                    this.dragStart, new System.Drawing.Point(this.dragEnd.X, this.dragStart.Y), this.dragEnd, new System.Drawing.Point(this.dragStart.X, this.dragEnd.Y)
-                };
-                Vector3[] world = new Vector3[4];
-                for (int i = 0; i < 4; i++)
+                PointF[] outline = this.region.Outline();
+                List<Vector3> world = new List<Vector3>();
+                foreach (PointF corner in outline)
                 {
                     Vector3 origin, direction;
-                    if (!this.PixelRay(corners[i], out origin, out direction))
+                    if (!this.PixelRay(new System.Drawing.Point((int) corner.X, (int) corner.Y), out origin, out direction))
                     {
                         return lines;
                     }
-                    world[i] = origin + (direction * (this.scene.Camera.Orthographic ? 1f : 0.5f));
+                    world.Add(origin + (direction * (this.scene.Camera.Orthographic ? 1f : 0.5f)));
                 }
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i + 1 < world.Count; i++)
                 {
                     lines.Add(new VertexPositionColor(world[i], white));
-                    lines.Add(new VertexPositionColor(world[(i + 1) % 4], white));
+                    lines.Add(new VertexPositionColor(world[i + 1], white));
                 }
             }
             return lines;

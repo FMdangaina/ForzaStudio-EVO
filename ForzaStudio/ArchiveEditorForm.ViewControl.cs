@@ -44,6 +44,10 @@ namespace ForzaStudio
             {
                 return false;
             }
+            if (this.MeshEditRegionKey(keyData))
+            {
+                return true;
+            }
             switch (keyData)
             {
                 case Keys.Delete: this.DeleteSelectedFaces(); return true;
@@ -94,6 +98,11 @@ namespace ForzaStudio
 
             strip.Items.Add(this.btnOrtho);
             strip.Items.Add(new ToolStripSeparator());
+            foreach (ToolStripButton level in SubObject.CreateButtons(false))
+            {
+                strip.Items.Add(level);
+            }
+            strip.Items.Add(SelectionRegion.CreateButton());
             strip.Items.Add(ToolButton(ToolIcons.Select(true), "Select all the faces shown (MESH tab)  (Ctrl+A)", delegate { this.SelectAllFaces(); }));
             this.btnToolNone = ToolButton(ToolIcons.Select(false), "Select no face  (Ctrl+Shift+A)", delegate { this.ClearFaceSelection(); });
             this.btnToolLinked = ToolButton(ToolIcons.Linked(), "Select the pieces the selected faces belong to  (L)", delegate { this.SelectLinkedFaces(); });

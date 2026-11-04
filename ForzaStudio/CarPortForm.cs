@@ -1786,6 +1786,10 @@ namespace ForzaStudio
             {
                 dialog.Description = "Folder for the Xbox 360 package file (saved directly in it)";
                 string last = AppSettings.Get("CarPort.XboxOut", "");
+                if (last.IndexOf("4D53084D", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    last = "";      // the FM3 folder (title 4D53084D) kept before FM3 had its own setting: an FM4 package goes to the FM4 title folder
+                }
                 if (Directory.Exists(last))
                 {
                     dialog.SelectedPath = last;

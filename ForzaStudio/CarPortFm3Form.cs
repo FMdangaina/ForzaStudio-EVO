@@ -580,21 +580,11 @@ namespace ForzaStudio
                         this.items.Add(item);
                     }
                     this.donors.Items.Clear();
-                    int select = -1;
                     foreach (string[] donor in donorList)
                     {
-                        int at = this.donors.Items.Add(donor[1] + "  (" + donor[0] + ")");
-                        this.donors.Tag = donorList;
-                        if (string.Equals(donor[0], "TOY_SupraRZ_98", StringComparison.OrdinalIgnoreCase))
-                        {
-                            select = at;
-                        }
+                        this.donors.Items.Add(donor[1] + "  (" + donor[0] + ")");
                     }
                     this.donors.Tag = donorList;
-                    if (select >= 0)
-                    {
-                        this.donors.SelectedIndex = select;
-                    }
                     this.Filter();
                     if (this.mode == PortMode.Dlc && this.packOffer.Text.Trim().Length == 0)
                     {
@@ -1315,7 +1305,7 @@ namespace ForzaStudio
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
             {
                 dialog.Description = "Folder for the Xbox 360 package file (saved directly in it)";
-                string last = AppSettings.Get("CarPort.XboxOut", "");
+                string last = AppSettings.Get("CarPort.XboxOut.FM3", "");
                 if (Directory.Exists(last))
                 {
                     dialog.SelectedPath = last;
@@ -1326,7 +1316,7 @@ namespace ForzaStudio
                 }
                 output = dialog.SelectedPath;
             }
-            AppSettings.Set("CarPort.XboxOut", output);
+            AppSettings.Set("CarPort.XboxOut.FM3", output);
             string installed = this.XeniaContent();   // the strings of the FM3 packs installed in Xenia, if its folder is set
             this.report.Text = string.Format("Building the Xbox 360 package \"{0}\" (offer {1}) into {2}\r\n", name, offer, output);
             this.Background(delegate

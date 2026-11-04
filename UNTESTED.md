@@ -19,20 +19,20 @@ Code: `ForzaStudio/ArchiveEditorForm.GameDb.cs`, `ArchiveEditorForm.Creators.cs`
 The toolbar now has groups: **Cars Wheels Tracks Events | Engines Makes Countries Manufacturers | Tables**.
 A section appears only if the database has its table.
 
-- [ ] A1. **Open the database** (a crash here was fixed: `SectionTables` lacked the Lists entry; commit 5611985). Check it opens and every button works.
-- [ ] A2. **Engines** (`Data_Engine`): columns Id / Engine / Media name / Config / Cars (cars using it); tab "Engine" (record), tab "Cars and curves"
+- [x] A1. **Open the database** (a crash here was fixed: `SectionTables` lacked the Lists entry; commit 5611985). Check it opens and every button works.
+- [x] A2. **Engines** (`Data_Engine`): columns Id / Engine / Media name / Config / Cars (cars using it); tab "Engine" (record), tab "Cars and curves"
       (rows of `List_UpgradeEngine`, `Combo_Engines`, `List_TorqueCurve`). Go to on a car's engine opens this section.
-- [ ] A3. **Makes** (`List_CarMake`): logos (`IconPath` + `IconPathLight`; Chrysler, Infiniti, Jaguar, Mitsubishi have no light file),
+- [x] A3. **Makes** (`List_CarMake`): logos (`IconPath` + `IconPathLight`; Chrysler, Infiniti, Jaguar, Mitsubishi have no light file),
       columns Id / Make / Code / Country / Cars, tab "Cars and parts" (cars, engine and drivetrain upgrades, decal order, part discounts).
-- [ ] A4. **Countries** (`List_Country`): flag (10 of 22 have none), Makes count, tab "Makes and cars" (makes, cars, environments, AI players).
-- [ ] A5. **Manufacturers** (`List_PartManufacturer`, NOT the same as car makes): logo built as
+- [x] A4. **Countries** (`List_Country`): flag (10 of 22 have none), Makes count, tab "Makes and cars" (makes, cars, environments, AI players).
+- [x] A5. **Manufacturers** (`List_PartManufacturer`, NOT the same as car makes): logo built as
       `GAME:\Media\UI\Textures\UI4\Logos\Car_Parts_Logos\<LogoPath>.xds` (only ~232 of 569 files exist in FM4; empty box is normal);
       tab "Parts" lists every `List_Upgrade*` table with `ManufacturerID` except `List_UpgradeEngine` / `List_UpgradeDrivetrain`
       (those point at car makes), plus wheels (`PartManufacturerID`), tire brands (`TireBrandId`), part discounts (`BrandId`).
 - [x] A6. ~~Lists~~ REMOVED 2026-10-24 (user: "non ha molto senso usare"): the picker over 15 id lists is gone; Go to / Used by to those tables opens them in Tables.
-- [ ] A7. **Events header picture**: poster of the career type (`CareerEventTypes.PosterPath`; 15 of 32 types have one), else the first race's
+- [x] A7. **Events header picture**: poster of the career type (`CareerEventTypes.PosterPath`; 15 of 32 types have one), else the first race's
       track logo. The header text and buttons moved right to make room.
-- [ ] A8. Related-row counts no longer raise an error for a table that lacks the column (another game version).
+- [x] A8. Related-row counts no longer raise an error for a table that lacks the column (another game version).
 
 Ideas not done: "Used by" column in the lists, filter "only used", button "new row (copy of this)", light make logo falling back to the dark one.
 
@@ -82,15 +82,15 @@ notes in `docs/MANUAL.md` and `TODO.md` (12.3, 12.5, 12.6, 12.7). Not written by
 
 Code: `EngineDialog.cs`, `CarEngine.cs` (`StockMultipliers`), `CarPerformance.cs` (new), `CarDuplicate.cs`.
 
-- [ ] F1. Engine dialog **reopens with what was designed** (it started again from the source's engine each time).
-- [ ] F2. Pasting two columns sets the **redline to the last pasted rpm** (no old rows left above it); rows below the first pasted rpm stay.
-- [ ] F3. The torque / power shown in the dialog are **what the game shows** (curve x stock parts' TorqueScale x the turbo's MaxScale when the
+- [x] F1. Engine dialog **reopens with what was designed** (it started again from the source's engine each time).
+- [x] F2. Pasting two columns sets the **redline to the last pasted rpm** (no old rows left above it); rows below the first pasted rpm stay.
+- [x] F3. The torque / power shown in the dialog are **what the game shows** (curve x stock parts' TorqueScale x the turbo's MaxScale when the
       engine is boosted): paste 310 N.m, see 310 N.m in game (before: the MiTo copy showed 544 N.m / 150 kW, the dialog said ~320 / 88).
       Changing the aspiration changes the numbers.
-- [ ] F4. Sound: the copy gets `<car>_CMT.xml` (CarModelTuning.zip) and, with an own engine, `<car>_ET.xml` (enginetuning.zip, a copy of the
+- [x] F4. Sound: the copy gets `<car>_CMT.xml` (CarModelTuning.zip) and, with an own engine, `<car>_ET.xml` (enginetuning.zip, a copy of the
       chosen / source engine's) and `Data_Engine.MediaName` = the car's name (as the port does). In game: the picked engine's sound? (the MiTo
       copy had MediaName = MAZ_MX5SL_10 and played something else). Game folder AND pack (the pack stage now includes both zips).
-- [ ] F5. Performance recomputed for an own engine (`CarPerformance.Update`): Sim times / top speed from a longitudinal simulation (checked on the
+- [x] F5. Performance recomputed for an own engine (`CarPerformance.Update`): Sim times / top speed from a longitudinal simulation (checked on the
       501 stock cars: top speed and quarter mile within ~3%, 0-60 within ~8%) as a RATIO on the source's values; ratings and PerformanceIndex from
       the ratings relations (R2 0.97 / 0.989); class from the PI; the shown figures (0-60, top speed...) scaled unless typed in the wizard.
       **Compare the PI shown in game with the plan line "performance ..."**: the MiTo copy showed D 292 in game (stored PI 336 then), the
@@ -100,9 +100,9 @@ Code: `EngineDialog.cs`, `CarEngine.cs` (`StockMultipliers`), `CarPerformance.cs
 
 Code: `CarUninstall.cs` (now also for copies, no `port_log.txt`), `ArchiveEditorForm.GameDb.cs` (`DeleteCar`, button in the car header).
 
-- [ ] G1. Database view > Cars: **Delete Car...** (enabled only for a car above FM4's own ids, with the game folder open). A window lists
+- [x] G1. Database view > Cars: **Delete Car...** (enabled only for a car above FM4's own ids, with the game folder open). A window lists
       everything that goes; OK deletes (files backed up to `bak`), then the view reloads. Xenia must be closed.
-- [ ] G2. A copy made by Duplicate Car goes away completely: its rows, its own engine and curves, its strings, `<car>.zip`, thumbnail, `_CMT` /
+- [x] G2. A copy made by Duplicate Car goes away completely: its rows, its own engine and curves, its strings, `<car>.zip`, thumbnail, `_CMT` /
       `_ET`. A base car is refused. The tuning file of an engine whose MediaName another engine has (old copies that played the MX-5's sound)
       is kept. Plan-only check on the MiTo copy (ALF_MitoJTDm_09) done; nothing deleted yet.
 

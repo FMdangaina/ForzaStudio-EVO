@@ -32,9 +32,18 @@ Status of a goal: 🔧 active · ⏸ paused · 💤 maybe later · ✅ reached
 | 15 | **Platform and UI**: friendly themed windows and settings done; MDI and a recent .NET Framework last | ⏸ |
 | 16 | **Documentation and community**: a manual, format docs in `docs/`, user reports turned into points | ⏸ |
 | 17 | **A complete game database editor**: every table reachable with the same ease as cars, tracks and events (sections with logos and related rows for the important lists: engines, makes, countries, manufacturers... plus the raw table view and SQL console) | ⏸ |
+| 18 | **Every game to every game.** A car of any Xbox-era Forza (FM2, FM3, FM4, FH1, FH2) can be ported to any other, each keeping its own characteristics: model, wheels, data, strings, sound, dash, DLC pack for the target. One reader and one writer per game (5 + 5 pieces, not 20 converters), source value first, then computed, donor last. Plan and matrix: `docs/PORT_ALL_GAMES.md`. Today 5 of 20 routes: the four to FM4 (goals 3, 4, 5) and FM4 → FM3 (with its own dash, DLC pack, install wizard, thumbnails: `docs/FM3/fm3_conversion.md`). Still to do: FH and FM2 writers, then the cross routes. Goals 3, 4, 5 are the "to FM4" half of this one. PAUSED 2026-11-03 until the FM4 list in `TODO.md` NOW is closed | ⏸ |
+| 19 | **Model tools in the viewport**: numpad views, live camera editors, collision generation, mesh editor (select, delete, detach faces), UV mapper, shader preview in a second XNA viewport. Engine tested headless, windows not yet seen working (`TODO.md` D-20, D-21; `docs/VIEWPORT_MESH_UV_SESSION.md`). Goal 9 (shaders) feeds this one | 🔧 |
+| 20 | **Release 0.0.1.** Finish and fix, no new topics: version number in the program and the ini, New Folder seen (7.4), Release build and clean zip, push when the user says. Experimental parts are labelled in the docs (`TODO.md` section 0) | 🔧 |
 
 Topic 17 is new (2026-10-23): it takes the database *editor* part that was in the finished point 1.6; the database *rules*
 stay in topic 1.
+
+Topics 18 to 20 are new (2026-11-03, realigned after the work of 28/10 - 3/11 had run ahead of this file): 18 is the user's
+"all generations between all generations" (2026-11-02/03), 19 collects the viewport, mesh and UV work, 20 is the release.
+Goal 14 (cameras) and goal 12 (dash) also gained work in that period: the FM4 → FM3 port carries the car's own dash
+(`TODO.md` 12.10, 12.11) and the viewport edits the cockpit, hood, bumper and thumbnail cameras live.
+`URGENT.md` (2026-10-31, string keys and makes) and `task_status.md` (2026-10-27) are closed chats: their open points live in `TODO.md`.
 
 ---
 

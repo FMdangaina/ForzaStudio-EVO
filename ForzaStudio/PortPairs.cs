@@ -12,15 +12,15 @@ namespace ForzaStudio
         public static readonly string[] Games = { "FM2", "FM3", "FM4", "FH1", "FH2" };
 
         // Routes with a working conversion AND a window. target -> sources.
-        // FM4 <- FM2/FM3/FH1/FH2 is the CarPortForm. FM3 <- FM4 is CarPortFm3Form (CarPortToFm3).
+        // FM4 <- FM2/FM3/FH1/FH2 is the CarPortForm. FM3 <- FM4 is CarPortFm3Form (CarPortToFm3): code kept, route
+        // switched off (FM3 work suspended until FM4 is satisfactory, user 2026-11-03): add { "FM3", new[] { "FM4" } } back.
         private static readonly Dictionary<string, string[]> Supported = new Dictionary<string, string[]>
         {
             { "FM4", new[] { "FM2", "FM3", "FH1", "FH2" } },
-            { "FM3", new[] { "FM4" } },
         };
 
-        // Targets whose Create DLC Package exists.
-        private static readonly string[] DlcTargets = { "FM3", "FM4" };
+        // Targets whose Create DLC Package exists (FM3 suspended too: add "FM3" back).
+        private static readonly string[] DlcTargets = { "FM4" };
 
         public static bool CanImport(string target, string source)
         {

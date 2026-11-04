@@ -294,6 +294,34 @@ namespace ForzaStudio
             this.Graphics.RenderState.DepthBufferEnable = true;
         }
 
+        // Translucent triangles over the model (the selected faces of the MESH tab): depth-tested, pulled a little towards
+        // the camera so they do not fight with the faces they cover, both sides.
+        private void DrawFaces(VertexPositionColor[] vertexData)
+        {
+            RenderState state = this.Graphics.RenderState;
+            CullMode cull = state.CullMode;
+            state.FillMode = FillMode.Solid;
+            state.CullMode = CullMode.None;
+            state.AlphaBlendEnable = true;
+            state.SourceBlend = Blend.SourceAlpha;
+            state.DestinationBlend = Blend.InverseSourceAlpha;
+            state.DepthBias = -0.00002f;
+            state.DepthBufferWriteEnable = false;
+            this.ColoredVertices.Begin();
+            foreach (EffectPass pass in this.ColoredVertices.CurrentTechnique.Passes)
+            {
+                pass.Begin();
+                this.Graphics.VertexDeclaration = new VertexDeclaration(this.Graphics, VertexPositionColor.VertexElements);
+                this.Graphics.DrawUserPrimitives<VertexPositionColor>(PrimitiveType.TriangleList, vertexData, 0, vertexData.Length / 3);
+                pass.End();
+            }
+            this.ColoredVertices.End();
+            state.AlphaBlendEnable = false;
+            state.DepthBias = 0f;
+            state.DepthBufferWriteEnable = true;
+            state.CullMode = cull;
+        }
+
         private void DrawLines(VertexPositionColor[] vertexData)
         {
             this.Graphics.RenderState.FillMode = FillMode.Solid;
@@ -408,6 +436,10 @@ namespace ForzaStudio
                             this.DrawCheckedModels(this.Models.Nodes, FillMode.WireFrame);
                         }
                         this.DrawAxes(1f);
+                        if (this.OverlayFaces != null && this.OverlayFaces.Length >= 3)
+                        {
+                            this.DrawFaces(this.OverlayFaces);
+                        }
                         if (this.Overlay != null && this.Overlay.Length >= 2)
                         {
                             this.Graphics.RenderState.DepthBufferEnable = false;
@@ -431,6 +463,9 @@ namespace ForzaStudio
 
         // Line pairs drawn over the model (no depth test), e.g. the cockpit camera markers.
         public VertexPositionColor[] Overlay { get; set; }
+
+        // Triangles drawn over the model with blending (their colour carries the alpha), e.g. the selected faces.
+        public VertexPositionColor[] OverlayFaces { get; set; }
 
         public Panel Viewport { get; private set; }
     }

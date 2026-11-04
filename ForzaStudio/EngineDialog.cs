@@ -205,14 +205,6 @@ namespace ForzaStudio
                 column.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
             }
             this.table.CellValueChanged += delegate(object sender, DataGridViewCellEventArgs e) { this.TableEdited(e.RowIndex, e.ColumnIndex); };
-            this.table.KeyDown += delegate(object sender, KeyEventArgs e)
-            {
-                if (e.Control && e.KeyCode == Keys.V)
-                {
-                    e.SuppressKeyPress = true;
-                    this.PasteTorque();
-                }
-            };
             this.Controls.Add(this.table);
             Button reset = new Button();
             reset.Text = "Reset curve";
@@ -230,7 +222,7 @@ namespace ForzaStudio
             this.Controls.Add(generate);
             Label note = new Label();
             note.SetBounds(130, 664, 380, 40);
-            note.Text = "Drag on the graph, or type the N.m of a row of the table: one row per 100 rpm, as FM4 stores it (the number of values follows the redline + 300 rpm diesel / 500 petrol). Ctrl+V pastes two columns from Excel (rpm, N.m at any rpm) or one column of N.m from the selected row. Rows past the redline are grey. Idle is the stall rpm; the sound is the FM4 engine you pick.";
+            note.Text = "Drag on the graph, or type the N.m of a row of the table: one row per 100 rpm, as FM4 stores it (the number of values follows the redline + 300 rpm diesel / 500 petrol).. Rows past the redline are grey. Idle is the stall rpm; the sound is the FM4 engine you pick.";
             this.Controls.Add(note);
             this.pointsNote = new Label();
             this.pointsNote.SetBounds(130, 706, 380, 28);
@@ -711,93 +703,6 @@ namespace ForzaStudio
                 this.shape[row] = Math.Max(0, value) / this.ScaleNow();
             }
             this.Rebuild();
-        }
-
-        // Ctrl+V from Excel/CSV: two columns rpm + N.m at any rpm (the curve between is interpolated onto the rows;
-        // the redline becomes the last pasted rpm; rows below the first pasted rpm stay), or one column of N.m from the
-        // selected row down. A header line is skipped.
-        private void PasteTorque()
-        {
-            if (!Clipboard.ContainsText() || this.table.CurrentRow == null)
-            {
-                return;
-            }
-            List<double[]> pairs = new List<double[]>();
-            List<double> column = new List<double>();
-            foreach (string line in Clipboard.GetText().Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                List<double> numbers = new List<double>();
-                foreach (string field in line.Split(new char[] { '\t', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    double number;
-                    if (double.TryParse(field.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out number))
-                    {
-                        numbers.Add(number);
-                    }
-                }
-                if (numbers.Count >= 2)
-                {
-                    pairs.Add(new double[] { numbers[0], numbers[1] });
-                }
-                else if (numbers.Count == 1)
-                {
-                    column.Add(numbers[0]);
-                }
-            }
-            if (pairs.Count >= 2)
-            {
-                // The pasted curve ends where the engine ends: the redline becomes its last rpm.
-                double top = 0;
-                foreach (double[] pair in pairs)
-                {
-                    top = Math.Max(top, pair[0]);
-                }
-                decimal wanted = Math.Max(this.redline.Minimum, Math.Min(this.redline.Maximum, Math.Round((decimal) top / 100m) * 100m));
-                if (wanted != this.redline.Value)
-                {
-                    this.redline.Value = wanted;
-                }
-            }
-            double scale = this.ScaleNow();
-            if (scale <= 0)
-            {
-                return;
-            }
-            bool any = false;
-            if (pairs.Count >= 2)
-            {
-                pairs.Sort(delegate(double[] a, double[] b) { return a[0].CompareTo(b[0]); });
-                for (int k = 0; k < this.shape.Length; k++)
-                {
-                    double rpm = k * 100.0;
-                    if (rpm < pairs[0][0] || rpm > pairs[pairs.Count - 1][0])
-                    {
-                        continue;
-                    }
-                    int i = 0;
-                    while (i + 2 < pairs.Count && pairs[i + 1][0] < rpm)
-                    {
-                        i++;
-                    }
-                    double span = pairs[i + 1][0] - pairs[i][0];
-                    double t = (span > 0) ? (rpm - pairs[i][0]) / span : 0;
-                    this.shape[k] = Math.Max(0, pairs[i][1] + ((pairs[i + 1][1] - pairs[i][1]) * t)) / scale;
-                    any = true;
-                }
-            }
-            else
-            {
-                int row = this.table.CurrentRow.Index;
-                for (int n = 0; n < column.Count && row + n < this.shape.Length; n++)
-                {
-                    this.shape[row + n] = Math.Max(0, column[n]) / scale;
-                    any = true;
-                }
-            }
-            if (any)
-            {
-                this.Rebuild();
-            }
         }
 
         // "Generate curve": peak torque and power with their rpm and the rev limiter (the redline) give the whole torque

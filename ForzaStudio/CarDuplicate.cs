@@ -248,7 +248,7 @@ namespace ForzaStudio
             string newZipPath = Path.Combine(carsFolder, this.NewMediaName + ".zip");
             if (!File.Exists(sourceZipPath))
             {
-                throw new InvalidOperationException("The FM4 folder has no " + this.SourceMediaName + ".zip.");
+                throw new InvalidOperationException("The FM4 folder has no " + this.SourceMediaName + ".zip. If it is a car of a DLC pack, copying DLC cars is not supported yet (TODO NOW 2b): copy a car of the base game, or port the DLC car.");
             }
             if (File.Exists(newZipPath))
             {
