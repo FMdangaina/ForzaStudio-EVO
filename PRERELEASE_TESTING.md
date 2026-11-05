@@ -19,7 +19,7 @@ until FM4 is done. Details of every point are in `TODO.md` section NOW; this fil
 | 9 | FM2 / FM1 close-up (5.3) | ⏸ postponed by the user (FM2 resumes after the release) |
 | 10 | Offroad / small tyres, generic brakes | ✅ solved with the Raptor tyres, tested on the Bowler (user) |
 | 11 | Checks 1.3 / 1.4, own engine from scratch 2.3.2, camera review 14.0 | ✅ 2026-11-05 |
-| 12 | Release 0.0.1 | 🔧 tag v0.0.1 + GitHub draft release; left: 7.4 New Folder and the zip seen by the user, then publish |
+| 12 | Release 0.0.1 / 0.0.2 | 🔧 7.4 New Folder OK (user); 0.0.2 tagged with the doc review, v0.0.1 release deleted; left: publish the v0.0.2 draft |
 
 ## 2026-11-03/04 (commit f84a191)
 

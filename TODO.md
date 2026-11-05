@@ -45,7 +45,7 @@ FM4 was not finished when FM3 and the viewport tools came in. Until this list is
 
 ## C. Checks and housekeeping
 11. ✅ CLOSED 2026-11-05: 1.3 (+ car * 1000 + n rule), 1.4, 2.3.2 (closed 2026-10-27), 14.0 (cockpit camera in game). Was: 1.3 / 1.4 checks (database rules, SQL console) to confirm and tick; 2.3.2 own engine from scratch (open points); 14.0 camera review.
-12. 🔧 **Release 0.0.1** (goal 20): version, Release build, zips, push, tag v0.0.1 and GitHub draft release done 2026-11-05; left: 7.4 New Folder and the zip seen by the user, then publish the draft.
+12. 🔧 **Release 0.0.1** (goal 20): done 2026-11-05: version, Release build, zips, push, 7.4 New Folder (seen by the user); 0.0.1 replaced by 0.0.2 (doc review, Issues on), tag v0.0.2, GitHub draft release; left: the user publishes it.
 
 Parked (not in this list): FM3 windows and DLC for FM3 (`docs/FM3/fm3_conversion.md` section 9), goal 18 phase 0, FM4 -> FM3 dash in game (12.10), dash structure edits (12.6 - 12.9), generic brakes (3.3), Raptor grip (dropped), FM3 grip CM/springs, 7.2 FTP, auto LODs, 2.4 cars from scratch.
 
@@ -57,7 +57,7 @@ Focus: finish and fix, no new topics. Done 2026-10-28: build + commit of the 26-
 THIRD-PARTY-NOTICES / credits updated (docs say what is experimental).
 **Experimental / dream group** (labelled as such in the docs, not fixed for 0.0.1): Anark dash structure edits (12.6-12.9), OBJ onto wheels
 (11.1 / 11.2, T-G10), FBX in Blender (11.8.2), thumbnail camera (14.0: cockpit checked, exterior previews off), new country (8.2), generic brakes (3.3 / T-G7), 9.5, 15.x.
-2026-11-05: version 0.0.1 in AssemblyInfo (title, About, ini [App] Version), Release build, zips in dist\ (public: own exe + MIT/ISC libraries; user-provided files listed in INSTRUCTIONS.txt; FULL private zip for the user), pushed, tag v0.0.1, GitHub draft release. Dropped: 9.4. Left: 7.4 New Folder seen in the interface, the zip tried by the user, then publish the draft.
+2026-11-05: version 0.0.1 in AssemblyInfo (title, About, ini [App] Version), Release build, zips in dist\ (public: own exe + MIT/ISC libraries; user-provided files listed in INSTRUCTIONS.txt; FULL private zip for the user), pushed, tag v0.0.1, GitHub draft release. Dropped: 9.4. Then 0.0.2 the same evening (doc review, GitHub Issues on, the v0.0.1 release deleted); left: the user publishes the v0.0.2 draft.
 
 ---
 
@@ -290,7 +290,7 @@ console tests). Docs: `docs/DLC_PACKAGES.md`. Material: `fm4dev\DEV_DLC`.
       overlays the packages' .str names. The view is READ-ONLY (GameDatabase.ReadOnly); the toolbar button DLC turns it off to edit the game's
       own database. FH1: 21 packages, 15 merged, 69 DLC cars; "Rally Expansion Pack" zip is damaged in the file itself. Open: FM2 packs without
       a merge database (cars as loose folders, rows come from `_execute.sql`) are listed but not merged; FH2 has no content here.
-- [ ] 7.4 New Folder in the archive tree (user 2026-10-27): Archive > New Folder... and right-click "New Folder Here..." on a zip, a folder or a DLC package. In a folder / package work folder the folder is made on disk (and shows even when empty); in a zip it only shows in the tree until a file is added (a zip stores no empty folder). CODED, compile-checked on a clean copy, NOT built in binDebug (the build is broken by another chat's ForzaZip.cs) and not seen in the interface: to check once the build is back.
+- [x] 7.4 (seen working by the user, 2026-11-05) New Folder in the archive tree (user 2026-10-27): Archive > New Folder... and right-click "New Folder Here..." on a zip, a folder or a DLC package. In a folder / package work folder the folder is made on disk (and shows even when empty); in a zip it only shows in the tree until a file is added (a zip stores no empty folder). CODED, compile-checked on a clean copy, NOT built in binDebug (the build is broken by another chat's ForzaZip.cs) and not seen in the interface: to check once the build is back.
 - [ ] 7.2 ⏸ Transfer to the console: FTP (Aurora / FSD) or Xbox 360 Neighborhood (the user's side; no console now)
 
 ### 8. New car makes 🔧
