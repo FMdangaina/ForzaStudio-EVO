@@ -3,6 +3,12 @@
 Data: 2026-10-31. File per riprendere il lavoro (TODO D-20 viewport, D-21 mesh editor + UV mapper).
 Stato: tutto compilato e provato dall'utente a vista ("direi che ci siamo!"); restano le prove di editing e il test in gioco. Niente è stato committato (l'utente fa il push).
 
+> **Aggiornamento 2026-11-05.** Tutto committato e pushato (tag v0.0.1). Viste, telecamere live, MESH, UV mapper e
+> collisioni chiusi dall'utente il 2026-11-04. Le anteprime delle telecamere **esterne** (cofano, paraurti) sono state
+> **spente**: il gioco somma gli offset di `CameraOverrides` a un suo punto base che non è in nessun file, e l'anteprima
+> metteva l'occhio dentro l'auto (NSX '97). Restano cockpit (verificato in gioco) e thumbnail. Il punto 1 qui sotto è
+> la richiesta originale del 31/10.
+
 ## 1. Richieste dell'utente (riassunto)
 
 1. **Rivoluzione del viewport**

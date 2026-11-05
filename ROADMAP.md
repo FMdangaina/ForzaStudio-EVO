@@ -1,11 +1,11 @@
 # ForzaStudio EVO roadmap
 
-The **goals** of Forza Studio, topic by topic. What we have to do to reach them, with states and dates, is in
+The **goals** of ForzaStudio EVO, topic by topic. What we have to do to reach them, with states and dates, is in
 `TODO.md`; research notes are in `docs/RESEARCH_NOTES.md`. Numbers are permanent (topic `N`, point `N.m`): the
 points are listed in `TODO.md`, the old numbers are in the table at the end.
 
 Rewritten as goals only on 2026-10-23 (before, this file held work, issues, research and the log of finished work;
-the previous version is in git history, commit `HEAD~1` and older).
+the previous version is in the git history before 2026-10-23).
 
 Status of a goal: 🔧 active · ⏸ paused · 💤 maybe later · ✅ reached
 
@@ -19,7 +19,7 @@ Status of a goal: 🔧 active · ⏸ paused · 💤 maybe later · ✅ reached
 | 2 | **Duplicate and create cars.** Copy any FM4 car (to the game folder or a DLC pack) with its own names, data, engine and colours, from a wizard that is quick to use; later, build a car from scratch | 🔧 |
 | 3 | **Port cars from Forza Horizon 1 / 2 to FM4**, with model, wheels, brakes, data, strings, sound and a crash that deforms like an FM4 car | 🔧 |
 | 4 | **Port cars from Forza Motorsport 3 to FM4** | ✅ |
-| 5 | **Port cars from Forza Motorsport 2 to FM4** (FM2 as a normal port source, then FM1) | ✅ |
+| 5 | **Port cars from Forza Motorsport 2 to FM4** (FM2 as a normal port source, then FM1). FM2 reached 2026-10-21; FM1 (5.4) and the FM1 / FM2 close-up paused by the user until after the release | ⏸ |
 | 6 | **Port the Horizon traffic cars**, including a rebuilt close-up model, cockpit and driver position | ✅ |
 | 7 | **DLC packages.** Build Xenia and console (STFS) packs, several packs together without clashes, port from a car DLC | 🔧 |
 | 8 | **New car makes** (local or in a pack), with logo, names and a working Livery editor | 🔧 |
@@ -28,13 +28,13 @@ Status of a goal: 🔧 active · ⏸ paused · 💤 maybe later · ✅ reached
 | 11 | **Model editing**: edit parts, OBJ in and out | ✅ |
 | 12 | **Digital dash (Anark) editor** | 🔧 |
 | 13 | **Music**: radio for every game, add songs to FM4 | ✅ |
-| 14 | **Cameras**: viewer and cockpit camera done ✅ exterior cameras only if wanted | 🔧 |
+| 14 | **Cameras**: cockpit camera previewed and edited, checked in game (2026-11-05). Exterior cameras: offsets editable as numbers, no preview (the game's base point for them is unknown; user: dropped) | ✅ |
 | 15 | **Platform and UI**: friendly themed windows and settings done; MDI and a recent .NET Framework last | ⏸ |
-| 16 | **Documentation and community**: a manual, format docs in `docs/`, user reports turned into points | ⏸ |
+| 16 | **Documentation and community**: a manual, format docs in `docs/`, user reports turned into points. Manual, README and INSTRUCTIONS reviewed for 0.0.1 (2026-11-05) | 🔧 |
 | 17 | **A complete game database editor**: every table reachable with the same ease as cars, tracks and events (sections with logos and related rows for the important lists: engines, makes, countries, manufacturers... plus the raw table view and SQL console) | ⏸ |
 | 18 | **Every game to every game.** A car of any Xbox-era Forza (FM2, FM3, FM4, FH1, FH2) can be ported to any other, each keeping its own characteristics: model, wheels, data, strings, sound, dash, DLC pack for the target. One reader and one writer per game (5 + 5 pieces, not 20 converters), source value first, then computed, donor last. Plan and matrix: `docs/PORT_ALL_GAMES.md`. Today 5 of 20 routes: the four to FM4 (goals 3, 4, 5) and FM4 → FM3 (with its own dash, DLC pack, install wizard, thumbnails: `docs/FM3/fm3_conversion.md`). Still to do: FH and FM2 writers, then the cross routes. Goals 3, 4, 5 are the "to FM4" half of this one. PAUSED 2026-11-03 until the FM4 list in `TODO.md` NOW is closed | ⏸ |
-| 19 | **Model tools in the viewport**: numpad views, live camera editors, collision generation, mesh editor (select, delete, detach faces), UV mapper, shader preview in a second XNA viewport. Engine tested headless, windows not yet seen working (`TODO.md` D-20, D-21; `docs/VIEWPORT_MESH_UV_SESSION.md`). Goal 9 (shaders) feeds this one | 🔧 |
-| 20 | **Release 0.0.1.** Finish and fix, no new topics: version number in the program and the ini, New Folder seen (7.4), Release build and clean zip, push when the user says. Experimental parts are labelled in the docs (`TODO.md` section 0) | 🔧 |
+| 19 | **Model tools in the viewport**: numpad views, live camera editors, collision generation, mesh editor (select, delete, detach faces), UV mapper, shader preview in a second XNA viewport. Seen working by the user 2026-11-04 (views, live cameras, MESH with sub-object levels, UV mapper, collision); the shader viewport window not checked yet (`TODO.md` D-20, D-21; `docs/VIEWPORT_MESH_UV_SESSION.md`). Goal 9 (shaders) feeds this one | 🔧 |
+| 20 | **Release 0.0.1.** Finish and fix, no new topics: version number in the program and the ini, New Folder seen (7.4), Release build and clean zip, push when the user says. Experimental parts are labelled in the docs (`TODO.md` section 0). 2026-11-05: version 0.0.1 in the program, tag v0.0.1, GitHub draft release with the public zip (user-provided files listed in `docs/INSTRUCTIONS.txt`); left: 7.4 New Folder and the zip seen by the user, then publish | 🔧 |
 
 Topic 17 is new (2026-10-23): it takes the database *editor* part that was in the finished point 1.6; the database *rules*
 stay in topic 1.
@@ -42,7 +42,7 @@ stay in topic 1.
 Topics 18 to 20 are new (2026-11-03, realigned after the work of 28/10 - 3/11 had run ahead of this file): 18 is the user's
 "all generations between all generations" (2026-11-02/03), 19 collects the viewport, mesh and UV work, 20 is the release.
 Goal 14 (cameras) and goal 12 (dash) also gained work in that period: the FM4 → FM3 port carries the car's own dash
-(`TODO.md` 12.10, 12.11) and the viewport edits the cockpit, hood, bumper and thumbnail cameras live.
+(`TODO.md` 12.10, 12.11) and the viewport edits the cockpit and thumbnail cameras live (exterior camera previews switched off 2026-11-05).
 `URGENT.md` (2026-10-31, string keys and makes) and `task_status.md` (2026-10-27) are closed chats: their open points live in `TODO.md`.
 
 ---

@@ -150,6 +150,10 @@ FM4 → FM3 is done: offset = part 9 + FM4 offset - part 4. **FM3 → FM4 still 
 part 9 from the model, offset X = 0, Y and Z as FM3 has them): it should be the inverse, offset = part 4 + FM3 offset - part 9
 (part 9 from the model rule), so ported FM3 cars stop needing a hand edit of the camera. Not done yet.
 
+> FM3 work is **paused** since 2026-11-03 (FM4 first) and the FM4 → FM3 route is switched off in the menus
+> (`PortPairs.cs`). The current resume point is `docs/FM3/fm3_conversion.md` section 9; the section below is the
+> state of 2026-11-02.
+
 ## Resume here (2026-11-02, end of day)
 
 ### State

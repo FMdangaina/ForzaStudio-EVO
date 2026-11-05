@@ -1,15 +1,11 @@
-# Changes made and NOT tested (state of 2026-10-25)
+# Changes made and NOT tested (started 2026-10-25, reviewed 2026-11-05)
 
-Everything below is coded, compiles and is committed, but nobody has used it yet. Use this file to resume:
-test each point, then tick it here and update `TODO.md` (state and date). Roadmap numbers in brackets.
+Everything below is coded, compiles and is committed. Use this file to resume: test each point, then tick it here
+and update `TODO.md` (state and date). Roadmap numbers in brackets. Review of 2026-11-05: the points closed by the
+pre-release tests of 2026-11-03/05 (`PRERELEASE_TESTING.md`) are ticked with the point that closed them; still open:
+C2, D5, D8 and the dash editor E1-E4 (experimental in the release).
 
-How a test build was made on this machine (the project targets .NET 2.0, which this PC cannot build):
-`MSBuild v4.0` with `-p:Platform=x86 -p:PlatformTarget=x86 -p:AllowUnsafeBlocks=true -p:TargetFrameworkVersion=v4.0`,
-output in the session's scratchpad `out\`, `mscorlib.dll` / `norm*.nlp` deleted, `ForzaStudioEVO.exe.config` with
-`<startup useLegacyV2RuntimeActivationPolicy="true"><supportedRuntime version="v4.0"/></startup>`. Your own Visual Studio
-build is unchanged and is the real one to test.
-
-Game data used for checks: `Z:\Lavoro\Personale\extracted_dvd1` (FM4 DVD1, `Media\db\gamedb.slt`).
+Build: Visual Studio 2022 MSBuild, .NET Framework 4.8, x86 (`README.md`). Test game: `F:\Xenia\Games\FM4_Extracted_DEV`.
 
 ---
 
@@ -40,15 +36,15 @@ Ideas not done: "Used by" column in the lists, filter "only used", button "new r
 
 Code: `ForzaStudio/EngineDialog.cs`, `PasteTorque`.
 
-- [ ] B1. Ctrl+V in the torque table with **two columns** (rpm, N.m at any rpm, tab / `;` / space separated, comma decimals accepted, a header
+- [x] B1. (removed 2026-11-03: the Excel paste is gone, the curve generator stays; user) Ctrl+V in the torque table with **two columns** (rpm, N.m at any rpm, tab / `;` / space separated, comma decimals accepted, a header
       line skipped): the curve is interpolated onto the table's rows (every 250 rpm); rows outside the pasted rpm range stay as they were.
-- [ ] B2. One column of N.m still pastes from the selected row down (old behaviour).
+- [x] B2. (removed 2026-11-03 with B1) One column of N.m still pastes from the selected row down (old behaviour).
 
 ## C. Duplicate Car wizard (2026-10-23) [2.3]
 
 Code: `ForzaStudio/DuplicateCarForm.cs`.
 
-- [ ] C1. "in a new DLC pack" can always be chosen. If Xenia's folder is not in Settings, a folder dialog asks for it, remembers it
+- [x] C1. (Duplicate Car closed in game 2026-11-03, NOW point 2) "in a new DLC pack" can always be chosen. If Xenia's folder is not in Settings, a folder dialog asks for it, remembers it
       (`CarPort.Xenia`) and finds the next free offer. Cancel or a bad folder returns to "in the game folder".
 - [ ] C2. **The whole wizard still needs a usability pass** (user 2026-10-23: "tutto il wizard sarà da migliorare nell'utilizzo"):
       collect what is awkward while testing, then change it (TODO D-1).
@@ -57,14 +53,14 @@ Code: `ForzaStudio/DuplicateCarForm.cs`.
 
 From the sessions of 2026-10-22 (see `TODO.md`, section 1 and 2 for the full notes):
 
-- [ ] D1. Duplicate car in the game folder and into a DLC pack (`CarDuplicate.cs`) [2.2]; checked on copies only.
-- [ ] D2. Own engine for the copy (`CarEngine.cs`, `EngineDialog.cs`, `PowerGraph`): unique `Data_Engine.MediaName`, Sim* values, upgrade levels [2.3.2].
-- [ ] D3. Id rule above `GameIdLimits.json`, ModelId = Id (`DbIds.cs`) [1.1, 1.2]; integrity rules (`DbIntegrity.cs`) used by the SQL console, duplicate and port [1.3].
-- [ ] D4. SQL console and diagnostics (`SqlConsoleForm.cs`, `SqlGuard.cs`, `SqlDiagnostics.cs`) [1.4]; EventRestrictions decode (`EventRestriction.cs`) [1.5].
+- [x] D1. (closed in game 2026-11-03, NOW point 2) Duplicate car in the game folder and into a DLC pack (`CarDuplicate.cs`) [2.2]; checked on copies only.
+- [x] D2. (closed in game 2026-10-27, 2.3.2) Own engine for the copy (`CarEngine.cs`, `EngineDialog.cs`, `PowerGraph`): unique `Data_Engine.MediaName`, Sim* values, upgrade levels [2.3.2].
+- [x] D3. (confirmed 2026-11-05, 1.3 + car * 1000 + n rule) Id rule above `GameIdLimits.json`, ModelId = Id (`DbIds.cs`) [1.1, 1.2]; integrity rules (`DbIntegrity.cs`) used by the SQL console, duplicate and port [1.3].
+- [x] D4. (confirmed 2026-11-05, 1.4) SQL console and diagnostics (`SqlConsoleForm.cs`, `SqlGuard.cs`, `SqlDiagnostics.cs`) [1.4]; EventRestrictions decode (`EventRestriction.cs`) [1.5].
 - [ ] D5. DRIVER tab in the model view (`ArchiveEditorForm.Driver.cs`) [6.2].
-- [ ] D6. Crash deformation: `Port.ini [Damage] Words = donor` (default; `donorcar`, `copy`, `normalize` + `Tables`, `FlipSections` kept) and `[Lod0] MoveSections` (headlights from the cockpit file to `_lod0`) [3.1, B1]. Checked in game 2026-10-25 on the MP4-12C `_FH` copy, the P1 (donor MP4) and the FH2 Corvette Stingray (donor ZR1 09; a first port made before `donor` barely deformed, re-ported it deforms well); other cars (FH2, FM3, rear sections the donor lacks) still to try.
+- [x] D6. (closed in game 2026-11-04, NOW point 8: S65 AMG with donor 500 Abarth deforms well) Crash deformation: `Port.ini [Damage] Words = donor` (default; `donorcar`, `copy`, `normalize` + `Tables`, `FlipSections` kept) and `[Lod0] MoveSections` (headlights from the cockpit file to `_lod0`) [3.1, B1]. Checked in game 2026-10-25 on the MP4-12C `_FH` copy, the P1 (donor MP4) and the FH2 Corvette Stingray (donor ZR1 09; a first port made before `donor` barely deformed, re-ported it deforms well); other cars (FH2, FM3, rear sections the donor lacks) still to try.
 - [ ] D8. Import window (Tools > Import Car): the source game's DLC listed with a DLC column (tick "Include the game's DLC"); tick "Also show cars FM4 already has (for tests)" and such a car is ported beside FM4's own as `<MediaName>_FH` with " FH" in its names (`CarPort.RenameTo`, Uninstall removes only the copy). Trial run on the Countach and MP4-12C (FH1) OK, window not clicked through.
-- [ ] D7. Several packs at once (string layers) [7.1]; new makes [8.1]; Add a song [13.1]; generic brakes [3.3]; FM2 port [5.1].
+- [x] D7. (packs, makes and generic brakes closed in game 2026-11-04, NOW points 3, 4, 10; FM2 port 5.1 done 2026-10-21) Several packs at once (string layers) [7.1]; new makes [8.1]; Add a song [13.1]; generic brakes [3.3]; FM2 port [5.1].
 
 ## E. Digital dash editor (made in a parallel session, 2026-10-23; committed together with this file) [12]
 
@@ -112,24 +108,24 @@ Code: `CarUninstall.cs` (now also for copies, no `port_log.txt`), `ArchiveEditor
 - This file lists only what is coded and not yet seen working; when a point is tested, tick it here and change its state in `TODO.md`.
 
 ## 2026-10-25 (compiled into bin\Debug, NOT committed, not tried in the UI)
-- [ ] Viewport env reflection (EnvReflection.cs, Resources\EnvMap.png sphere map, Reflectivity per ShaderKind) + 4x antialiasing: check the look, tune `ShaderLook.Reflectivity`.
-- [ ] Material check by what FM4 really uses per kind and LOD (Fm4MaterialUse.cs, docs\FM4\Fm4MaterialUse.txt from fm4dev\Materiali\black\matscan.exe: base + 20 DLC packs, SLOD/Autovista left out, valid = in one carbin). Editor tree turns red per file kind (car LOD0 / LOD1-5 / cockpit / wheels LOD0-5), port report and rename list use it. Checked with usecheck.exe: FM4 Supra and a wheel 0 flagged, the FH Supra flags lights_amber.
-- [ ] Indicators of FH ports map to detail_glass_amber (lights_amber rendered black in game): re-port a car and look at the arrows.
-- [ ] Viewport lights up the node selected in the model tree (orange glow; part, LOD or material; file node = none).
-- [ ] ONE settings file: ForzaStudio.ini next to the exe replaces settings.txt + Port.ini + Upgrades.ini (AppIni.cs; [App] = old settings.txt, port sections, upgrade sections). First start folds the old files in and moves them to bak\. Restore Defaults buttons now reset only their own sections (IniFile.ResetSections). Migration tested on a copy (values, ';' in values, set/get); the Settings dialog itself not tried.
-- [ ] Viewer tab: body colour of the car in the viewport ([App] Viewer.BodyColor, RRGGBB; paint materials without texture). Reflections lowered (Paint 0.22 ...).
-- [ ] Settings > ALL tab (IniEditorPanel.cs): every section and key of ForzaStudio.ini editable, [App] included (34 sections). Checked headless on a copy: tab count, sections, App rows, a [Lod0] edit written; not tried with the mouse.
-- [ ] Port decides NO material by itself (AutoMap = nothing; MaterialMap kept only for nothing now): every material FM4 does not use for that file kind + LOD is reported and goes to the review, nothing preselected (Issue.Suggested = null). Review/rename suggestions come from docs\FM4\Fm4PartMaterials.txt (what FM4 models give each part, with counts; matscan parts.txt) + shader similarity; the hand tables (port table, ByName, BySection) are gone. Counts are "models" (base zips + DLC folders), not exactly cars.
+- [x] (closed 2026-11-04, NOW point 7) Viewport env reflection (EnvReflection.cs, Resources\EnvMap.png sphere map, Reflectivity per ShaderKind) + 4x antialiasing: check the look, tune `ShaderLook.Reflectivity`.
+- [x] (closed 2026-11-04, NOW point 7) Material check by what FM4 really uses per kind and LOD (Fm4MaterialUse.cs, docs\FM4\Fm4MaterialUse.txt from fm4dev\Materiali\black\matscan.exe: base + 20 DLC packs, SLOD/Autovista left out, valid = in one carbin). Editor tree turns red per file kind (car LOD0 / LOD1-5 / cockpit / wheels LOD0-5), port report and rename list use it. Checked with usecheck.exe: FM4 Supra and a wheel 0 flagged, the FH Supra flags lights_amber.
+- [x] (closed 2026-11-04, NOW point 7) Indicators of FH ports map to detail_glass_amber (lights_amber rendered black in game): re-port a car and look at the arrows.
+- [x] (closed 2026-11-04, NOW point 7) Viewport lights up the node selected in the model tree (orange glow; part, LOD or material; file node = none).
+- [x] (in use since 2026-10-25; Settings ALL closed 2026-11-04) ONE settings file: ForzaStudio.ini next to the exe replaces settings.txt + Port.ini + Upgrades.ini (AppIni.cs; [App] = old settings.txt, port sections, upgrade sections). First start folds the old files in and moves them to bak\. Restore Defaults buttons now reset only their own sections (IniFile.ResetSections). Migration tested on a copy (values, ';' in values, set/get); the Settings dialog itself not tried.
+- [x] (closed 2026-11-04, NOW point 7) Viewer tab: body colour of the car in the viewport ([App] Viewer.BodyColor, RRGGBB; paint materials without texture). Reflections lowered (Paint 0.22 ...).
+- [x] (closed 2026-11-04, NOW point 7) Settings > ALL tab (IniEditorPanel.cs): every section and key of ForzaStudio.ini editable, [App] included (34 sections). Checked headless on a copy: tab count, sections, App rows, a [Lod0] edit written; not tried with the mouse.
+- [x] (kept as it is by the user 2026-11-04, NOW point 8) Port decides NO material by itself (AutoMap = nothing; MaterialMap kept only for nothing now): every material FM4 does not use for that file kind + LOD is reported and goes to the review, nothing preselected (Issue.Suggested = null). Review/rename suggestions come from docs\FM4\Fm4PartMaterials.txt (what FM4 models give each part, with counts; matscan parts.txt) + shader similarity; the hand tables (port table, ByName, BySection) are gone. Counts are "models" (base zips + DLC folders), not exactly cars.
 
 ## Z. Engine, gearbox and DLC package of Duplicate Car (session 2026-10-25) [TODO D-9, D-10, D-11]
 
 Engine designer and the turbo rules were checked in game on the Brera 2.4 JTDm copy (155 kW, 400.1 N.m, plateau from ~1800 rpm). Not yet used:
 
-- [ ] Aspiration menu in game for the copy's turbo: stock turbo + 2 levels + stock intercooler; what the menu shows (a single -> single swap was seen before the intercooler fix); the turbo upgrade must raise the power.
+- [x] (closed 2026-11-03, NOW point 2) Aspiration menu in game for the copy's turbo: stock turbo + 2 levels + stock intercooler; what the menu shows (a single -> single swap was seen before the intercooler fix); the turbo upgrade must raise the power.
 - [x] NA copy made turbo and turbo copy made NA (stock / upgrade turbo and intercooler rows, conversions with no supercharger on a diesel): in game. Confirmed in game 2026-10-26 (petrol and diesel).
 - [x] Supercharged copy (natural or turbo engine made positive-displacement / centrifugal supercharger, and back): the aspiration menu shows the supercharger, power and torque in game; engine graph draws the margin past the redline dotted (2026-10-26, TODO D-9). Confirmed in game 2026-10-26 (8C supercharged: perfect).
 - [x] New gearbox in the wizard (page 4, "A gearbox of its own"): 5 gears and other counts, reverse, final drive; the copy's top speed and 0-100 in the menu; the source car keeps its own. Confirmed in game 2026-10-26.
-- [ ] Tab "Transmission" of the Game Database on a Supra RZ (checked by the user: ok) and on a copy with its own gearbox.
+- [x] (checked by the user) Tab "Transmission" of the Game Database on a Supra RZ (checked by the user: ok) and on a copy with its own gearbox.
 - [~] "As a DLC package file (STFS)": the file built in a chosen folder, loaded in Xenia (done once on the Brera) and on the console (not done). Xenia ok; console STFS left for the future.
-- [ ] Generate curve with a torque range, a petrol engine and an engine with a limiter below 4000 rpm; the dialog's table (one row per 100 rpm) typed and pasted.
-- [ ] Engine name follows layout / cylinders / aspiration; typed over it stays.
+- [x] (closed 2026-11-03, NOW point 2) Generate curve with a torque range, a petrol engine and an engine with a limiter below 4000 rpm; the dialog's table (one row per 100 rpm) typed and pasted.
+- [x] (closed 2026-11-03, NOW point 2) Engine name follows layout / cylinders / aspiration; typed over it stays.

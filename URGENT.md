@@ -1,5 +1,8 @@
 # URGENT (2026-10-31)
 
+> **Closed, kept for history** (2026-11-05). Its open points live in `TODO.md`; the DLC pack items were closed in
+> game on 2026-11-04 (`PRERELEASE_TESTING.md` point 3).
+
 State after the string-key / make clash work. Commits: 595172d (Data_Car.str keys), d0fc578 (makes, title rules, logos), 10071cc (combo type-to-search).
 
 ## Done

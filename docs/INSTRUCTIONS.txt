@@ -1,11 +1,11 @@
-ForzaStudio EVO 0.0.1 - BETA
+ForzaStudio EVO 0.0.2 - BETA
 ============================
 
-Forza Studio is a modding tool for the Xbox 360 Forza games (FM4, FH1, FH2;
+ForzaStudio EVO is a modding tool for the Xbox 360 Forza games (FM4, FH1, FH2;
 FM2 and FM3 partly). It edits the game files in place: car models (.carbin),
 textures (.xds), XML files and the game database. It also ports cars from
-Forza Horizon 1 and 2 and Forza Motorsport 3 to Forza Motorsport 4, as a DLC
-package for Xenia or a modded (RGH/JTAG) Xbox 360.
+Forza Horizon 1 and 2 and Forza Motorsport 2 and 3 to Forza Motorsport 4, as
+a DLC package for Xenia or a modded (RGH/JTAG) Xbox 360.
 
 THIS IS AN EARLY BETA. Expect bugs. Work on a COPY of your game folder,
 never on your only copy.
@@ -50,7 +50,7 @@ Keep the files together: do not move ForzaStudioEVO.exe out of its folder.
    not Program Files).
 2. Run ForzaStudioEVO.exe.
 
-Forza Studio writes only inside its own folder:
+ForzaStudio EVO writes only inside its own folder:
 - ForzaStudio.ini   your folders and all the options
 - bak\              a copy of every file before it is overwritten
                     (switch off with Enabled = off under [Backup] in the ini)
@@ -106,10 +106,9 @@ EXPERIMENTAL (not tested in game, use on a copy):
 - Add song needs xma2encode (Xbox 360 SDK, not included).
 
 KNOWN LIMITS:
-- Offroad tires are a copy of the Hummer H1's.
 - Engine swaps whose sound is on FM4's second disc can crash a race.
-- Tools > Hex View only works after a model was opened in
-  Tools > Pay Respects (the classic Forza Studio window).
+- The hex view of the classic window (Tools > Pay Respects) only works
+  after a model was opened in that window.
 - FM2 models can be exported but not imported back.
 - FM3 models can be viewed but not edited (the port tool converts them).
 - FM3 digital dashes are converted (checked on one car): please report what you see.
@@ -125,12 +124,13 @@ Please send:
 - for a car port: the car, the donor, and port_log.txt (inside the
   converted car zip, or in the Report tab of the port window).
 
-Send reports to: <WHERE TO REPORT>
+Send reports to: https://github.com/FMdangaina/ForzaStudio-EVO/issues
+(one issue per problem; attach screenshots and port_log.txt there).
 
 
 7. CREDITS AND LICENSE
 ----------------------
-Forza Studio by FMdangaina.
+ForzaStudio EVO by FMdangaina.
 Derived from Forza Studio 4.6 by Mike Davis, with an earlier edit by JYSB59.
 DLC package format worked out with help from Jew (@mr.abortion) and
 XTD (@xtd_ac) on Discord.
@@ -143,7 +143,7 @@ Music playback by vgmstream (https://github.com/vgmstream/vgmstream),
 see vgmstream\COPYING. xds.dll comes from Forza Studio 4.6.
 texconv.exe is from Microsoft DirectXTex (MIT).
 
-Forza Studio is free software under the GNU GPL v3.0 (see LICENSE).
+ForzaStudio EVO is free software under the GNU GPL v3.0 (see LICENSE).
 Forza is a trademark of Microsoft. This tool is not affiliated with
 Microsoft, Turn 10 or Playground Games. No game data is included:
 use it only with games you own.

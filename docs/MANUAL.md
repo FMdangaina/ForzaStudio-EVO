@@ -1,9 +1,9 @@
 # ForzaStudio EVO user manual (beta)
 
-Forza Studio is a modding tool for the Xbox 360 Forza games. It works directly on the game's
+ForzaStudio EVO is a modding tool for the Xbox 360 Forza games. It works directly on the game's
 files: you open a game folder or one of its `.zip` archives, change what you need, and save.
 
-> **Version 0.0.1 (beta).** Some features are experimental or not fully tested in game (see
+> **Version 0.0.2 (beta).** Some features are experimental or not fully tested in game (see
 > [Known limitations](#13-known-limitations)). Always work on a copy of your game folder.
 
 ## Contents
@@ -22,7 +22,7 @@ files: you open a game folder or one of its `.zip` archives, change what you nee
 12. [Music](#12-music)
 13. [Known limitations](#13-known-limitations)
 14. [Other tools](#14-other-tools)
-15. [Files Forza Studio writes](#15-files-forza-studio-writes)
+15. [Files ForzaStudio EVO writes](#15-files-forzastudio-evo-writes)
 16. [Credits and license](#16-credits-and-license)
 
 ---
@@ -45,26 +45,35 @@ that holds `default.xex` and `Media`.
 **Requirements**
 
 - Windows 10 or 11.
-- **.NET Framework 3.5.** Enable it in Control Panel > Programs > *Turn Windows features on or
-  off* > *.NET Framework 3.5 (includes .NET 2.0 and 3.0)*.
-- **Microsoft XNA Framework Redistributable 3.1**, used by the 3D view.
+- **.NET Framework 4.8**, already part of Windows 10 and 11.
+- **Microsoft XNA Framework Redistributable 3.1**, used by the 3D view. If its installer asks for
+  .NET Framework 3.5, enable it in Control Panel > Programs > *Turn Windows features on or off*.
 - **Xenia Canary**, only to play ported cars as DLC packages.
-- **`xcompress.dll`, not in the zip.** It comes from the Xbox 360 SDK and is Microsoft's, so it
-  cannot be shared. Copy your own next to `ForzaStudioEVO.exe`. It opens and saves the game's
-  compressed zips; without it, most game files cannot be read.
+
+**Files you bring yourself.** They belong to others and cannot be shared, so they are not in the zip.
+Put them exactly here (paths from the folder of `ForzaStudioEVO.exe`):
+
+| File | Where | Needed for |
+|---|---|---|
+| `xcompress.dll` (Xbox 360 SDK) | next to the exe | opening and saving the game's compressed zips: almost everything |
+| `xds.dll` (Forza Studio 4.6 release) | next to the exe | textures (`.xds`): view, import, export, thumbnails |
+| `xma2encode.exe` (Xbox 360 SDK, `bin\win32`) | `xma2encode\` | Add Song ([section 12](#12-music)) |
+| `TireAOffroad.zip`, `TireBOffroad.zip`, `TireCOffroad.zip` | `Service\OffroadTires\` | the *Offroad* tire choice of the car port |
+
+Without one of them, the features in its row do not work.
 
 **Steps**
 
-1. Unzip the whole Forza Studio folder somewhere you can write to, such as the Desktop. Avoid
+1. Unzip the whole ForzaStudio EVO folder somewhere you can write to, such as the Desktop. Avoid
    *Program Files*.
-2. Copy `xcompress.dll` next to the exe.
+2. Copy the files above to their places.
 3. Run `ForzaStudioEVO.exe`.
 
 Keep every file of the zip next to the exe:
 
 - `texconv.exe` builds textures.
 - `vgmstream\` plays the music.
-- `xds.dll` (from Forza Studio 4.6) and the hex editor DLL are used by the classic tools.
+- `Be.Windows.Forms.HexBox.dll` is the hex view of the classic window.
 
 The program is 32-bit by design.
 
@@ -80,7 +89,9 @@ The menu bar holds:
 
 - **File**: open, save, close.
 - **Archive**: add, extract, replace, delete and revert files of the open folder or archive, and make new folders.
-- **Model**: OBJ and FBX export and import of the model shown.
+- **Model**: OBJ and FBX export and import of the model shown, and **Export UV Map to TGA...** (the UV
+  layout of the materials you choose, from the car's main, lod0 and cockpit files, e.g. the digital
+  dash screen to draw the dash picture on).
 - **Texture**: new textures, image export and import of the texture shown.
 - **Tools**, **Help** and **◀ Back**.
 
@@ -146,6 +157,8 @@ The **Archive** menu works on the file selected in the tree (the same commands a
 - **New Folder...** (right-click: **New Folder Here...**) makes a folder in a game folder or a DLC
   package. In a zip the folder only shows in the tree until a file is added to it: a zip stores no
   empty folder.
+- **Copy Dash From Another Car...** copies another car's digital dash files into the open car zip
+  (experimental, see [section 10](#10-digital-dash-fbf)).
 - **Extract All...** writes the whole archive to a folder.
 
 The tree marks pending changes: an edited file is **bold** with `*`, and an added file has `+`.
@@ -203,22 +216,27 @@ The toolbar has these controls (**Model > Export Checked Parts to OBJ...** write
 
 | Input | Action |
 |---|---|
-| Drag | Look around |
-| Right drag or middle drag | Move |
-| Wheel | Zoom (changes the FOV) |
+| Middle drag | Move the view |
+| Alt + middle drag | Turn the model |
+| Wheel | Zoom |
 | W A S D, Q E | Move |
 | Arrow keys | Look |
+| 1 - 6 (or numpad) | Front, back, right, left, top, bottom view (orthographic; the tool bar switches orthographic off again) |
 
 **Red materials.** A material that no FM4 car uses is drawn red in the tree, and it may render
 black in game. Select it and press **Rename Material...** in the Part tab (or right-click it), then pick an FM4 material from the list. You
 can rename it in every part and in every model file of the car (main, lod0, cockpit).
 
-> **To do:** the list now has ★ recommended materials, the common FM4 ones and ~ unusual ones, with a
-> "shader N" score (ROADMAP 4.1). The instructions and the documentation for it are still to be written.
+The list has three groups: the **recommended** materials first (green, or ★ in the port's Review: the port's
+own table, a rule on the name, or the FM4 shaders most similar to the original), then the materials FM4 cars
+commonly use, then the **unusual** ones, marked `~` (FM4 has a shader for them but few or no cars use them).
+"shader N" is a similarity score out of 100 between the original's shader and that material's (higher is
+closer). It compares what the shaders read, not how they look: take it as a hint.
 
 ### Cockpit camera (CAMERA tab)
 
-The model view's side panel has three tabs: **Part**, **Texture** and **Camera** (Camera only for car models).
+The model view's side panel has these tabs: **Part**, **Texture**, **Mesh**, **Camera**, **Collision**,
+**Driver** and **Exhaust** (the last four for car models only).
 
 Open a car model from the game folder (FM4): the Camera tab reads the car's cockpit camera from
 `GAME:\Media\db\gamedb.slt`. Values are in the database's axes, where Z points forward.
@@ -234,11 +252,25 @@ Open a car model from the game folder (FM4): the Camera tab reads the car's cock
   `_cockpit.carbin` (within about 1 cm of the game's own points on FM4 cars). It also sets the eye
   offset X to 0, so the eye sits right behind the wheel (FM3 cars often carry a side offset of about
   2 cm; FM4 cars have 0).
-- **View From Camera** puts the viewer at the eye, looking forward, with the cockpit FOV.
+- **View From Camera** puts the viewer at the eye, looking forward, with the cockpit FOV. It opens the
+  car's `_cockpit.carbin` first if another model of the car is shown. With **Live** ticked the view
+  follows every change of a number.
 - **Save to Game Database Now** writes both rows into `gamedb.slt` (missing rows are added) after a
-  backup in the `bak` folder. It writes at once, not with File > Save. Close the game first.
+  backup in the `bak` folder. It writes at once, not with File > Save. Close the game first. Values you
+  did not change keep their full precision.
 
 The port tool adds the steering wheel point by itself when the source car has none.
+
+**Exterior cameras** (same tab): the hood, bumper and chase offsets of the car's `CameraOverrides` row,
+saved with the cockpit camera. They are numbers only, with no preview: the game adds them to a point
+of its own that is not in the game files, so a preview would be wrong. A change does move the camera
+in game (+0.30 m on the hood height was checked). 0 means the game's default.
+
+**Thumbnail camera** (same tab, experimental): the camera the game takes a car's thumbnail with
+(`Media\ThumbnailCamSettings.xml`), shown in orange with the frame it captures. Long cars can get a
+camera of their own, further away; **Back To Default** removes it. **Save Thumbnail Camera Now** writes
+the file at once (backup first). That the game reads this file for every thumbnail is inferred from its
+values, not checked in game.
 
 **Go to Camera** (model toolbar) moves the viewer to a game camera:
 
@@ -246,9 +278,29 @@ The port tool adds the steering wheel point by itself when the source car has no
 - The garage, photo mode, livery and upgrade cameras of `Media\UICarTargetCameraPresets.xml`
   (position, direction and FOV as the game stores them; a preset made for this car is used instead
   of the general one).
-- The race chase, hood and bumper cameras are not offered: the game builds them from the car's
-  box, the `CameraOverrides` offsets and the global settings in `Media\Camera\CameraSettings.ini`
+- The race chase, hood and bumper cameras are not offered: the game builds them from a point of its own
+  plus the `CameraOverrides` offsets and the global settings in `Media\Camera\CameraSettings.ini`
   and `CameraPhysics.xml` (plain text files, editable as such).
+
+### Mesh, collision, driver and exhaust (side panel tabs)
+
+- **Mesh**: select faces in the view and work on them. Click picks a face, Shift+click adds, Ctrl+click
+  toggles; a drag selects with the region chosen in the tool bar (rectangle, circle, fence, lasso or
+  brush). The sub-object levels of the tool bar (Vertex, Edge, Face, Polygon, Element) choose what a
+  click picks. The tool bar also has select all / none / linked, **Delete**, **Detach** and the **UV
+  mapper** (a window with the UV layout, the same selection tools, keys 1-5 for the levels). While the
+  tab is open the model is drawn in wireframe and the selection in red. Delete and Detach touch only
+  the LOD of the selected faces; pending until File > Save.
+- **Collision**: the car's collision spheres and bounding box. Blue: body spheres; orange: contact
+  points; grey: the box; yellow: the selected one. **Add** copies the selected sphere, **Mirror** copies it
+  to the other side. **Generate Basic Collision...** rebuilds the box and the spheres from the shown
+  model, as a starting point for cars whose own is wrong; the top and left views (numpad 6 and 2) help
+  to edit it. Pending until File > Save.
+- **Driver** (on a `_cockpit.carbin`): the points stored in the cockpit model (hand grips on the wheel
+  rim, wheel pivot and axis, shifter, eye-level records) and the driver offsets of `carattribs.xml`.
+  Names with `?` are guesses. **Apply to Model** writes them into the car file, pending until File > Save.
+- **Exhaust**: the points the backfire flames start from (`Media\Effects\Backfire.xml` draws them).
+  Add, Mirror and **Apply to Model** as above.
 
 ### Editing parts (PART tab)
 
@@ -301,7 +353,7 @@ Forza Motorsport 2 models can be exported but not imported back.
 
 ### Texture preview
 
-Every material shows the texture the game draws it with, by itself: Forza Studio reads the
+Every material shows the texture the game draws it with, by itself: ForzaStudio EVO reads the
 game's shaders (`Media\Shaders\Cars`) and `Media\cars\Shared.zip\textures.xml`, and takes the
 file from the car's zip or from `Shared.zip`. This needs the model opened from a game folder.
 The **Textures** button in the model toolbar switches all textures off (plain grey) and on.
@@ -312,7 +364,7 @@ see: the model file is not touched.
 - **(auto)** is the game's texture; pick an `.xds` from the car's zip, or **Texture From
   File...** for one on disk, to override it.
 - Choose the UV set.
-- The choices last until Forza Studio is closed.
+- The choices last until ForzaStudio EVO is closed.
 - The **Part** tab shows the material's shader, the textures it reads and where the shown
   texture comes from.
 
@@ -378,7 +430,7 @@ written with **File > Save**, with a backup.
 
 ### Sections
 
-The section buttons are **Cars | Wheels | Tracks | Events | Tables**.
+The section buttons are **Cars | Wheels | Tracks | Events | Engines | Makes | Countries | Manufacturers | Tables**.
 
 - **Search** filters the list on every column.
 - **Text** chooses the language used for names (English the first time; your choice is remembered).
@@ -438,7 +490,7 @@ thumbnail and database rows. Pages:
   positive-displacement or centrifugal supercharger), boost, diesel or petrol, displacement, idle and redline. The torque curve
   is drawn with the mouse or made with **Generate curve** (torque range, power peak, limiter). The graph shows the curve up to
   the redline in full colour and the margin the game's table keeps after the limiter dotted and dim. Upgrade levels, turbo or
-  supercharger rows and intercooler come from the generic rules (`Upgrades.ini`); a diesel gets no supercharger.
+  supercharger rows and intercooler come from the generic rules (the upgrade sections of `ForzaStudio.ini`); a diesel gets no supercharger.
 - **Gearbox**: the source's, or **a gearbox of its own** (1 to 8 gears, a ratio each, reverse and final drive). The copy gets a
   drivetrain of its own; the source car keeps its gearbox.
 - **Summary**: the plan and the checks the database rules make before anything is written.
@@ -524,7 +576,7 @@ listed as "an FM4 car" / "an FM4 DLC car" and left out unless you tick **Also sh
 
 ### Setting up
 
-1. Set the **source** folder (FH, FH2 or FM3) and the **Forza Motorsport 4** folder: the folders
+1. Set the **source** folder (FH, FH2, FM3 or FM2) and the **Forza Motorsport 4** folder: the folders
    with `default.xex` and `Media`. Press **Load Cars**.
    - The source can also be **car DLC packages** of Forza Horizon, without the game itself.
      **Folder…** takes extracted packages (a folder holding `Media\<offer>.puboffer`, or a folder of them);
@@ -538,8 +590,9 @@ listed as "an FM4 car" / "an FM4 DLC car" and left out unless you tick **Also sh
    needs. The ★ cars are the closest matches. Cars of DLC packs installed in Xenia can be donors too (marked
    `[DLC: pack]`), except with Forza Motorsport 2 as source.
 4. Choose the **Tires**: *Normal* keeps the tire models the source car has (the Raptor and the Wrangler of
-   Horizon have their own), else FM4's generic tires; *Offroad (H1)* gives the car the deep-tread tires of
-   FM4's Hummer H1.
+   Horizon have their own), else FM4's generic tires; *Offroad* gives the car the program's own deep-tread
+   offroad tires (`Service\OffroadTires`, same size as the normal ones; you bring these files yourself, see
+   [Install](#2-install)).
 
 Everything the port needs from the source stays the source's (names, sound, values), and the donor only
 supplies what the source lacks. The window also lists the problems it found, with a choice for each, in the
@@ -573,7 +626,7 @@ The other buttons:
 - **Remove Pack** deletes the built package from Xenia.
 - **Add To Package...** adds the cars of the trial to a DLC package that already exists, without rebuilding it.
 - A car can also be taken out of a built package later: **File > Delete Car from DLC Package...** (section 3).
-- **Tools > Chec&k and Validate DLC...** checks a built package (installed in Xenia, a package file or a folder)
+- **Tools > Check and Validate DLC...** checks a built package (installed in Xenia, a package file or a folder)
   and lists the problems it finds without writing anything: structure, database, files of each car, engine
   sounds and string tables.
 
@@ -582,7 +635,7 @@ the make asks for the name and the logo, and for the country's flag when FM4 lac
 
 **Important**
 
-- Several Forza Studio packs can be installed together; the names of every pack show. Two packs that use the
+- Several ForzaStudio EVO packs can be installed together; the names of every pack show. Two packs that use the
   same offer number or the same string keys clash: the Review warns about it.
 - Use an FM4 folder where these cars were **never installed with Install In FM4**. The game loads
   the old installed copy instead of the pack's. Build DLC Package warns you about this.
@@ -607,13 +660,13 @@ Every file is backed up to `bak\` first. Use this only if you want the car in th
   car zip.
 - Black parts: run the trial again with the material fixes from the Review. Or open the car in the
   main window and rename the red materials (see [section 5](#5-3d-models-carbin)).
-- A bug report should include the car, the donor and `port_log.txt`.
+- Report bugs at https://github.com/FMdangaina/ForzaStudio-EVO/issues, with the car, the donor and `port_log.txt`.
 
 Technical details of the package format are in [DLC_PACKAGES.md](DLC_PACKAGES.md).
 
 ## 12. Music
 
-When you open a game folder, Forza Studio plays that game's music in the status bar:
+When you open a game folder, ForzaStudio EVO plays that game's music in the status bar:
 
 - the FM soundtracks and playlists;
 - the Forza Horizon radio stations.
@@ -644,7 +697,6 @@ converted with `xma2encode` from the Xbox 360 SDK, which is Microsoft's and **no
 
 **Known problems**
 
-- The car-specific **offroad** and small tires are a copy of the Hummer H1's, not a model of their own.
 - Cars from Forza Motorsport 2 cannot use a car of a DLC pack as donor.
 - Engine swaps whose sound is on FM4's second disc may crash the race with an I/O error: only the first
   disc's files are known.
@@ -669,13 +721,14 @@ All in the **Tools** menu.
 | **Car Performance From Game...** | Type the PI and bars the garage shows for a car. |
 | **Change Car Sound...** | Give a car another FM4 car's engine sound. |
 | **Check and Validate DLC...** | Check a DLC package without changing it. |
+| **Validate DLC for Installation...** | Make a pack fit the packs already installed in Xenia (ids, names, thumbnails, offer, strings), then install it. Use it when a pack was built against other installed packs. |
 | **Set Generated Thumbnail...** | Replace a car's Xenia thumbnail. |
 | **Settings...** | Folders and options. |
 | **Pay Respects (F)** | The original Forza Studio 4.6 window, kept as a tribute. |
 
-## 15. Files Forza Studio writes
+## 15. Files ForzaStudio EVO writes
 
-Forza Studio writes only these files:
+ForzaStudio EVO writes only these files:
 
 | Where | What |
 |---|---|
@@ -687,7 +740,7 @@ Forza Studio writes only these files:
 
 ## 16. Credits and license
 
-- Forza Studio is maintained by **FMdangaina**.
+- ForzaStudio EVO is maintained by **FMdangaina**.
 - It is derived from **Forza Studio 4.6** by Mike Davis, with an earlier edit by **JYSB59**.
 - The DLC package format was worked out with help from **Jew (@mr.abortion)** and
   **XTD (@xtd_ac)** on Discord.
@@ -702,8 +755,8 @@ Forza Studio writes only these files:
   see `vgmstream\COPYING`).
 - `texconv.exe` is from Microsoft **DirectXTex** (MIT). `xds.dll` comes from Forza Studio 4.6.
 
-Forza Studio is free software under the **GNU General Public License v3.0**. Forza Studio 4.6 code
+ForzaStudio EVO is free software under the **GNU General Public License v3.0**. Forza Studio 4.6 code
 is MIT-licensed; see `THIRD-PARTY-NOTICES.md`.
 
-Forza is a trademark of Microsoft. Forza Studio is not affiliated with Microsoft, Turn 10 Studios or
+Forza is a trademark of Microsoft. ForzaStudio EVO is not affiliated with Microsoft, Turn 10 Studios or
 Playground Games. No game data is included: use it only with games you own.

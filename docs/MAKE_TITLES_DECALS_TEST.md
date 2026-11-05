@@ -6,7 +6,9 @@ point: state, the tests still to do in game, and what to look at if one fails.
 
 ## State
 
-Code written and compiled, **not committed**, **not tested in game**.
+Code written, compiled and committed. In game (2026-11-04, `PRERELEASE_TESTING.md` point 4): the make tile and
+the Livery editor of a new make work; the titles Fan / Enthusiast / Aficionado cannot be checked without long play
+and stay unverified. The rest of this file is the state of 2026-10-31.
 
 | File | Change |
 |---|---|

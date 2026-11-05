@@ -44,6 +44,12 @@ Contesto: il pacchetto offer 104 (Genesis HKS) non si caricava in gioco perché 
 - Regola ID, decisa dall'utente: nuovo ID = massimo di tutto + 1 (massimo ufficiale del gioco, gioco, pacchetti installati, pacchetto stesso). Non si riempiono i buchi. Esempio: pacchetto X con 2000-2003, un altro con 2002, 2003, 2007: X passa a 2002 -> 2008, 2003 -> 2009, il 2007 resta, il prossimo parte da 2010.
 
 ### Da provare
+
+> **Aggiornamento 2026-11-05:** il wizard è stato provato in gioco il 2026-11-04 sul pacchetto "Punto 3" (Viper +
+> Eagle) con il Pennzoil installato: tutto bene ("ottimo lavoro", `PRERELEASE_TESTING.md` punto 3). La lista qui
+> sotto è quella del 31/10; restano non provati in gioco lo spostamento di motori, ruote e colori su più pacchetti (8)
+> e il caso di un pacchetto con ID bassi di FM3 (6).
+
 1. Compilare in `bin\Debug` (app chiusa) e ricontrollare se le altre modifiche in corso toccano gli stessi file.
 2. Creare un pacchetto nuovo (una sola auto, per esempio Genesis HKS) e leggere nel report le chiavi spostate per tabella (motori, trasmissioni, ruote, colori, aerodinamica, curve di coppia, upgrade).
 3. Copiare il pacchetto con un altro nome file nella cartella Xenia e passare la copia dal wizard (Check + Install): offerta nuova, auto `_2`, miniature, cartelle auto e ruote, stringhe in `Benchmark.str`.

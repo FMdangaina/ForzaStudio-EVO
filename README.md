@@ -2,7 +2,7 @@
 
 (Repository: ForzaStudio-EVO, exe: ForzaStudioEVO.exe.)
 
-**Version 0.0.1 (beta).** Complete utility for Xbox 360 era Forza games modding: Forza
+**Version 0.0.2 (beta).** Modding tool for the Xbox 360 era Forza games: Forza
 Motorsport 4 first, with Forza Horizon 1 and 2 and Forza Motorsport 2 and 3 as car sources.
 
 Edits the game's zip archives directly: `.carbin` car models (OBJ and FBX export/import,
@@ -40,7 +40,7 @@ based on is MIT-licensed (Copyright (C) 2012 Mike Davis); its notice is kept in
 
 1. Install **Visual Studio 2022** with the workload *.NET desktop development* (it includes the .NET Framework 4.8 targeting pack).
 2. Install **XNA Game Studio 3.1** (or the XNA Framework 3.1 Redistributable). The build stops with a clear message if it is missing.
-3. Get the local files from the project owner and put them in `!ForzaStudio release\` (they are not in the repository): `xds.dll`, `xcompress.dll`, `xdevkit.dll`, `bundler.exe`, `unbundler.exe`, `scr.org`, `scr.rdf`.
+3. Put your own `xds.dll` (Forza Studio 4.6 release) and `xcompress.dll` (Xbox 360 SDK) in `!ForzaStudio release\`: they are not in the repository. Optional: `xma2encode\xma2encode.exe` next to the built exe for Add Song, and the offroad tire zips in `Service\OffroadTires\` (see [docs/INSTRUCTIONS.txt](docs/INSTRUCTIONS.txt)).
 4. Open `ForzaStudioEVO.sln` in Visual Studio and press **Ctrl+Shift+B** (Build > Build Solution). The configuration is already *Debug / x86*.
 5. The program is `bin\Debug\ForzaStudioEVO.exe`. The build copies everything from `!ForzaStudio release\` next to it and writes `ForzaStudioEVO.exe.config`.
 

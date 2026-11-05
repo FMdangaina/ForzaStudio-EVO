@@ -1,8 +1,6 @@
 # Digital dash fonts and porting
 
-Status 2026-10-31: rule written, checked offline on the dash corpus, and built into the app (`bin\Debug\ForzaStudioEVO.exe`, MSBuild x86, no errors). Not tested in game, not committed.
-
-**Resume here:** port one FH car whose dash uses `horizon_dg1` (FH1 has 30 such dashes, FH2 27) into `FM4_Extracted_DEV` (check first that Xenia is not running, never write to `FM4_Extracted`), then look at the dash texts in game. Check the port log for the line `dash <file>: N font names changed to FM4's`.
+Status: **done.** Rule written 2026-10-31, checked offline on the dash corpus, committed, and checked in game by the user on 2026-11-04 (FH LaFerrari port: dash texts OK; `PRERELEASE_TESTING.md` point 5). The port log shows `dash <file>: N font names changed to FM4's`.
 
 ## How a dash font is chosen
 
