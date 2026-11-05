@@ -43,11 +43,14 @@ FM4 is done. Details of every point are in `TODO.md` section NOW; this file is t
 
 ## Tomorrow, in this order
 
-1. **8.e Languages of a pack**: the "Punto 8" build wrote its string tables in **17 languages**, "Punto 3" in 18.
+1. ✅ 2026-11-05 **8.e** fixed (uncommitted): the missing language was LOC (developers' pseudo locale; FH1/FH2
+   LOC Data_Car.str lacks the newer cars, so the port left LOC unchanged). `CarPort.PortStrings` now falls back to
+   the source's EN text for a key a source language lacks; trial port S65 AMG: 18 languages. Official packs ship
+   16 (no DEV/LOC), so Punto 4/8 as built are harmless. Was: the "Punto 8" build wrote its string tables in **17 languages**, "Punto 3" in 18.
    Probably one installed layer (September Pennzoil or "Punto 4") lacks a language and the table built on it loses
    it. Find which language and why, then the build must keep all 18 (fall back to the game's table of that language).
 2. **9 FM2 / FM1 -> FM4 close-up** (5.3): rebuilt close-up model for FM1 / FM2 cars (development).
-3. **11** checks 1.3 / 1.4 (database rules, SQL console), own engine from scratch (2.3.2), camera review (14.0).
+3. ✅ 2026-11-05 **11** closed: 1.3 (+ new car * 1000 + n rule), 1.4, 2.3.2 (already closed), 14.0 (cockpit camera in game, NSX +10 cm; exterior previews switched off: the game's base point for the hood / bumper / chase offsets is unknown, user: drop them). Point 9 (FM1/FM2 close-up) postponed by the user: FM2 resumes later. Was: checks 1.3 / 1.4 (database rules, SQL console), own engine from scratch (2.3.2), camera review (14.0).
 4. Then what comes next: release 0.0.1 (ROADMAP goal 20, `TODO.md` section 0): version number in the program and the
    ini, 7.4 New Folder seen in the interface, Release build, clean zip, push when the user says.
 

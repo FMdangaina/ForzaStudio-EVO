@@ -9,9 +9,8 @@ namespace ForzaStudio
 
     // The EXTERIOR CAMERAS section of the CAMERA tab: the hood, bumper and chase offsets of the car's
     // CameraOverrides row (CarCamera.Exterior), saved with the cockpit camera by Save to Game Database Now.
-    // Only the hood camera can be previewed: its eye is the car-space point (0, height, z) with the
-    // game's HoodCam FOV 66. How the game applies the bumper and chase offsets is not decoded (they are 0
-    // on every car but one), so those are plain numbers without a preview.
+    // Edited as numbers only: the preview is off (ExteriorPreviewDecoded) because the game's base point for
+    // these offsets is unknown. SwitchCameraModel opens the cockpit model for the cockpit view.
     public partial class ArchiveEditorForm
     {
         private ComboBox cmbExterior;
@@ -46,10 +45,6 @@ namespace ForzaStudio
             {
                 this.FillExteriorControls();
                 this.UpdateCameraOverlay();
-                if (this.LiveCameraView && this.cmbExterior.SelectedIndex <= 2)
-                {
-                    this.ViewFromExteriorCamera();
-                }
             };
             side.Controls.Add(this.cmbExterior);
 
@@ -79,8 +74,9 @@ namespace ForzaStudio
                 this.numExterior[i] = number;
             }
             this.btnExteriorView = SideWideButton("View From This Camera", delegate { this.ViewFromExteriorCamera(); });
+            this.btnExteriorView.Visible = false;
             side.Controls.Add(this.btnExteriorView);
-            side.Controls.Add(SideNote("Green: the eye of the chosen camera and its view (hood FOV 66, bumper 53). A hood offset of 0, 0 puts the eye on the floor. The bumper preview is an ESTIMATE: the game builds that camera from the car's box in a way not decoded, so the eye is assumed at the front of the model, at 45% (high) or 30% (low) of its height, plus your offsets. Chase has no preview. Saved with Save to Game Database Now."));
+            side.Controls.Add(SideNote("Offsets only, no preview: the game adds them to a point of its own (not the model's origin, not in the files), so a preview here would be wrong. A change does move the camera in game (hood +0.30 m checked 2026-11-05). Saved with Save to Game Database Now."));
             this.FillExteriorControls();
         }
 
@@ -114,15 +110,18 @@ namespace ForzaStudio
             int choice = Math.Max(0, this.cmbExterior.SelectedIndex);
             for (int i = 0; i < ExteriorLabels[choice].Length; i++)
             {
-                this.camState.Exterior[ExteriorFirst[choice] + i] = (double) this.numExterior[i].Value;
+                // A field the user did not touch keeps the database's full value (the box shows 3 decimals:
+                // the Supra's hood Z 0.0447978 had become 0.045 when only the height was changed, 2026-11-05).
+                int index = ExteriorFirst[choice] + i;
+                double shown = (double) this.numExterior[i].Value;
+                if (Math.Round(this.camState.Exterior[index], 3) != shown)
+                {
+                    this.camState.Exterior[index] = shown;
+                }
             }
             this.camPending = true;
             this.UpdateCameraLabels();
             this.UpdateCameraOverlay();
-            if (this.LiveCameraView && this.cmbExterior.SelectedIndex <= 2)
-            {
-                this.ViewFromExteriorCamera();
-            }
         }
 
         private void EnableExteriorEdit(bool enabled)
@@ -148,6 +147,7 @@ namespace ForzaStudio
         private const float BumperLowHeightFraction = 0.30f;
         private const float BumperBackOffset = 0.05f;
         private const float BumperFov = 53f;
+        private const bool ExteriorPreviewDecoded = false;
 
         // The eye of the chosen exterior camera in model axes, and its FOV. False when there is no
         // preview (chase cameras) or the bumper needs a model and none is shown.
@@ -155,7 +155,11 @@ namespace ForzaStudio
         {
             eye = Vector3.Zero;
             fov = CarCamera.HoodFov;
-            if (this.camState == null)
+            // No exterior preview (user 2026-11-05): the game adds the CameraOverrides offsets to a base point
+            // of its own. Measured on 12 cars, the DB hood eye taken from the model's origin is always 0.52 -
+            // 0.61 m under the body's top at that Z (inside the car); the base is not in the DB, CameraSettings.ini,
+            // the carbin header, maxdata.xml or carattribs.xml. The code below stays for when it is decoded.
+            if (this.camState == null || !ExteriorPreviewDecoded)
             {
                 return false;
             }
@@ -181,11 +185,55 @@ namespace ForzaStudio
             return false;
         }
 
+        // The game draws the hood and bumper views with the car's exterior and the cockpit view with the
+        // cockpit model. A preview on the other model looked into the dashboard (hood) or at the floor
+        // (bumper: its eye comes from the front of the shown model): user 2026-11-05, NSX '97 with
+        // _cockpit.carbin open. So the preview opens the right model of the same car first (<car>_lod0 /
+        // <car>_cockpit next to the open one, as a click in the archive tree). True when it switched.
+        private bool SwitchCameraModel(bool cockpit)
+        {
+            if (this.currentEntry == null || this.camState == null || this.zip == null)
+            {
+                return false;
+            }
+            bool isCockpit = this.currentEntry.Name.EndsWith("_cockpit.carbin", StringComparison.OrdinalIgnoreCase);
+            if (isCockpit == cockpit)
+            {
+                return false;
+            }
+            ForzaZip.Entry entry = this.zip.Find(this.ModelFolder + this.camState.MediaName + (cockpit ? "_cockpit.carbin" : "_lod0.carbin"));
+            TreeNode node = (entry == null) ? null : FindNode(this.tvArchive.Nodes, entry);
+            if (node == null)
+            {
+                return false;
+            }
+            this.tvArchive.SelectedNode = node;
+            return this.currentEntry == entry;
+        }
+
         private void ViewFromExteriorCamera()
         {
             Vector3 eye;
             float fov;
-            if (this.scene == null || !this.ExteriorEye(Math.Max(0, this.cmbExterior.SelectedIndex), out eye, out fov))
+            int choice = Math.Max(0, this.cmbExterior.SelectedIndex);
+            if (this.scene == null)
+            {
+                return;
+            }
+            if (choice > 2)
+            {
+                // Chase: no preview; leave the last camera's view for the normal one framing the model.
+                Vector3 min, max;
+                this.scene.Camera.FieldOfViewDegrees = this.trkFov.Value;
+                if (this.ModelBounds(out min, out max))
+                {
+                    this.scene.Camera.FocusOn((min + max) / 2f, (max - min).Length() / 2f);
+                }
+                this.scene.Update(true);
+                return;
+            }
+            this.SwitchCameraModel(false);
+            if (!this.ExteriorEye(choice, out eye, out fov))
             {
                 return;
             }

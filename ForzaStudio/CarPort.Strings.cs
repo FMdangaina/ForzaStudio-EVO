@@ -157,7 +157,9 @@ namespace ForzaStudio
         }
 
         // The strings of one row (table.keyColumn = id) into <table>.str of every FM4 language; a
-        // language the source lacks gets the source's EN text (FM3 has no BR, GB, NL).
+        // language the source lacks gets the source's EN text (FM3 has no BR, GB, NL), and so does a key
+        // a source language lacks: FH1 / FH2 LOC.zip Data_Car.str holds 258 of 352 / 432 cars, so the LOC
+        // table stayed unchanged and a pack built on the port had 17 languages (2026-11-05, 8.e).
         private void PortStrings(string table, string keyColumn, long id, List<DlcPackage.StringLayer> layers, params string[] columns)
         {
             Dictionary<int, string> installedKeys = new Dictionary<int, string>();
@@ -168,6 +170,17 @@ namespace ForzaStudio
             string targetTables = Path.Combine(Path.Combine(this.TargetRoot, "Media"), "StringTables");
             string sourceTables = Path.Combine(Path.Combine(this.SourceRoot, "Media"), "StringTables");
             string strName = table + ".str";
+            StrFile sourceEnglish = null;
+            string englishZip = Path.Combine(sourceTables, "EN.zip");
+            if (File.Exists(englishZip))
+            {
+                ForzaZip englishArchive = new ForzaZip(englishZip);
+                ForzaZip.Entry englishEntry = englishArchive.Find(strName);
+                if (englishEntry != null)
+                {
+                    sourceEnglish = new StrFile(englishArchive.Read(englishEntry));
+                }
+            }
             List<string> zips = new List<string>();
             Dictionary<string, StrFile> sourceFiles = new Dictionary<string, StrFile>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, StrFile> targetFiles = new Dictionary<string, StrFile>(StringComparer.OrdinalIgnoreCase);
@@ -236,6 +249,10 @@ namespace ForzaStudio
                 foreach (string zip in zips)
                 {
                     StrFile.Entry text = Find(sourceFiles[zip], key);
+                    if (text == null && sourceEnglish != null)
+                    {
+                        text = Find(sourceEnglish, key);
+                    }
                     if (text != null)
                     {
                         targetFiles[zip].Set(newKey, renamed ? text.Text + this.DisplaySuffix : text.Text, text.Name);

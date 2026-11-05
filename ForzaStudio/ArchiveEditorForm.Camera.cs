@@ -146,6 +146,21 @@ namespace ForzaStudio
 
         private void LoadCockpitCameraCore()
         {
+            // Edits not saved yet survive a switch to another model of the same car (SwitchCameraModel).
+            CarCamera kept = (this.camPending && this.camState != null) ? this.camState : null;
+            this.LoadCockpitCameraFromDb();
+            if (kept != null && this.camState != null && string.Equals(kept.MediaName, this.camState.MediaName, StringComparison.OrdinalIgnoreCase))
+            {
+                this.camState = kept;
+                this.camPending = true;
+                this.FillCameraControls();
+                this.UpdateCameraLabels();
+                this.UpdateCameraOverlay();
+            }
+        }
+
+        private void LoadCockpitCameraFromDb()
+        {
             this.camState = null;
             this.camDbPath = null;
             this.camPending = false;
@@ -224,6 +239,21 @@ namespace ForzaStudio
             }
         }
 
+        // The boxes show 3 decimals: a component the user did not change keeps its full value (changing the
+        // eye's Y must not round the steering wheel 0.650491 to 0.650, 2026-11-05).
+        private static Vector3 KeepUntouched(Vector3 old, NumericUpDown[] numbers)
+        {
+            float[] was = { old.X, old.Y, old.Z };
+            for (int c = 0; c < 3; c++)
+            {
+                if ((decimal) Math.Round(was[c], 3) != numbers[c].Value)
+                {
+                    was[c] = (float) numbers[c].Value;
+                }
+            }
+            return new Vector3(was[0], was[1], was[2]);
+        }
+
         private static Vector3 GetVector(NumericUpDown[] numbers)
         {
             return new Vector3((float) numbers[0].Value, (float) numbers[1].Value, (float) numbers[2].Value);
@@ -235,8 +265,8 @@ namespace ForzaStudio
             {
                 return;
             }
-            this.camState.SteeringWheel = GetVector(this.numCamWheel);
-            this.camState.CockpitOffset = GetVector(this.numCamOffset);
+            this.camState.SteeringWheel = KeepUntouched(this.camState.SteeringWheel, this.numCamWheel);
+            this.camState.CockpitOffset = KeepUntouched(this.camState.CockpitOffset, this.numCamOffset);
             this.camState.HasSteeringWheel = true;
             this.camPending = true;
             this.UpdateCameraLabels();
@@ -337,6 +367,7 @@ namespace ForzaStudio
             {
                 return;
             }
+            this.SwitchCameraModel(true);
             Vector3 eye = CarCamera.ToModel(this.camState.Eye);
             this.scene.Camera.LookFrom(eye, eye + new Vector3(0f, 0f, -1f));
             this.scene.Camera.FieldOfViewDegrees = CarCamera.CockpitFov;

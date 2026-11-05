@@ -458,6 +458,23 @@ namespace ForzaStudio
                 {
                     errors.Add(string.Format(CultureInfo.InvariantCulture, "{0}.{1}: id {2} twice among the car's rows", column[0], key, twice));
                 }
+                // The car * 1000 + n keys: in a table where every other car's rows have key / 1000 = the car
+                // column (FM4 DVD1: CarPartPositions, Combo_Colors, List_AntiSwayPhysics,
+                // List_SpringDamperPhysics and the 11 List_Upgrade* tables, 100%), this car's rows must too.
+                // Tables that number their rows with a counter (EventParticipants, Combo_Engines...) have
+                // other cars off the pattern and are left alone. Measured on the database itself, so it holds
+                // for every game (user 2026-11-05).
+                string c = SqliteDatabase.Quote(column[1]);
+                string pattern = " " + k + " / 1000 = " + c;
+                if (Convert.ToInt64(db.Scalar("SELECT count(*) FROM " + t + " WHERE " + c + " <> ? AND " + c + " IS NOT NULL AND NOT (" + pattern + ")", car)) == 0
+                    && Convert.ToInt64(db.Scalar("SELECT count(*) FROM " + t + " WHERE " + c + " <> ? AND " + c + " IS NOT NULL", car)) > 0)
+                {
+                    object off = db.Scalar("SELECT " + k + " FROM " + t + mine + " AND NOT (" + pattern + ") LIMIT 1", car);
+                    if (off != null)
+                    {
+                        errors.Add(string.Format(CultureInfo.InvariantCulture, "{0}.{1}: id {2} of car {3} is not {3} * 1000 + n ({4}000 - {4}999) like every other car's", column[0], key, off, car, car));
+                    }
+                }
                 if (sourceId != car)
                 {
                     object old = db.Scalar("SELECT " + k + " FROM " + t + mine + " AND " + k + " BETWEEN ? AND ? LIMIT 1", car, sourceId * 1000, (sourceId * 1000) + 999);
