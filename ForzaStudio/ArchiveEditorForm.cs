@@ -40,9 +40,12 @@
         // The name shown in titles and dialogs (the exe is ForzaStudioEVO.exe).
         public const string AppName = "ForzaStudio EVO";
 
+        // Name + version for titles: the version is AssemblyInformationalVersion (AssemblyInfo.cs), the only place to change it.
+        public static readonly string AppTitle = AppName + " " + Application.ProductVersion;
+
         public ArchiveEditorForm()
         {
-            this.Text = AppName;
+            this.Text = AppTitle;
             this.Size = new Size(1280, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.WindowState = FormWindowState.Maximized;
@@ -1391,13 +1394,13 @@
             this.mnuSaveAs.Enabled = open && !this.zip.IsFolder;
             this.mnuClose.Enabled = open;
             this.UpdateBackMenu();
-            this.Text = open ? string.Format("{0}{1}{2} - {3}", this.zip.IsFolder ? this.zip.FilePath.TrimEnd('\\') : Path.GetFileName(this.zip.FilePath), this.zip.IsFolder ? "\\" : "", this.zip.IsModified ? " *" : "", AppName) : AppName;
+            this.Text = open ? string.Format("{0}{1}{2} - {3}", this.zip.IsFolder ? this.zip.FilePath.TrimEnd('\\') : Path.GetFileName(this.zip.FilePath), this.zip.IsFolder ? "\\" : "", this.zip.IsModified ? " *" : "", AppTitle) : AppTitle;
             if (open && this.package != null && this.InPackage(this.zip.FilePath))
             {
                 // The work folder's path means nothing to the user: name the package instead.
                 string inside = this.zip.FilePath.TrimEnd('\\').Substring(this.packageFolder.Length).TrimStart('\\');
                 this.Text = string.Format("{0}{1}{2}{3} - {4}", this.PackageRootLabel, (inside.Length > 0) ? " \\ " + inside : "", this.zip.IsModified ? " *" : "",
-                    this.packagePending ? " (package not written)" : "", AppName);
+                    this.packagePending ? " (package not written)" : "", AppTitle);
             }
         }
 

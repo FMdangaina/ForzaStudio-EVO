@@ -44,7 +44,7 @@ namespace ForzaStudio
             try
             {
                 StringBuilder text = new StringBuilder();
-                text.AppendLine("; ForzaStudio EVO - ALL settings in this one file. Edit freely, here or in Tools > Settings.");
+                text.AppendLine("; ForzaStudio EVO " + System.Windows.Forms.Application.ProductVersion + " - ALL settings in this one file. Edit freely, here or in Tools > Settings.");
                 text.AppendLine("; [App] folders, viewer, music, last used paths (key=value, a value may contain a semicolon).");
                 text.AppendLine("; [Ids] [PI] [Tires] [Damage] [Lod0] the port.  [General] [Drivetrain swap] [List_Upgrade...] the generic upgrades.");
                 text.AppendLine();

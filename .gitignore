@@ -87,3 +87,6 @@ materials.txt
 tools/Fm4Cars/*.exe
 tools/Fm4Cars/*.dll
 tools/Fm4Cars/*.ini
+
+# Release zips
+dist/

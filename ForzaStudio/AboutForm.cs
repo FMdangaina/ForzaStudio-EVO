@@ -25,6 +25,7 @@ namespace ForzaStudio
         public AboutForm()
         {
             InitializeComponent();
+            this.label1.Text = ArchiveEditorForm.AppTitle;
         }
 
         private void button1_Click(object sender, EventArgs e)

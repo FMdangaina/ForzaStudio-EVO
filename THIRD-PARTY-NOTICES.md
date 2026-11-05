@@ -85,8 +85,9 @@ These files are needed at build time or runtime but are not committed. Place the
 | File | Why it is excluded |
 |------|--------------------|
 | `xcompress.dll` | Microsoft Xbox 360 SDK, proprietary. Not in the release zip either. |
+| `Service\OffroadTires\Tire*Offroad.zip` | Offroad tire models for the port's "Offroad" choice. Not in the release zip: the user copies their own. |
 | `xma2encode.exe` | Microsoft Xbox 360 SDK, proprietary. Only needed by Add song (FM4); the user copies their own to `xma2encode\` next to the exe. |
-| `xds.dll` | Comes from the Forza Studio 4.6 release. Shipped in the release zip, not kept in the repository. |
+| `xds.dll` | Comes from the Forza Studio 4.6 release. Not in the release zip (from 0.0.1): the user copies their own next to the exe. |
 
 Game data (Forza `.zip`, `.carbin`, `.xds`, `.xpr`, gamedb, etc.) is copyrighted
 and is never committed either.

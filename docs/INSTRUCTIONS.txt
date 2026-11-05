@@ -1,5 +1,5 @@
-Forza Studio - BETA
-==================
+ForzaStudio EVO 0.0.1 - BETA
+============================
 
 Forza Studio is a modding tool for the Xbox 360 Forza games (FM4, FH1, FH2;
 FM2 and FM3 partly). It edits the game files in place: car models (.carbin),
@@ -16,15 +16,29 @@ The full manual is MANUAL.md (open it with any text editor or a Markdown viewer)
 1. WHAT YOU NEED
 ----------------
 - Windows 10 or 11.
-- .NET Framework 3.5. On Windows 10/11:
-  Control Panel > Programs > Turn Windows features on or off >
-  ".NET Framework 3.5 (includes .NET 2.0 and 3.0)".
-- Microsoft XNA Framework Redistributable 3.1 (for the 3D view).
+- .NET Framework 4.8 (already part of Windows 10 and 11).
+- Microsoft XNA Framework Redistributable 3.1 (for the 3D view). If its
+  installer asks for .NET Framework 3.5: Control Panel > Programs >
+  Turn Windows features on or off > ".NET Framework 3.5 (includes .NET 2.0
+  and 3.0)".
 - An extracted copy of the game (the folder holding default.xex and Media).
 - For DLC packages: Xenia Canary.
-- xcompress.dll (Microsoft, from the Xbox 360 SDK). NOT included: it is
-  Microsoft's and cannot be shared. Copy your own next to ForzaStudioEVO.exe.
-  Without it the game's compressed zips cannot be opened or saved.
+- The files below. They are NOT in this zip: they belong to others and
+  cannot be shared. Bring your own and put them exactly here (paths are
+  from the folder that holds ForzaStudioEVO.exe):
+
+  File                                   Where                       Needed for
+  -------------------------------------  --------------------------  ---------------------------------
+  xcompress.dll (Xbox 360 SDK)           next to ForzaStudioEVO.exe  opening and saving the game's
+                                                                     compressed zips: almost everything
+  xds.dll (from the Forza Studio 4.6     next to ForzaStudioEVO.exe  textures (.xds): view, import,
+  release)                                                           export, thumbnails
+  xma2encode.exe (Xbox 360 SDK,          xma2encode\xma2encode.exe   Add Song (your own music in FM4)
+  bin\win32)
+  TireAOffroad.zip, TireBOffroad.zip,    Service\OffroadTires\       the "Offroad" tire choice of the
+  TireCOffroad.zip                                                   car port
+
+  Without one of them, the features in its row do not work.
 
 Everything else is already in this zip, next to ForzaStudioEVO.exe.
 Keep the files together: do not move ForzaStudioEVO.exe out of its folder.

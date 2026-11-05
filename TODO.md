@@ -57,7 +57,7 @@ Focus: finish and fix, no new topics. Done 2026-10-28: build + commit of the 26-
 THIRD-PARTY-NOTICES / credits updated (docs say what is experimental).
 **Experimental / dream group** (labelled as such in the docs, not fixed for 0.0.1): Anark dash structure edits (12.6-12.9), OBJ onto wheels
 (11.1 / 11.2, T-G10), FBX in Blender (11.8.2), 14.x cameras (14.0 review comes after the release), new country (8.2), generic brakes (3.3 / T-G7), 9.5, 15.x.
-Dropped: 9.4. Left before the tag: 7.4 New Folder seen in the interface, version number 0.0.1 in the program and ini, Release build + clean zip, push (D-4, the user says when).
+2026-11-05: version 0.0.1 in AssemblyInfo (title, About, ini [App] Version), Release build, zips in dist\ (public: own exe + MIT/ISC libraries; user-provided files listed in INSTRUCTIONS.txt; FULL private zip for the user). 7.4 New Folder still to be seen by the user. Dropped: 9.4. Left before the tag: 7.4 New Folder seen in the interface, version number 0.0.1 in the program and ini, Release build + clean zip, push (D-4, the user says when).
 
 ---
 
