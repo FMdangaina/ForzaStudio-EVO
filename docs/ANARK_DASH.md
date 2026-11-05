@@ -55,18 +55,68 @@ The **element hash** is the full 32-bit `h = (h + c) * 65599` of the element's n
 bits (+ kind bits): the FM3 "unnamed" parameters of a behaviour are named after the elements it drives (`A896D74C` = string kind + 16 +
 `TEXT_SPEED_DATA`). A **slide's** name hashes to the words of the event table.
 
-### Event table (block 3)
+**2026-11-05, contract behaviours named**: a contract behaviour's hash is `H(<contract name> + "_CONTRACT")`, where the contract name is
+the string of its parameter 04A9EC63 (the other fixed parameter, 064CB58A, holds the word `contract`). 20B25330 = `PROGRESS_BAR_CONTRACT`,
+00CE884D = `COCKPIT_LIGHT_CONTRACT`; in the UI: `HELP_BUTTON_CONTRACT`, `BUTTON_TEXT_CONTRACT`, `ALIGN_TO_CONTRACT`, `LOBBY_MIC_CONTRACT`...
+Holds for 3782 behaviours (3395 UI + 387 FM4 dash); the rest have other names (UIContract, or no contract string). AE4BB809 / 1D469C91 are not
+in the FM4 dashes (FH corpus, not checked).
 
-Words: element indexes and name hashes. The hash of a slide label ("START UP" = B2D91FA7, "IDLE", "DOOR OPEN" = 941A7024, "ON" = 2734DC01,
-"OFF" = 7E58B971...) appears with bit 31 set or cleared (same name). In the car-presentation dashes (`CAR_PRES_GAUGE_ANIM`, Autovista) it reads
-as 2 header words (behaviour element, node) and then 7-word records: **event name hash**, behaviour, component, 0 (scene), `1195C23B`
-(in every record, an unnamed action, probably "play slide"), **slide hash**, 0. Example: event "DOOR CLOSE" (1CDF13DA, a name the game's code
-sends, with a space) plays slide "DOOR_CLOSE" (516FC599) of component START_UP. The gauge dashes (ON/OFF per light, 60 of the 154 FM3 dashes)
-use shorter records with the same words (event ON/OFF, two component indexes, `1195C23B`, slide ON/OFF, 0). The record grammar for the gauges is
-not settled. The Dash view's structure report (`DashReport`) now prints every word with its name.
+### Source of the names: the FM4 menus are Anark too
 
-1. behaviour table: per behaviour `u32 element index, u32 n, n slot numbers`
-2. animation tracks: `u32 element, u32 property hash, u32 type|key count, 6 words per key` (time ms, value, ...)
-3. events (not decoded; element indexes and hashes)
-4. empty in every file
-5. slides: `25 bytes name, u32 duration, u32 count`, entries `u32 element, u8 flag, u32 A, A x 8, u32 N, N x 4`; one slide set per component, listing the elements it owns. Header 0x5C / 0x60 / 0x64 / 0x68 = slides / entries / A items / track references.
+`Media/UI.zip` holds 141 Anark scenes (`scenes/ui4/*.bgf/.fbf/.bsg`), the same format as the dashes, plus `eventnames.txt` (825 event names
+the game sends, e.g. `FOCUSED`, `SHOW`, `PLAY_INTRO`) and five Lua behaviours (`behaviors/ui4/*.lua`; two are plain text: `eventfire.lua`
+calls `fireEvent(getAttribute(self.element, "eventName"), getElement(getAttribute(self.element, "TARGET"), self.element))`; the compiled ones
+use `registerForEvent`, `getElement`, `play`, `getTime`, `UI.flowProcess`). The UI corpus has 24,298 events and 108,370 actions against 498 /
+780 in the 233 FM4 dashes: it is what settled the grammar below.
+
+### Tail blocks, decoded (2026-11-05)
+
+Checked on the 141 UI scenes and the 233 FM4 dashes, 374/374 consumed to the last byte (`tools/AnarkTail/anark_tail.py check <folders>`;
+`dump <file.bgf> [eventnames.txt]` prints the blocks with names). Hashes in block 3 (events, commands, slide names) are `H(name) & 0x7FFFFFFF`:
+that is why the same label was seen "with bit 31 set or cleared" (the bit is always cleared; names whose full hash has bit 31 set looked flipped).
+
+1. **events declared by behaviours**: per behaviour `u32 element index, u32 n, n x u32 string index`. The string indexes are the names of the
+   events the behaviour declares (in `030_bonus_content`: SHOW_RESTRICTIONS, INTRO, COMPO, NEXT_SEL...); in every file they are sorted,
+   unique and contiguous at the end of the string table. (Was "slot numbers".)
+2. **animation tracks**: `u32 element, u32 property hash, u32 type<<16 | key count, 6 words per key` (89,375 tracks, all read).
+3. **events**: a list of groups until the end of the block:
+   - group: `u32 owner element (a behaviour, 7 times a component), u32 n events`
+   - event: `u32 event hash, u32 n actions` (98.7% of the events are among the names the owner declares in block 1)
+   - action, 5 words: `u32 target element, u32 second element (mostly the component that owns the target), u32 command, u32 arg1, u32 arg2`
+
+   | command | hash | arg1 | arg2 | count UI / dash |
+   |---|---|---|---|---|
+   | `COMMAND_GOTOSLIDENAME` | 1195C23B | slide name hash | 0 | 34,543 / 768 |
+   | `COMMAND_SETPROPERTY` | 7E4906FD | property hash with kind bits (always float so far) | value (float bits) | 73,788 / 0 |
+   | `COMMAND_FIREEVENT` | 06875030 | event hash | 0 | 12 / 0 |
+   | `COMMAND_PLAY` | 573BA2B8 | 0 | 0 | 18 / 12 |
+   | `COMMAND_GOTOTIME` | 5B2FA69C | time | 0 | 9 / 0 |
+
+   The command names are those of the Anark runtime (the same `COMMAND_*` set survives in NVIDIA UI Composer / Qt 3D Studio).
+   Dash example: owner `COCKPIT_LIGHT_CONTRACT`, on `ON` → GOTOSLIDENAME `ON` on its light component, on `OFF` → GOTOSLIDENAME `OFF`.
+   Car-presentation example (as read before): event "DOOR CLOSE" (1CDF13DA) → GOTOSLIDENAME "DOOR_CLOSE" (516FC599) on component START_UP.
+4. empty in every file (UI too)
+5. slides: `25 bytes name, u32 duration, u32 count`, entries `u32 element, u8 flag, u32 A, A x (u32 property hash, u32 value), u32 N,
+   N x u32 reference`; one slide set per component, listing the elements it owns, in index order. The A items are the values the slide
+   gives the element's properties. A **reference** is `top byte 0 = animation track / 1 = action, next byte a flag, low 16 bits the index`
+   (in block 2, or among the actions of block 3 counted in file order). Every action is referenced twice (flag 0 and 1) by the entry of its
+   second element, which is therefore the **time context** of the action; every track by the entry of its own element (374/374).
+
+Header (374/374, `AnarkBgf.UpdateHeader`): 0x1C highest id << 8, 0x24 / 0x70 elements that are not components, 0x28 / 0x74 components,
+0x2C / 0x78 properties, **0x30 / 0x7C entries of block 1** (not the behaviours: they differ in 53 UI scenes), 0x34 / 0x80 declared strings,
+0x3C strings, 0x44 tracks, 0x48 keys, 0x4C event groups, 0x50 events, 0x54 actions, 0x5C slides, 0x60 entries, 0x64 A items, 0x68 references.
+0x6C is not a count found so far (kept as it is).
+
+Ordering in the game's files: block 1 and block 2 sorted by element, slide entries in index order, elements depth first (parent before child,
+a subtree contiguous); event groups are not always sorted (113 of 374). One game file has an event with no actions.
+
+Element hashes: the full sdbm of the .fbf name for 12368 of the 15609 named elements of the FM4 dashes; most images (2467), some groups (232)
+and models (515) have a hash from another name (probably the editor's), not found.
+
+**In the editor (2026-11-05, offline only)**: `AnarkBgf` holds blocks 1-3 as lists (`Declared`, `AnimationTracks`, `EventGroups`) and the slide
+references, writes them back byte for byte (374/374) and renumbers every reference: `InsertElements`, `RemoveElements`, `CopyTracks`.
+`AnarkDash.Duplicate` puts the copy right after the original under the same parent, with the slide values and the animation tracks of the
+original; `Remove` takes away any element with its behaviours, tracks, events and slides. Checked on the 210 FM4 dashes that have all three
+files: 7365 duplicates (2442 with tracks) keep every rule above, and removing the copy gives the three files back byte for byte; 15399
+removals anywhere keep every rule; an import of a text group into all 210 too. The Structure report prints blocks 1-3 with names.
+Harness: `DashTest.cs` (see TODO 12.8). **Nothing of this is tested in the game yet.**

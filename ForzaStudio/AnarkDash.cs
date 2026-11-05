@@ -738,9 +738,11 @@ namespace ForzaStudio
         }
 
         // Copies a node (a model, a text or a group) with everything under it:
-        //   .fbf  the records, with new ids, just before the record of the group they go in (groups after their children);
-        //   .bgf  the elements and their properties, APPENDED (see EndParent), strings get their own copy, the header
-        //         counts are updated, and every new element is listed in the slides of its component;
+        //   .fbf  the records, with new ids, right after the original's record (groups after their children);
+        //   .bgf  the elements and their properties, INSERTED right after the original under the same parent (the whole
+        //         tail is renumbered: AnarkBgf.InsertElements; gauges and imports are appended, see EndParent), strings get
+        //         their own copy, the header counts are updated, every new element is listed in the slides of its component
+        //         with the values the slides give the original, and its animation tracks are copied (AnarkBgf.CopyTracks);
         //   .bsg  the base nodes, appended, with new ids; materials and images also go in its table of them.
         // The meshes and textures are shared. The copy keeps its place on the screen. name = the copy's name (the .bgf
         // element hash is built from it); sameNames keeps every name as it is, so whatever the game does by name may
@@ -818,14 +820,17 @@ namespace ForzaStudio
                 this.Blocked = "the slides of this dash are not understood, nothing can be added to it";
                 return null;
             }
-            Node parent = isComponent ? this.EndLayer() : this.EndParent();
+            // A copy of a model, text or group of this dash goes right after the original, under the same parent: a real
+            // insertion, every index of the .bgf tail is renumbered (2026-11-05). Gauges and imports still go at the end.
+            bool inPlace = !cross && !isComponent && root.Parent != null && this.Bgf.TailEditable;
+            Node parent = inPlace ? root.Parent : isComponent ? this.EndLayer() : this.EndParent();
             if (parent == null)
             {
                 this.Blocked = "this dash has no " + (isComponent ? "layer" : "group at its end") + " to put a copy in";
                 return null;
             }
             Node owner = OwnerOf(parent);
-            if (!cross && root.Parent != null && !SameLinear(root.Parent, parent))
+            if (!inPlace && !cross && root.Parent != null && !SameLinear(root.Parent, parent))
             {
                 this.Blocked = root.Name + " sits in a part of the dash that is scaled or turned differently from where copies go (" + parent.Name + "): the copy would change size";
                 return null;
@@ -897,6 +902,8 @@ namespace ForzaStudio
             Dictionary<uint, uint> newId = new Dictionary<uint, uint>();
             List<KeyValuePair<int, AnarkFbf.Record>> records = new List<KeyValuePair<int, AnarkFbf.Record>>();
             int originalCount = srcEl.Count;
+            int at = inPlace ? root.Index + this.Subtree(root).Count : elements.Count;
+            List<AnarkBgf.Element> added = new List<AnarkBgf.Element>();
             List<string> used = new List<string>();
             for (int i = 0; i < originalCount; i++)
             {
@@ -906,7 +913,7 @@ namespace ForzaStudio
                 }
                 AnarkBgf.Element old = srcEl[i];
                 AnarkBgf.Element copy = old.Copy();
-                newIndex[i] = elements.Count;
+                newIndex[i] = at + added.Count;
                 copy.Parent = (i == root.Index) ? parent.Index : newIndex[old.Parent];
                 copy.Id = ++nextId;
                 newId[old.Id] = copy.Id;
@@ -932,7 +939,14 @@ namespace ForzaStudio
                     {
                         recCopy.Owner = owned;
                     }
-                    copy.Hash = (old.Hash & 0xF8000000u) | AnarkBgf.HashName(recCopy.Name);
+                    // An element's hash is the full sdbm hash of its name for 80% of the elements of the FM4 dashes (12368 of
+                    // 15609; images, some groups and models have a hash from another name, the editor's): such a copy gets the
+                    // hash of its own name, the others keep the original's (as with the same names). The old form (top 5 bits
+                    // of the original + 27 bits of the new name) matched neither.
+                    if (old.Hash == AnarkBgf.HashFull(rec.Name))
+                    {
+                        copy.Hash = AnarkBgf.HashFull(recCopy.Name);
+                    }
                     records.Add(new KeyValuePair<int, AnarkFbf.Record>(src.Fbf.Records.IndexOf(rec), recCopy));
                 }
                 foreach (AnarkBgf.Property p in copy.Properties)
@@ -944,10 +958,26 @@ namespace ForzaStudio
                         this.Bgf.Strings.Add(text);
                     }
                 }
-                elements.Add(copy);
-                if (!isComponent || i == root.Index)
+                added.Add(copy);
+            }
+            if (this.Bgf.TailEditable)
+            {
+                this.Bgf.InsertElements(at, added);
+            }
+            else
+            {
+                elements.AddRange(added);       // at == the end: nothing to renumber
+            }
+            // owner, the originals and the parent sit before 'at': their indexes did not move
+            for (int i = 0; i < originalCount; i++)
+            {
+                if (inside[i] && (!isComponent || i == root.Index))
                 {
-                    this.Bgf.AddToSlides(owner.Index, elements.Count - 1, cross ? -1 : i);
+                    this.Bgf.AddToSlides(owner.Index, newIndex[i], cross ? -1 : i);
+                    if (!cross)
+                    {
+                        this.Bgf.CopyTracks(i, newIndex[i]);
+                    }
                 }
             }
             this.LastImport = newIndex;
@@ -983,8 +1013,10 @@ namespace ForzaStudio
                 {
                     ordered.Add(pair.Value);
                 }
-                int at = this.Fbf.Records.IndexOf((parent.Record.Type == AnarkFbf.RecordType.Group) ? parent.Record : this.Root.Record);
-                this.Fbf.Records.InsertRange((at >= 0) ? at : this.Fbf.Records.Count, ordered);
+                // in place: right after the original's record (it follows its children, the parent's record comes later)
+                int recordAt = inPlace ? this.Fbf.Records.IndexOf(root.Record) + 1
+                    : this.Fbf.Records.IndexOf((parent.Record.Type == AnarkFbf.RecordType.Group) ? parent.Record : this.Root.Record);
+                this.Fbf.Records.InsertRange((recordAt >= 0) ? recordAt : this.Fbf.Records.Count, ordered);
             }
 
             if (this.Bsg != null)
@@ -1126,6 +1158,12 @@ namespace ForzaStudio
                 return "the slides of this dash are not understood";
             }
             List<int> subtree = this.Subtree(node);
+            if (this.Bgf.TailEditable)
+            {
+                // every reference of the tail is known (2026-11-05): anything goes, with its behaviours, animation tracks,
+                // events and slides; the rest is renumbered
+                return null;
+            }
             foreach (int i in subtree)
             {
                 if ((this.Nodes[i].Element.Type == AnarkBgf.ElementType.Component && i != node.Index) || this.Nodes[i].Element.Type == AnarkBgf.ElementType.Behaviour)
@@ -1174,11 +1212,15 @@ namespace ForzaStudio
                 }
             }
             List<AnarkBgf.Element> elements = this.Bgf.Elements;
+            int count = this.Subtree(node).Count;
             Dictionary<uint, bool> ids = new Dictionary<uint, bool>();
             List<int> strings = new List<int>();
-            for (int i = first; i < elements.Count; i++)
+            for (int i = first; i < first + count; i++)
             {
-                ids[elements[i].Id] = true;
+                if (elements[i].Type != AnarkBgf.ElementType.Behaviour)
+                {
+                    ids[elements[i].Id] = true;     // behaviours have id 0 and nothing in the .fbf / .bsg
+                }
                 foreach (AnarkBgf.Property p in elements[i].Properties)
                 {
                     if (p.Kind == AnarkBgf.ValueKind.String && p.Value < this.Bgf.Strings.Count)
@@ -1205,13 +1247,43 @@ namespace ForzaStudio
                 }
                 this.BsgChanged = true;
             }
-            strings.Sort();
-            for (int k = strings.Count - 1; k >= 0 && strings[k] == this.Bgf.Strings.Count - 1; k--)
+            if (this.Bgf.TailEditable)
             {
-                this.Bgf.Strings.RemoveAt(strings[k]);       // only the last strings can go: the others keep their numbers
+                this.Bgf.RemoveElements(first, count);
             }
-            elements.RemoveRange(first, elements.Count - first);
-            this.Bgf.RemoveFromSlides(first);
+            else
+            {
+                elements.RemoveRange(first, elements.Count - first);
+                this.Bgf.RemoveFromSlides(first);
+            }
+            // only the last strings can go (the others keep their numbers), and only when nothing left uses them
+            Dictionary<int, bool> usedStrings = new Dictionary<int, bool>();
+            foreach (AnarkBgf.Element e in elements)
+            {
+                foreach (AnarkBgf.Property p in e.Properties)
+                {
+                    if (p.Kind == AnarkBgf.ValueKind.String)
+                    {
+                        usedStrings[(int) p.Value] = true;
+                    }
+                }
+            }
+            if (this.Bgf.Declared != null)
+            {
+                foreach (AnarkBgf.DeclaredEvents de in this.Bgf.Declared)
+                {
+                    foreach (int s in de.Strings)
+                    {
+                        usedStrings[s] = true;
+                    }
+                }
+            }
+            int last = this.Bgf.Strings.Count - 1;
+            while (last >= 0 && strings.Contains(last) && !usedStrings.ContainsKey(last))
+            {
+                this.Bgf.Strings.RemoveAt(last);
+                last--;
+            }
             this.Bgf.UpdateHeader();
             this.FbfChanged = this.BgfChanged = true;
             this.Build();

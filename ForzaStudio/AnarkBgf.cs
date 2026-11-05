@@ -161,6 +161,33 @@ namespace ForzaStudio
                     new int[] { 0x5C, this.Slides.Count }, new int[] { 0x60, entries }, new int[] { 0x64, items }, new int[] { 0x68, tracks },
                 }.ToArray();
             }
+            if (this.Declared != null)
+            {
+                int declaredStrings = 0, keys = 0, events = 0, actions = 0;
+                foreach (DeclaredEvents de in this.Declared)
+                {
+                    declaredStrings += de.Strings.Count;
+                }
+                foreach (Track t in this.AnimationTracks)
+                {
+                    keys += t.KeyCount;
+                }
+                foreach (EventGroup g in this.EventGroups)
+                {
+                    events += g.Events.Count;
+                    foreach (Event e in g.Events)
+                    {
+                        actions += e.Actions.Count;
+                    }
+                }
+                // 0x30 / 0x7C count the declared-event entries, not the behaviours (they differ in 53 of the 141 UI scenes)
+                fields = new List<int[]>(fields)
+                {
+                    new int[] { 0x30, this.Declared.Count }, new int[] { 0x7C, this.Declared.Count }, new int[] { 0x34, declaredStrings }, new int[] { 0x80, declaredStrings },
+                    new int[] { 0x44, this.AnimationTracks.Count }, new int[] { 0x48, keys }, new int[] { 0x4C, this.EventGroups.Count },
+                    new int[] { 0x50, events }, new int[] { 0x54, actions },
+                }.ToArray();
+            }
             foreach (int[] f in fields)
             {
                 this.Header[f[0]] = (byte) (f[1] >> 24);
@@ -176,25 +203,146 @@ namespace ForzaStudio
         public byte[] Header;
         public List<string> Strings = new List<string>();
         public List<Element> Elements = new List<Element>();
-        public byte[] Rest;                  // behaviour table, animations, events, slides (see Slides)
+        public byte[] Rest;                  // the tail as read: declared events, animations, events, block 4, slides
 
-        // The tail after the graph: five blocks, each a u32 size + bytes: behaviours (u32 element index, u32 n, n u32),
-        // animation tracks (u32 element index, u32 property hash, u32 type + key count, 6 words per key), events,
-        // one more (empty in every file seen) and the SLIDES. All 431 dashes read and write back byte for byte.
-        // Only the slides are parsed: they list, for every component (the scene and each gauge), the elements it owns
-        // (itself, its elements down to the next component, and the components under it), in index order, and one
-        // slide has one entry per element. An element missing from a slide of its component was never seen.
-        //   slide  = 25 bytes name, u32 duration, u32 entry count, entries
-        //   entry  = u32 element index, u8 flag, u32 A, A x 8 bytes, u32 N, N x 4 bytes (animation tracks used)
-        // Header 0x5C = slide count, 0x60 = entries, 0x64 = A items, 0x68 = track references (all 431 files).
+        // ---- The tail after the graph ----
+        // Five blocks, each a u32 size + bytes. Decoded 2026-11-05 on the 141 Anark scenes of FM4's Media/UI.zip (the
+        // menus are Anark too) and the 233 FM4 dashes: 374/374 read to the last byte and written back byte for byte.
+        //   1 declared events: per behaviour u32 element, u32 n, n x u32 string index = the names of the events it declares
+        //     (sorted by element)
+        //   2 animation tracks: u32 element, u32 property hash, u32 type << 16 | key count, 6 words per key (sorted by element)
+        //   3 events: groups (u32 owner element, u32 n events), event (u32 name hash & 0x7FFFFFFF, u32 n actions),
+        //     action (u32 target element, u32 context element, u32 command, u32 arg1, u32 arg2); see the Command constants
+        //   4 empty in every file
+        //   5 slides: they list, for every component (the scene and each gauge), the elements it owns (itself, its elements
+        //     down to the next component, and the components under it), in index order; one entry per element.
+        //       slide = 25 bytes name, u32 duration, u32 entry count, entries
+        //       entry = u32 element index, u8 flag, u32 A, A x (u32 property hash, u32 value), u32 N, N x u32 reference
+        //     A reference: top byte 0 = animation track, 1 = action; next byte a flag; low 16 bits the index (in block 2,
+        //     or among the actions of block 3 counted in order). Every action is referenced twice (flag 0 and 1) by the
+        //     entry of its context element, every track by the entry of its element (374/374).
+        // Header: 0x30 / 0x7C declared entries, 0x34 / 0x80 declared strings, 0x44 tracks, 0x48 keys, 0x4C groups,
+        // 0x50 events, 0x54 actions, 0x5C slides, 0x60 entries, 0x64 A items, 0x68 references (374/374).
+        // When the slides do not read, Slides is null and the tail is written as it was; when only blocks 1-3 do not
+        // read as above (other games), Declared is null and those blocks are written as they were.
+
+        public const uint CommandGotoSlideName = 0x1195C23B;   // arg1 = slide name hash
+        public const uint CommandSetProperty = 0x7E4906FD;     // arg1 = property hash with kind bits, arg2 = value
+        public const uint CommandFireEvent = 0x06875030;       // arg1 = event name hash
+        public const uint CommandPlay = 0x573BA2B8;
+        public const uint CommandGotoTime = 0x5B2FA69C;        // arg1 = time
+
+        public const uint RefAction = 0x01000000;
+
+        public static string CommandName(uint command)
+        {
+            switch (command)
+            {
+                case CommandGotoSlideName: return "go to slide";
+                case CommandSetProperty: return "set property";
+                case CommandFireEvent: return "fire event";
+                case CommandPlay: return "play";
+                case CommandGotoTime: return "go to time";
+            }
+            return "command " + command.ToString("X8");
+        }
+
+        // Event and slide names in block 3 are the full hash with bit 31 cleared.
+        public static uint HashEvent(string name)
+        {
+            return HashFull(name) & 0x7FFFFFFF;
+        }
+
+        public class DeclaredEvents
+        {
+            public int Element;
+            public List<int> Strings = new List<int>();
+        }
+
+        public class Track
+        {
+            public int Element;
+            public uint Hash;
+            public uint Type;
+            public uint[] Keys = new uint[0];     // 6 words per key: time in ms, value, ...
+
+            public int KeyCount { get { return this.Keys.Length / 6; } }
+
+            public Track Copy()
+            {
+                Track t = (Track) this.MemberwiseClone();
+                t.Keys = (uint[]) this.Keys.Clone();
+                return t;
+            }
+        }
+
+        public class EventAction
+        {
+            public int Target;
+            public int Context;
+            public uint Command;
+            public uint Arg1;
+            public uint Arg2;
+        }
+
+        public class Event
+        {
+            public uint Hash;
+            public List<EventAction> Actions = new List<EventAction>();
+        }
+
+        public class EventGroup
+        {
+            public int Owner;
+            public List<Event> Events = new List<Event>();
+        }
+
         public class SlideEntry
         {
             public uint Index;
             public byte Flag;
-            public byte[] Data = new byte[8];   // A, A items, N, N tracks
+            public List<uint[]> Items = new List<uint[]>();   // { property hash, value }: what this slide sets on the element
+            public List<uint> Refs = new List<uint>();        // animation tracks and actions (see RefAction)
 
-            public int ItemCount { get { return (int) ReadU32(this.Data, 0); } }
-            public int TrackCount { get { return (int) ReadU32(this.Data, 4 + 8 * this.ItemCount); } }
+            public int ItemCount { get { return this.Items.Count; } }
+            public int TrackCount { get { return this.Refs.Count; } }
+
+            // A, A items, N, N references, as in the file.
+            public byte[] Data
+            {
+                get
+                {
+                    MemoryStream m = new MemoryStream();
+                    WriteU32(m, (uint) this.Items.Count);
+                    foreach (uint[] item in this.Items)
+                    {
+                        WriteU32(m, item[0]);
+                        WriteU32(m, item[1]);
+                    }
+                    WriteU32(m, (uint) this.Refs.Count);
+                    foreach (uint r in this.Refs)
+                    {
+                        WriteU32(m, r);
+                    }
+                    return m.ToArray();
+                }
+                set
+                {
+                    this.Items = new List<uint[]>();
+                    this.Refs = new List<uint>();
+                    int a = ReadU32(value, 0);
+                    for (int i = 0; i < a; i++)
+                    {
+                        this.Items.Add(new uint[] { (uint) ReadU32(value, 4 + 8 * i), (uint) ReadU32(value, 8 + 8 * i) });
+                    }
+                    int o = 4 + 8 * a;
+                    int n = ReadU32(value, o);
+                    for (int i = 0; i < n; i++)
+                    {
+                        this.Refs.Add((uint) ReadU32(value, o + 4 + 4 * i));
+                    }
+                }
+            }
         }
 
         public class Slide
@@ -214,15 +362,28 @@ namespace ForzaStudio
         }
 
         public List<Slide> Slides;           // null when the tail did not read as expected: then Rest is written as it is
-        private int slideStart;              // in Rest: first byte after the size of the slide block
+        public List<DeclaredEvents> Declared;   // blocks 1-3, null when they did not read (see above)
+        public List<Track> AnimationTracks;
+        public List<EventGroup> EventGroups;
+        private byte[][] rawBlocks;          // blocks 1-4 as read
 
-        private void ParseSlides()
+        // True when every element reference of the file is understood: elements can be inserted or removed anywhere.
+        public bool TailEditable
+        {
+            get { return this.Slides != null && this.Declared != null; }
+        }
+
+        private void ParseTail()
         {
             this.Slides = null;
+            this.Declared = null;
+            this.AnimationTracks = null;
+            this.EventGroups = null;
             try
             {
                 byte[] d = this.Rest;
                 int o = 0;
+                byte[][] blocks = new byte[4][];
                 for (int block = 0; block < 4; block++)
                 {
                     long size = (uint) ReadU32(d, o);
@@ -231,6 +392,8 @@ namespace ForzaStudio
                     {
                         return;
                     }
+                    blocks[block] = new byte[size];
+                    Buffer.BlockCopy(d, o, blocks[block], 0, (int) size);
                     o += (int) size;
                 }
                 long slideBytes = (uint) ReadU32(d, o);
@@ -240,7 +403,6 @@ namespace ForzaStudio
                     return;
                 }
                 List<Slide> slides = new List<Slide>();
-                int start = o;
                 while (o < d.Length)
                 {
                     Slide slide = new Slide();
@@ -270,8 +432,9 @@ namespace ForzaStudio
                         {
                             return;
                         }
-                        entry.Data = new byte[end - o];
-                        Buffer.BlockCopy(d, o, entry.Data, 0, entry.Data.Length);
+                        byte[] data = new byte[end - o];
+                        Buffer.BlockCopy(d, o, data, 0, data.Length);
+                        entry.Data = data;
                         o = end;
                         slide.Entries.Add(entry);
                     }
@@ -281,8 +444,9 @@ namespace ForzaStudio
                 {
                     return;
                 }
-                this.slideStart = start;
+                this.rawBlocks = blocks;
                 this.Slides = slides;
+                this.ParseModel(blocks);
             }
             catch (IndexOutOfRangeException)
             {
@@ -294,11 +458,216 @@ namespace ForzaStudio
             }
         }
 
+        private static uint[] Words(byte[] b)
+        {
+            if (b.Length % 4 != 0)
+            {
+                return null;
+            }
+            uint[] w = new uint[b.Length / 4];
+            for (int i = 0; i < w.Length; i++)
+            {
+                w[i] = (uint) ReadU32(b, i * 4);
+            }
+            return w;
+        }
+
+        private void ParseModel(byte[][] blocks)
+        {
+            uint n = (uint) this.Elements.Count;
+            uint[] w = Words(blocks[0]);
+            if (w == null)
+            {
+                return;
+            }
+            List<DeclaredEvents> declared = new List<DeclaredEvents>();
+            long i = 0;
+            while (i < w.Length)
+            {
+                if (i + 2 > w.Length || w[i] >= n || w[i + 1] > w.Length - i - 2)
+                {
+                    return;
+                }
+                DeclaredEvents de = new DeclaredEvents();
+                de.Element = (int) w[i];
+                uint count = w[i + 1];
+                i += 2;
+                for (long k = 0; k < count; k++)
+                {
+                    if (w[i + k] >= this.Strings.Count)
+                    {
+                        return;
+                    }
+                    de.Strings.Add((int) w[i + k]);
+                }
+                i += count;
+                declared.Add(de);
+            }
+
+            w = Words(blocks[1]);
+            if (w == null)
+            {
+                return;
+            }
+            List<Track> tracks = new List<Track>();
+            i = 0;
+            while (i < w.Length)
+            {
+                if (i + 3 > w.Length || w[i] >= n)
+                {
+                    return;
+                }
+                Track t = new Track();
+                t.Element = (int) w[i];
+                t.Hash = w[i + 1];
+                t.Type = w[i + 2] >> 16;
+                long keys = w[i + 2] & 0xFFFF;
+                i += 3;
+                if (i + keys * 6 > w.Length)
+                {
+                    return;
+                }
+                t.Keys = new uint[keys * 6];
+                Array.Copy(w, i, t.Keys, 0, t.Keys.Length);
+                i += keys * 6;
+                tracks.Add(t);
+            }
+
+            w = Words(blocks[2]);
+            if (w == null)
+            {
+                return;
+            }
+            List<EventGroup> groups = new List<EventGroup>();
+            int actions = 0;
+            i = 0;
+            while (i < w.Length)
+            {
+                if (i + 2 > w.Length || w[i] >= n)
+                {
+                    return;
+                }
+                EventGroup g = new EventGroup();
+                g.Owner = (int) w[i];
+                uint events = w[i + 1];
+                i += 2;
+                for (uint k = 0; k < events; k++)
+                {
+                    if (i + 2 > w.Length)
+                    {
+                        return;
+                    }
+                    Event e = new Event();
+                    e.Hash = w[i];
+                    long count = w[i + 1];
+                    i += 2;
+                    if (i + count * 5 > w.Length)
+                    {
+                        return;
+                    }
+                    for (long a = 0; a < count; a++, i += 5)
+                    {
+                        if (w[i] >= n || w[i + 1] >= n)
+                        {
+                            return;
+                        }
+                        EventAction act = new EventAction();
+                        act.Target = (int) w[i];
+                        act.Context = (int) w[i + 1];
+                        act.Command = w[i + 2];
+                        act.Arg1 = w[i + 3];
+                        act.Arg2 = w[i + 4];
+                        e.Actions.Add(act);
+                        actions++;
+                    }
+                    g.Events.Add(e);
+                }
+                groups.Add(g);
+            }
+
+            foreach (Slide slide in this.Slides)
+            {
+                foreach (SlideEntry entry in slide.Entries)
+                {
+                    if (entry.Index >= n)
+                    {
+                        return;
+                    }
+                    foreach (uint r in entry.Refs)
+                    {
+                        uint kind = r >> 24, index = r & 0xFFFF;
+                        if ((kind == 0 && index >= tracks.Count) || (kind == 1 && index >= actions) || kind > 1)
+                        {
+                            return;
+                        }
+                    }
+                }
+            }
+            this.Declared = declared;
+            this.AnimationTracks = tracks;
+            this.EventGroups = groups;
+        }
+
         private byte[] BuildRest()
         {
             if (this.Slides == null)
             {
                 return this.Rest;
+            }
+            byte[][] blocks = this.rawBlocks;
+            if (this.Declared != null)
+            {
+                blocks = new byte[4][];
+                MemoryStream m = new MemoryStream();
+                foreach (DeclaredEvents de in this.Declared)
+                {
+                    WriteU32(m, (uint) de.Element);
+                    WriteU32(m, (uint) de.Strings.Count);
+                    foreach (int s in de.Strings)
+                    {
+                        WriteU32(m, (uint) s);
+                    }
+                }
+                blocks[0] = m.ToArray();
+                m = new MemoryStream();
+                foreach (Track t in this.AnimationTracks)
+                {
+                    WriteU32(m, (uint) t.Element);
+                    WriteU32(m, t.Hash);
+                    WriteU32(m, (t.Type << 16) | (uint) t.KeyCount);
+                    foreach (uint k in t.Keys)
+                    {
+                        WriteU32(m, k);
+                    }
+                }
+                blocks[1] = m.ToArray();
+                m = new MemoryStream();
+                foreach (EventGroup g in this.EventGroups)
+                {
+                    WriteU32(m, (uint) g.Owner);
+                    WriteU32(m, (uint) g.Events.Count);
+                    foreach (Event e in g.Events)
+                    {
+                        WriteU32(m, e.Hash);
+                        WriteU32(m, (uint) e.Actions.Count);
+                        foreach (EventAction a in e.Actions)
+                        {
+                            WriteU32(m, (uint) a.Target);
+                            WriteU32(m, (uint) a.Context);
+                            WriteU32(m, a.Command);
+                            WriteU32(m, a.Arg1);
+                            WriteU32(m, a.Arg2);
+                        }
+                    }
+                }
+                blocks[2] = m.ToArray();
+                blocks[3] = this.rawBlocks[3];
+            }
+            MemoryStream rest = new MemoryStream();
+            foreach (byte[] b in blocks)
+            {
+                WriteU32(rest, (uint) b.Length);
+                rest.Write(b, 0, b.Length);
             }
             MemoryStream slides = new MemoryStream();
             foreach (Slide slide in this.Slides)
@@ -310,70 +679,30 @@ namespace ForzaStudio
                 {
                     WriteU32(slides, entry.Index);
                     slides.WriteByte(entry.Flag);
-                    slides.Write(entry.Data, 0, entry.Data.Length);
+                    byte[] data = entry.Data;
+                    slides.Write(data, 0, data.Length);
                 }
             }
-            MemoryStream rest = new MemoryStream();
-            rest.Write(this.Rest, 0, this.slideStart - 4);
             WriteU32(rest, (uint) slides.Length);
             slides.WriteTo(rest);
             return rest.ToArray();
         }
 
-        // The animation tracks (block 2 of the tail): element index, property hash, number of keys; null when the block
-        // does not read as tracks. A key is 6 words: time in ms, value, three more floats, and a last value.
-        public List<uint[]> Tracks()
+        // Every action of block 3 in file order (the order slide references count them in).
+        public List<EventAction> AllActions()
         {
-            if (this.Slides == null)
+            List<EventAction> list = new List<EventAction>();
+            if (this.EventGroups != null)
             {
-                return null;
-            }
-            byte[] d = this.Rest;
-            int o = 4 + ReadU32(d, 0);
-            int size = ReadU32(d, o);
-            int t = o + 4, end = t + size;
-            List<uint[]> list = new List<uint[]>();
-            while (t < end)
-            {
-                if (t + 12 > end)
+                foreach (EventGroup g in this.EventGroups)
                 {
-                    return null;
+                    foreach (Event e in g.Events)
+                    {
+                        list.AddRange(e.Actions);
+                    }
                 }
-                uint keys = (uint) ReadU32(d, t + 8) & 0xFFFFFF;
-                list.Add(new uint[] { (uint) ReadU32(d, t), (uint) ReadU32(d, t + 4), keys });
-                t += 12 + (int) keys * 24;
             }
-            return (t == end) ? list : null;
-        }
-
-        // The behaviour table (block 1 of the tail): element index of each behaviour and the numbers listed with it.
-        public List<uint[]> BehaviourTable()
-        {
-            if (this.Slides == null)
-            {
-                return null;
-            }
-            byte[] d = this.Rest;
-            int size = ReadU32(d, 0);
-            int t = 4, end = 4 + size;
-            List<uint[]> list = new List<uint[]>();
-            while (t + 8 <= end)
-            {
-                int n = ReadU32(d, t + 4);
-                if (n < 0 || t + 8 + n * 4 > end)
-                {
-                    return null;
-                }
-                uint[] row = new uint[n + 1];
-                row[0] = (uint) ReadU32(d, t);
-                for (int i = 0; i < n; i++)
-                {
-                    row[i + 1] = (uint) ReadU32(d, t + 8 + i * 4);
-                }
-                list.Add(row);
-                t += 8 + n * 4;
-            }
-            return (t == end) ? list : null;
+            return list;
         }
 
         // The slides of the component at element index owner.
@@ -393,14 +722,15 @@ namespace ForzaStudio
             return list;
         }
 
-        // Lists the new element (the last one, so index order holds) in every slide of its component. The flag
-        // (what the slide does with it) is copied from the element it was copied from, else from the component.
+        // Lists a new element in every slide of its component, in index order. The flag and the values the slide gives
+        // (items) are copied from the element it was copied from (like), else the flag of the component. Its animation
+        // tracks are copied with CopyTracks.
         public int AddToSlides(int owner, int index, int like)
         {
             int n = 0;
             foreach (Slide slide in this.SlidesOf(owner))
             {
-                SlideEntry model = slide.Entries[0];
+                SlideEntry model = null;
                 foreach (SlideEntry e in slide.Entries)
                 {
                     if (e.Index == like)
@@ -410,14 +740,249 @@ namespace ForzaStudio
                 }
                 SlideEntry entry = new SlideEntry();
                 entry.Index = (uint) index;
-                entry.Flag = model.Flag;
-                slide.Entries.Add(entry);
+                entry.Flag = (model ?? slide.Entries[0]).Flag;
+                if (model != null)
+                {
+                    foreach (uint[] item in model.Items)
+                    {
+                        entry.Items.Add((uint[]) item.Clone());
+                    }
+                }
+                int at = slide.Entries.Count;
+                while (at > 1 && slide.Entries[at - 1].Index > index)
+                {
+                    at--;
+                }
+                slide.Entries.Insert(at, entry);
                 n++;
             }
             return n;
         }
 
-        // Takes the elements at index >= first out of every slide (they are the last ones of the graph).
+        // Copies the animation tracks of element 'from' to element 'to' (listed already in the slides, see AddToSlides):
+        // the new tracks go in element order, the slides that use a track of 'from' use its copy on 'to'. Returns the
+        // number of tracks copied.
+        public int CopyTracks(int from, int to)
+        {
+            if (!this.TailEditable || from == to)
+            {
+                return 0;
+            }
+            List<int> sources = new List<int>();
+            for (int i = 0; i < this.AnimationTracks.Count; i++)
+            {
+                if (this.AnimationTracks[i].Element == from)
+                {
+                    sources.Add(i);
+                }
+            }
+            if (sources.Count == 0)
+            {
+                return 0;
+            }
+            int at = 0;
+            while (at < this.AnimationTracks.Count && this.AnimationTracks[at].Element <= to)
+            {
+                at++;
+            }
+            if (this.AnimationTracks.Count + sources.Count > 0x10000)
+            {
+                return 0;
+            }
+            // references to tracks at or after 'at' move by the number inserted; sources keep their own (shifted) numbers
+            int count = sources.Count;
+            foreach (Slide slide in this.Slides)
+            {
+                foreach (SlideEntry e in slide.Entries)
+                {
+                    for (int k = 0; k < e.Refs.Count; k++)
+                    {
+                        uint r = e.Refs[k];
+                        if ((r >> 24) == 0 && (r & 0xFFFF) >= at)
+                        {
+                            e.Refs[k] = (r & 0xFFFF0000) | ((r & 0xFFFF) + (uint) count);
+                        }
+                    }
+                }
+            }
+            Dictionary<int, int> copyOf = new Dictionary<int, int>();    // old number of a source track -> number of its copy
+            List<Track> copies = new List<Track>();
+            foreach (int s in sources)
+            {
+                Track c = this.AnimationTracks[s].Copy();
+                c.Element = to;
+                copyOf[(s >= at) ? s + count : s] = at + copies.Count;
+                copies.Add(c);
+            }
+            this.AnimationTracks.InsertRange(at, copies);
+            foreach (Slide slide in this.Slides)
+            {
+                SlideEntry src = null, dst = null;
+                foreach (SlideEntry e in slide.Entries)
+                {
+                    if (e.Index == from)
+                    {
+                        src = e;
+                    }
+                    else if (e.Index == to)
+                    {
+                        dst = e;
+                    }
+                }
+                if (src == null || dst == null)
+                {
+                    continue;
+                }
+                foreach (uint r in src.Refs)
+                {
+                    int copy;
+                    if ((r >> 24) == 0 && copyOf.TryGetValue((int) (r & 0xFFFF), out copy))
+                    {
+                        dst.Refs.Add((r & 0xFFFF0000) | (uint) copy);
+                    }
+                }
+            }
+            return copies.Count;
+        }
+
+        // Every element index of the file goes through map: parents, and in the tail declared events, tracks, event
+        // owners, targets and contexts, slide entries.
+        private void RemapElements(Converter<int, int> map)
+        {
+            foreach (Element e in this.Elements)
+            {
+                if (e.Parent >= 0)
+                {
+                    e.Parent = map(e.Parent);
+                }
+            }
+            foreach (DeclaredEvents de in this.Declared)
+            {
+                de.Element = map(de.Element);
+            }
+            foreach (Track t in this.AnimationTracks)
+            {
+                t.Element = map(t.Element);
+            }
+            foreach (EventGroup g in this.EventGroups)
+            {
+                g.Owner = map(g.Owner);
+                foreach (Event e in g.Events)
+                {
+                    foreach (EventAction a in e.Actions)
+                    {
+                        a.Target = map(a.Target);
+                        a.Context = map(a.Context);
+                    }
+                }
+            }
+            foreach (Slide slide in this.Slides)
+            {
+                foreach (SlideEntry e in slide.Entries)
+                {
+                    e.Index = (uint) map((int) e.Index);
+                }
+            }
+        }
+
+        // Inserts elements at index 'at' (depth first order is the caller's: 'at' must follow a whole subtree). Every
+        // index at or after 'at' moves; the parents of the new elements are given in the new numbering.
+        public void InsertElements(int at, List<Element> added)
+        {
+            if (!this.TailEditable)
+            {
+                throw new InvalidOperationException("the tail of this .bgf is not understood");
+            }
+            int count = added.Count;
+            this.RemapElements(delegate(int i) { return (i >= at) ? i + count : i; });
+            this.Elements.InsertRange(at, added);
+        }
+
+        // Removes the elements first .. first + count - 1 (a whole subtree) and everything of the tail that belongs to
+        // them: their declared events, animation tracks, event groups they own, actions that target them or run in their
+        // time, slide entries and the slides of a removed component; references are renumbered.
+        public void RemoveElements(int first, int count)
+        {
+            if (!this.TailEditable)
+            {
+                throw new InvalidOperationException("the tail of this .bgf is not understood");
+            }
+            int end = first + count;
+            for (int i = end; i < this.Elements.Count; i++)
+            {
+                if (this.Elements[i].Parent >= first && this.Elements[i].Parent < end)
+                {
+                    throw new InvalidOperationException("the elements to remove are not a whole subtree");
+                }
+            }
+            Predicate<int> gone = delegate(int i) { return i >= first && i < end; };
+            this.Declared.RemoveAll(delegate(DeclaredEvents de) { return gone(de.Element); });
+
+            int[] trackMap = new int[this.AnimationTracks.Count];
+            List<Track> keptTracks = new List<Track>();
+            for (int i = 0; i < trackMap.Length; i++)
+            {
+                Track t = this.AnimationTracks[i];
+                trackMap[i] = gone(t.Element) ? -1 : keptTracks.Count;
+                if (trackMap[i] >= 0)
+                {
+                    keptTracks.Add(t);
+                }
+            }
+            this.AnimationTracks = keptTracks;
+
+            List<int> actionMap = new List<int>();
+            int kept = 0;
+            List<EventGroup> keptGroups = new List<EventGroup>();
+            foreach (EventGroup g in this.EventGroups)
+            {
+                bool ownerGone = gone(g.Owner);
+                foreach (Event e in g.Events)
+                {
+                    List<EventAction> keptActions = new List<EventAction>();
+                    foreach (EventAction a in e.Actions)
+                    {
+                        bool drop = ownerGone || gone(a.Target) || gone(a.Context);
+                        actionMap.Add(drop ? -1 : kept);
+                        if (!drop)
+                        {
+                            keptActions.Add(a);
+                            kept++;
+                        }
+                    }
+                    e.Actions = keptActions;
+                }
+                if (!ownerGone)
+                {
+                    keptGroups.Add(g);
+                }
+            }
+            this.EventGroups = keptGroups;
+
+            this.Slides.RemoveAll(delegate(Slide s) { return s.Entries.Count == 0 || gone((int) s.Entries[0].Index); });
+            foreach (Slide slide in this.Slides)
+            {
+                slide.Entries.RemoveAll(delegate(SlideEntry e) { return gone((int) e.Index); });
+                foreach (SlideEntry e in slide.Entries)
+                {
+                    List<uint> refs = new List<uint>();
+                    foreach (uint r in e.Refs)
+                    {
+                        int index = (int) (r & 0xFFFF);
+                        int mapped = ((r >> 24) == 0) ? trackMap[index] : actionMap[index];
+                        if (mapped >= 0)
+                        {
+                            refs.Add((r & 0xFFFF0000) | (uint) mapped);
+                        }
+                    }
+                    e.Refs = refs;
+                }
+            }
+            this.Elements.RemoveRange(first, count);
+            this.RemapElements(delegate(int i) { return (i >= end) ? i - count : i; });
+        }
+
+        // Takes the elements at index >= first out of the file's tail (they are the last ones of the graph).
         public void RemoveFromSlides(int first)
         {
             if (this.Slides != null)
@@ -430,8 +995,8 @@ namespace ForzaStudio
             }
         }
 
-        // True when a word of the behaviour, animation, event or other blocks equals one of the indexes: such an
-        // element may be used by a behaviour or animation (a false alarm is possible, never a miss).
+        // True when a behaviour declaration, an animation track or an event (owner, target, context) names an element
+        // first .. last - 1. Always true when the tail is not understood.
         public bool IndexMentioned(int first)
         {
             return this.IndexMentioned(first, this.Elements.Count);
@@ -439,51 +1004,41 @@ namespace ForzaStudio
 
         public bool IndexMentioned(int first, int last)
         {
-            byte[] d = this.Rest;
-            if (this.Slides == null)
+            if (!this.TailEditable)
             {
                 return true;
             }
-            int count = last;
-            int o = 0;
-            for (int block = 0; block < 4; block++)
+            Predicate<int> inside = delegate(int i) { return i >= first && i < last; };
+            foreach (DeclaredEvents de in this.Declared)
             {
-                int size = ReadU32(d, o);
-                int start = o + 4, end = start + size;
-                if (block == 1)
+                if (inside(de.Element))
                 {
-                    // animation tracks: u32 element, u32 property hash, u32 type + key count, 6 words per key; only the element counts
-                    int t = start;
-                    bool whole = true;
-                    while (t < end)
+                    return true;
+                }
+            }
+            foreach (Track t in this.AnimationTracks)
+            {
+                if (inside(t.Element))
+                {
+                    return true;
+                }
+            }
+            foreach (EventGroup g in this.EventGroups)
+            {
+                if (inside(g.Owner))
+                {
+                    return true;
+                }
+                foreach (Event e in g.Events)
+                {
+                    foreach (EventAction a in e.Actions)
                     {
-                        if (t + 12 > end)
-                        {
-                            whole = false;
-                            break;
-                        }
-                        uint element = (uint) ReadU32(d, t);
-                        if (element >= first && element < count)
+                        if (inside(a.Target) || inside(a.Context))
                         {
                             return true;
                         }
-                        t += 12 + (ReadU32(d, t + 8) & 0xFFFFFF) * 24;
-                    }
-                    if (whole && t == end)
-                    {
-                        o = end;
-                        continue;
                     }
                 }
-                for (int w = start; w + 4 <= end; w += 4)
-                {
-                    uint v = (uint) ReadU32(d, w);
-                    if (v >= first && v < count)
-                    {
-                        return true;
-                    }
-                }
-                o = end;
             }
             return false;
         }
@@ -499,28 +1054,6 @@ namespace ForzaStudio
                 h = (h + c) * 65599;
             }
             return h;
-        }
-
-        // The words of the event table (block 3 of the tail), null when the tail did not read.
-        public List<uint> EventWords()
-        {
-            if (this.Slides == null)
-            {
-                return null;
-            }
-            byte[] d = this.Rest;
-            int o = 0;
-            for (int block = 0; block < 2; block++)
-            {
-                o += 4 + ReadU32(d, o);
-            }
-            int size = ReadU32(d, o);
-            List<uint> words = new List<uint>();
-            for (int i = 0; i + 4 <= size; i += 4)
-            {
-                words.Add((uint) ReadU32(d, o + 4 + i));
-            }
-            return words;
         }
 
         public static uint HashName(string name)
@@ -666,7 +1199,7 @@ namespace ForzaStudio
                 throw new InvalidDataException("graph section overrun");
             }
             bgf.Rest = Bytes(data, ref o, data.Length - o);
-            bgf.ParseSlides();
+            bgf.ParseTail();
             return bgf;
         }
 

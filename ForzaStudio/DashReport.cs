@@ -12,55 +12,128 @@ namespace ForzaStudio
         // Words the game's code sends or the editor's authors typed, whose hash is not a name in this file.
         private static readonly string[] KnownNames = { "ON", "OFF", "IDLE", "UIContract", "Scene", "GAUGES", "PROGRESS", "FLASH", "IN GAME", "START UP", "SHUT OFF", "DOOR OPEN", "DOOR_CLOSE", "DOOR CLOSE" };
 
-        // The event table (block 3). Every word is shown with what it is: an element index of the .bgf (name), or a hash that is the name of
-        // a slide, an element or a known word (bit 31 may be set or cleared: the same name). 1195C23B is in every record and unnamed.
-        // Records are 7 words in the car-presentation dashes: event name hash, behaviour, component, 0, 1195C23B, slide hash, 0.
-        private static void AppendEvents(StringBuilder s, AnarkDash dash)
+        // Names for the hashes of the tail: elements (full hash), events and slides (hash with bit 31 cleared), contract behaviours
+        // (name + "_CONTRACT"), the strings of the .bgf and the known words.
+        private static Dictionary<uint, string> TailNames(AnarkDash dash)
         {
-            List<uint> words = dash.Bgf.EventWords();
-            if (words == null || words.Count == 0)
-            {
-                s.AppendLine("  event table: empty");
-                return;
-            }
             Dictionary<uint, string> names = new Dictionary<uint, string>();
-            foreach (string known in KnownNames)
+            List<string> words = new List<string>(KnownNames);
+            words.AddRange(dash.Bgf.Strings);
+            if (dash.Bgf.Slides != null)
             {
-                names[AnarkBgf.HashFull(known) & 0x7FFFFFFF] = known;
+                foreach (AnarkBgf.Slide slide in dash.Bgf.Slides)
+                {
+                    words.Add(slide.Label);
+                }
+            }
+            foreach (string w in words)
+            {
+                if (string.IsNullOrEmpty(w))
+                {
+                    continue;
+                }
+                uint h = AnarkBgf.HashFull(w);
+                if (!names.ContainsKey(h & 0x7FFFFFFF))
+                {
+                    names[h & 0x7FFFFFFF] = w;
+                }
+                if (!names.ContainsKey(h))
+                {
+                    names[h] = w;
+                }
+                names[AnarkBgf.HashFull(w + "_CONTRACT")] = w + "_CONTRACT";
             }
             foreach (AnarkDash.Node n in dash.Nodes)
             {
                 if (n.Record != null && !string.IsNullOrEmpty(n.Name))
                 {
-                    names[AnarkBgf.HashFull(n.Name) & 0x7FFFFFFF] = "element " + n.Name;
+                    names[AnarkBgf.HashFull(n.Name)] = n.Name;
                 }
             }
-            if (dash.Bgf.Slides != null)
+            return names;
+        }
+
+        private static string Named(Dictionary<uint, string> names, uint hash)
+        {
+            string name;
+            return names.TryGetValue(hash, out name) ? "'" + name + "'" : hash.ToString("X8");
+        }
+
+        private static string ElementLabel(AnarkDash dash, int index)
+        {
+            if (index < 0 || index >= dash.Nodes.Count)
             {
-                foreach (AnarkBgf.Slide slide in dash.Bgf.Slides)
-                {
-                    names[AnarkBgf.HashFull(slide.Label) & 0x7FFFFFFF] = "slide '" + slide.Label + "'";
-                }
+                return "element " + index + " (?)";
             }
-            s.AppendFormat("  event table, {0} words (hash = name hash; the same name with bit 31 set or cleared):\r\n", words.Count);
-            for (int i = 0; i < words.Count; i++)
+            AnarkDash.Node n = dash.Nodes[index];
+            string name = n.Name;
+            if (n.Element.Type == AnarkBgf.ElementType.Behaviour && n.Parent != null)
             {
-                uint w = words[i];
-                string label = "";
-                string name;
-                if (w < dash.Nodes.Count)
+                name = "behaviour of " + n.Parent.Name;
+            }
+            return index + " " + name;
+        }
+
+        // Blocks 1-3 of the tail (decoded 2026-11-05, see docs/ANARK_DASH.md): declared events, animation tracks, events.
+        private static void AppendTail(StringBuilder s, AnarkDash dash)
+        {
+            AnarkBgf bgf = dash.Bgf;
+            if (bgf.Declared == null)
+            {
+                s.AppendLine("  (declared events, animation tracks and events not understood in this file)");
+                return;
+            }
+            Dictionary<uint, string> names = TailNames(dash);
+            s.AppendFormat("  events declared by behaviours ({0}):\r\n", bgf.Declared.Count);
+            foreach (AnarkBgf.DeclaredEvents de in bgf.Declared)
+            {
+                List<string> list = new List<string>();
+                foreach (int i in de.Strings)
                 {
-                    label = "element " + w + " " + dash.Nodes[(int) w].Name;
+                    list.Add(bgf.Strings[i]);
                 }
-                else if (names.TryGetValue(w & 0x7FFFFFFF, out name))
+                s.AppendFormat("    {0} (hash {1}): {2}\r\n", ElementLabel(dash, de.Element), Named(names, bgf.Elements[de.Element].Hash),
+                    (list.Count > 0) ? string.Join(", ", list.ToArray()) : "none");
+            }
+            s.AppendFormat("  {0} animation tracks (a property of an element moves through keys: time in ms, value):\r\n", bgf.AnimationTracks.Count);
+            for (int i = 0; i < bgf.AnimationTracks.Count; i++)
+            {
+                AnarkBgf.Track t = bgf.AnimationTracks[i];
+                s.AppendFormat("    [{0}] element {1} property {2} (type {3:X}, {4} keys)\r\n", i, ElementLabel(dash, t.Element),
+                    AnarkBgf.PropertyName(t.Hash) ?? ("hash " + (t.Hash & 0x07FFFFFF).ToString("X7")), t.Type, t.KeyCount);
+            }
+            int actions = 0;
+            s.AppendFormat("  events ({0} groups): owner, then 'on <event>' and its actions [action number]: command -> target (in the time of)\r\n", bgf.EventGroups.Count);
+            foreach (AnarkBgf.EventGroup g in bgf.EventGroups)
+            {
+                s.AppendFormat("    owner {0}\r\n", ElementLabel(dash, g.Owner));
+                foreach (AnarkBgf.Event e in g.Events)
                 {
-                    label = name;
+                    s.AppendFormat("      on {0}\r\n", Named(names, e.Hash));
+                    foreach (AnarkBgf.EventAction a in e.Actions)
+                    {
+                        string arg;
+                        switch (a.Command)
+                        {
+                            case AnarkBgf.CommandGotoSlideName:
+                            case AnarkBgf.CommandFireEvent:
+                                arg = Named(names, a.Arg1);
+                                break;
+                            case AnarkBgf.CommandSetProperty:
+                                arg = (AnarkBgf.PropertyName(a.Arg1) ?? ("hash " + (a.Arg1 & 0x07FFFFFF).ToString("X7"))) + " = "
+                                    + BitConverter.ToSingle(BitConverter.GetBytes(a.Arg2), 0).ToString("0.####");
+                                break;
+                            case AnarkBgf.CommandGotoTime:
+                                arg = a.Arg1 + " ms";
+                                break;
+                            default:
+                                arg = (a.Arg1 != 0 || a.Arg2 != 0) ? a.Arg1.ToString("X8") + " " + a.Arg2.ToString("X8") : "";
+                                break;
+                        }
+                        s.AppendFormat("        [{0}] {1} {2} -> {3} (in the time of {4})\r\n", actions++, AnarkBgf.CommandName(a.Command), arg,
+                            ElementLabel(dash, a.Target), ElementLabel(dash, a.Context));
+                    }
                 }
-                else if (w == 0x1195C23B)
-                {
-                    label = "(in every record)";
-                }
-                s.AppendFormat("    [{0,3}] {1:X8}  {2}\r\n", i, w, label);
             }
         }
 
@@ -158,39 +231,14 @@ namespace ForzaStudio
 
             s.AppendLine();
             s.AppendLine("BGF TAIL");
-            List<uint[]> table = bgf.BehaviourTable();
-            if (table != null)
-            {
-                s.AppendLine("  behaviour table (element index of the behaviour; the numbers after it are slot numbers of its parameters):");
-                foreach (uint[] row in table)
-                {
-                    string name = (row[0] < dash.Nodes.Count && dash.Nodes[(int) row[0]].Parent != null) ? dash.Nodes[(int) row[0]].Parent.Name : "?";
-                    List<string> rest = new List<string>();
-                    for (int i = 1; i < row.Length; i++)
-                    {
-                        rest.Add(row[i].ToString());
-                    }
-                    s.AppendFormat("    behaviour {0} of {1}: {2}\r\n", row[0], name, string.Join(" ", rest.ToArray()));
-                }
-            }
-            List<uint[]> tracks = bgf.Tracks();
-            if (tracks != null)
-            {
-                s.AppendFormat("  {0} animation tracks (a property of an element moves through keys: time in ms, value):\r\n", tracks.Count);
-                foreach (uint[] t in tracks)
-                {
-                    string element = (t[0] < dash.Nodes.Count) ? dash.Nodes[(int) t[0]].Name : "?";
-                    s.AppendFormat("    element {0} \"{1}\" property {2} ({3} keys)\r\n", t[0], element, AnarkBgf.PropertyName(t[1]) ?? ("hash " + (t[1] & 0x07FFFFFF).ToString("X7")), t[2]);
-                }
-            }
-            AppendEvents(s, dash);
+            AppendTail(s, dash);
             if (bgf.Slides == null)
             {
                 s.AppendLine("  (slides not understood in this file)");
             }
             else
             {
-                s.AppendFormat("  {0} slides. A slide lists the elements a component owns, with a flag and the animation tracks it uses.\r\n", bgf.Slides.Count);
+                s.AppendFormat("  {0} slides. A slide lists the elements a component owns: index, + = flag, then the values it sets, the animation tracks and the actions that run in it (* = second reference of the pair).\r\n", bgf.Slides.Count);
                 foreach (AnarkBgf.Slide slide in bgf.Slides)
                 {
                     string owner = (slide.Entries.Count > 0 && slide.Entries[0].Index < dash.Nodes.Count) ? dash.Nodes[(int) slide.Entries[0].Index].Name : "?";
@@ -198,7 +246,21 @@ namespace ForzaStudio
                     List<string> list = new List<string>();
                     foreach (AnarkBgf.SlideEntry en in slide.Entries)
                     {
-                        list.Add(en.Index + ((en.Flag != 0) ? "+" : "") + ((en.TrackCount > 0) ? "(" + en.TrackCount + " tracks)" : ""));
+                        string refs = "";
+                        if (en.ItemCount > 0 || en.TrackCount > 0)
+                        {
+                            List<string> parts = new List<string>();
+                            if (en.ItemCount > 0)
+                            {
+                                parts.Add(en.ItemCount + " values");
+                            }
+                            foreach (uint r in en.Refs)
+                            {
+                                parts.Add((((r >> 24) == 0) ? "track " : "action ") + (r & 0xFFFF) + (((r >> 16) & 0xFF) != 0 ? "*" : ""));
+                            }
+                            refs = "(" + string.Join(", ", parts.ToArray()) + ")";
+                        }
+                        list.Add(en.Index + ((en.Flag != 0) ? "+" : "") + refs);
                     }
                     s.AppendLine(string.Join(" ", list.ToArray()));
                 }
