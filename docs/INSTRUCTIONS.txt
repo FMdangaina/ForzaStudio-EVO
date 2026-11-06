@@ -1,4 +1,4 @@
-ForzaStudio EVO 0.0.2 - BETA
+ForzaStudio EVO 0.0.3 - BETA
 ============================
 
 ForzaStudio EVO is a modding tool for the Xbox 360 Forza games (FM4, FH1, FH2;
@@ -101,7 +101,8 @@ EXPERIMENTAL (not tested in game, use on a copy):
 - Digital dash: changing a value in place works; Duplicate, Delete, Add and
   "Texts from another car's dash" are NOT tested in game.
 - Models rebuilt from OBJ, OBJ onto wheel zips, "Merge Into".
-  FBX export/import: checked with 3ds Max, not with Blender.
+  FBX export/import: checked with 3ds Max, Blender and in game; glTF
+  export/import: checked with ZModeler 2 (glTF filter) and in game.
 - A new country added with a new make in a pack.
 - Add song needs xma2encode (Xbox 360 SDK, not included).
 

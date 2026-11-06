@@ -3,7 +3,7 @@
 ForzaStudio EVO is a modding tool for the Xbox 360 Forza games. It works directly on the game's
 files: you open a game folder or one of its `.zip` archives, change what you need, and save.
 
-> **Version 0.0.2 (beta).** Some features are experimental or not fully tested in game (see
+> **Version 0.0.3 (beta).** Some features are experimental or not fully tested in game (see
 > [Known limitations](#13-known-limitations)). Always work on a copy of your game folder.
 
 ## Contents
@@ -89,7 +89,7 @@ The menu bar holds:
 
 - **File**: open, save, close.
 - **Archive**: add, extract, replace, delete and revert files of the open folder or archive, and make new folders.
-- **Model**: OBJ and FBX export and import of the model shown, and **Export UV Map to TGA...** (the UV
+- **Model**: OBJ, FBX and glTF export and import of the model shown, and **Export UV Map to TGA...** (the UV
   layout of the materials you choose, from the car's main, lod0 and cockpit files, e.g. the digital
   dash screen to draw the dash picture on).
 - **Texture**: new textures, image export and import of the texture shown.
@@ -132,6 +132,10 @@ The RSA signature is not renewed: the package works in Xenia and on a modded (RG
 not on a retail one. File names longer than 40 characters do not fit in a package: put such files
 in a zip. A DLC already installed in Xenia (a folder) opens with **Open Folder**; there Save writes
 the files directly.
+
+A DLC pack zip (`Media\DLCZips\…_pri_N.zip`) or a DLC development folder (the pack's loose `Media` files
+with its `*_merge.slt` database) shows the cars, wheels and pictures its database names from **its own
+`media` folder** first, and from the main game for the rest.
 
 ### What each file shows
 
@@ -350,6 +354,39 @@ works like this:
 - before anything changes, you see the plan; afterwards, a report.
 
 Forza Motorsport 2 models can be exported but not imported back.
+
+### Whole model as one FBX or glTF scene
+
+**Model > Export Model to FBX...** and **Model > Export Model to glTF...** write the car as one scene
+with the model's own hierarchy:
+
+```
+<car>
+  main | lod0 | cockpit          the model file
+    LOD0 ... LOD5                the LOD
+      <part>                     the part
+        <part>__<material>       its triangles with that material
+```
+
+- You choose which model files and LODs go in the file (the close-up LOD 0 is ticked first): a small
+  scene opens and edits faster.
+- glTF can be saved as **.glb** (one file) or **.gltf** with its **.bin** next to it. FBX works with
+  3ds Max and Blender. glTF works with Blender and with ZModeler 2 (with a glTF filter), among others.
+- Every material carries the texture the viewer shows (the one you picked in the mesh panel, else the
+  game's own), as an opaque PNG, so the UV map can be checked in the 3D program: inside the file for a
+  `.glb`, in a `textures` folder next to a `.gltf` or `.fbx`.
+
+Edit the scene, export it again in the same format, then **Model > Import Model from FBX...** or
+**Model > Import Model from glTF...**:
+
+- keep the names of the `main` / `lod0` / `cockpit` and `LODn` nodes and of the materials; copy
+  suffixes such as `.001` are ignored;
+- moving or rotating a group moves its parts;
+- only the parts that changed are rebuilt; a LOD the file has no node for is left alone;
+- a part missing from a LOD the file has is kept, unless you tick **Remove the parts the file does not
+  have**; a new group or mesh under a LOD node is a new part;
+- textures in the file are ignored: the game keeps its own;
+- then you get the same plan and report as for an OBJ folder.
 
 ### Texture preview
 
@@ -689,7 +726,8 @@ converted with `xma2encode` from the Xbox 360 SDK, which is Microsoft's and **no
 - **Digital dash editing** beyond changing a value in place: Duplicate, Delete, Add, and Texts from another
   car's dash (section 10).
 - **Model editing**: OBJ import onto a **wheel** zip, a whole model rebuilt from an OBJ work folder, edited
-  parts and **Merge Into**. FBX export and import was checked with 3ds Max and in game, not with Blender.
+  parts and **Merge Into**. FBX export and import was checked with 3ds Max, Blender and in game; glTF with
+  ZModeler 2 (glTF filter) and in game. Textures in an FBX were not checked in 3ds Max.
 - **Generic brakes** for cars with a placeholder caliper: they work, but the discs can look plain close up.
 - **A new country** added with a new make in a DLC pack: tested on a trial, not in game. Uninstalling a car
   does not remove the country.

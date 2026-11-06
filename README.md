@@ -2,10 +2,10 @@
 
 (Repository: ForzaStudio-EVO, exe: ForzaStudioEVO.exe.)
 
-**Version 0.0.2 (beta).** Modding tool for the Xbox 360 era Forza games: Forza
+**Version 0.0.3 (beta).** Modding tool for the Xbox 360 era Forza games: Forza
 Motorsport 4 first, with Forza Horizon 1 and 2 and Forza Motorsport 2 and 3 as car sources.
 
-Edits the game's zip archives directly: `.carbin` car models (OBJ and FBX export/import,
+Edits the game's zip archives directly: `.carbin` car models (OBJ, FBX and glTF export/import,
 part transplant and duplication), `.xds` textures (import, export, creation from
 images), livery masks, the gamedb, the digital dashes, the cockpit camera and the driver
 position, with the game's music and radio in the status bar.
