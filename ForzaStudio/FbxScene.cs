@@ -623,7 +623,7 @@ namespace ForzaStudio
         }
 
         // A mesh from a material's triangles: positions shared by exact value, normals and UVs per corner.
-        public long AddMesh(string name, long parent, string materialName, ObjMesh.Material mesh)
+        public long AddMesh(string name, long parent, string materialName, ObjMesh.Material mesh, ExportTexture texture)
         {
             Dictionary<Vector3, int> vertexOf = new Dictionary<Vector3, int>();
             List<double> positions = new List<double>();
@@ -710,7 +710,7 @@ namespace ForzaStudio
             this.models++;
             this.Connect(modelId, parent);
             this.Connect(geometryId, modelId);
-            this.Connect(this.Material(materialName), modelId);
+            this.Connect(this.Material(materialName, texture), modelId);
             return modelId;
         }
 
@@ -721,27 +721,80 @@ namespace ForzaStudio
             entry.Add("TypedIndex", 0);
         }
 
-        private long Material(string name)
+        // A material per car material name and texture (the same name with two textures = two materials).
+        private long Material(string name, ExportTexture texture)
         {
+            string key = name + "|" + ((texture != null) ? texture.Name : "");
             long id;
-            if (this.materials.TryGetValue(name, out id))
+            if (this.materials.TryGetValue(key, out id))
             {
                 return id;
             }
             id = this.nextId++;
-            this.materials[name] = id;
+            this.materials[key] = id;
             FbxNode material = this.objects.Add("Material", id, Named(name, "Material"), "");
             material.Add("Version", 102);
             material.Add("ShadingModel", "phong");
             material.Add("MultiLayer", 0);
             FbxNode properties = material.Add("Properties70");
-            Vector3 color = Utilities.GetRandomColor(name.GetHashCode()).ToVector3();
+            Vector3 color = (texture != null) ? Vector3.One : Utilities.GetRandomColor(name.GetHashCode()).ToVector3();
             Property(properties, "DiffuseColor", "Color", "", (double) color.X, (double) color.Y, (double) color.Z);
+            if (texture != null)
+            {
+                this.textured.Add(new KeyValuePair<long, ExportTexture>(id, texture));
+            }
             return id;
         }
 
+        // Materials with a texture, linked to their Texture / Video objects by Save (which knows the folder).
+        private readonly List<KeyValuePair<long, ExportTexture>> textured = new List<KeyValuePair<long, ExportTexture>>();
+        private int textureObjects;
+
+        // Writes the PNGs to "textures" next to the file and one Texture + Video per picture, connected to
+        // the materials' DiffuseColor, as Blender's FBX export writes them.
         public void Save(string path)
         {
+            string folder = ExportTexture.TexturesFolder(path);
+            Dictionary<string, long> textureIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<long, ExportTexture> pair in this.textured)
+            {
+                ExportTexture picture = pair.Value;
+                long textureId;
+                if (!textureIds.TryGetValue(picture.Name, out textureId))
+                {
+                    Directory.CreateDirectory(folder);
+                    string file = Path.Combine(folder, picture.Name);
+                    File.WriteAllBytes(file, picture.Png);
+                    string relative = "textures\\" + picture.Name;
+                    long videoId = this.nextId++;
+                    FbxNode video = this.objects.Add("Video", videoId, Named(picture.Stem, "Video"), "Clip");
+                    video.Add("Type", "Clip");
+                    FbxNode videoProperties = video.Add("Properties70");
+                    Property(videoProperties, "Path", "KString", "XRefUrl", "", file);
+                    video.Add("UseMipMap", 0);
+                    video.Add("Filename", file);
+                    video.Add("RelativeFilename", relative);
+                    textureId = this.nextId++;
+                    FbxNode texture = this.objects.Add("Texture", textureId, Named(picture.Stem, "Texture"), "");
+                    texture.Add("Type", "TextureVideoClip");
+                    texture.Add("Version", 202);
+                    texture.Add("TextureName", Named(picture.Stem, "Texture"));
+                    FbxNode textureProperties = texture.Add("Properties70");
+                    Property(textureProperties, "UseMaterial", "bool", "", 1);
+                    Property(textureProperties, "UseMipMap", "bool", "", 0);
+                    texture.Add("Media", Named(picture.Stem, "Video"));
+                    texture.Add("FileName", file);
+                    texture.Add("RelativeFilename", relative);
+                    texture.Add("ModelUVTranslation", 0.0, 0.0);
+                    texture.Add("ModelUVScaling", 1.0, 1.0);
+                    texture.Add("Texture_Alpha_Source", "None");
+                    texture.Add("Cropping", 0, 0, 0, 0);
+                    this.Connect(videoId, textureId);
+                    textureIds[picture.Name] = textureId;
+                    this.textureObjects++;
+                }
+                this.connections.Add("C", "OP", textureId, pair.Key, "DiffuseColor");
+            }
             File.WriteAllBytes(path, this.ToBytes());
         }
 
@@ -819,7 +872,7 @@ namespace ForzaStudio
 
             FbxNode definitions = top.Add("Definitions");
             definitions.Add("Version", 100);
-            definitions.Add("Count", this.models + this.geometries + this.materials.Count + 3);
+            definitions.Add("Count", this.models + this.geometries + this.materials.Count + (this.textureObjects * 2) + 3);
             AddType(definitions, "GlobalSettings", 1);
             AddType(definitions, "AnimationStack", 1);
             AddType(definitions, "AnimationLayer", 1);
@@ -840,6 +893,11 @@ namespace ForzaStudio
             Property(meshTemplate, "Casts Shadows", "bool", "", 1);
             Property(meshTemplate, "Receive Shadows", "bool", "", 1);
             AddType(definitions, "Material", this.materials.Count);
+            if (this.textureObjects > 0)
+            {
+                AddType(definitions, "Texture", this.textureObjects);
+                AddType(definitions, "Video", this.textureObjects);
+            }
 
             // The default take every SDK file has.
             long stack = this.nextId++;

@@ -238,8 +238,11 @@ namespace ForzaStudio
                 {
                     names[pair.Key] = CarbinName(pair.Value);
                 }
-                int count = CarModelFbx.Export(names, models, path, this.SourceName, wanted);
-                this.SetStatus(string.Format("{0:N0} meshes exported to {1} (edit it, then Model > " + (gltf ? "Import Model from glTF" : "Import Model from FBX") + ")", count, path));
+                List<string> pictures = new List<string>();
+                int count = CarModelFbx.Export(names, models, path, this.SourceName, wanted, this.ExportTextureFinder(pictures));
+                string where = (pictures.Count == 0) ? "" : CarModelFbx.IsGltf(path) && path.EndsWith(".glb", StringComparison.OrdinalIgnoreCase)
+                    ? string.Format(", {0} textures inside", pictures.Count) : string.Format(", {0} textures in {1}", pictures.Count, ExportTexture.TexturesFolder(path));
+                this.SetStatus(string.Format("{0:N0} meshes exported to {1}{2} (edit it, then Model > " + (gltf ? "Import Model from glTF" : "Import Model from FBX") + ")", count, path, where));
             }
             catch (Exception exception)
             {
@@ -248,6 +251,111 @@ namespace ForzaStudio
             finally
             {
                 Cursor.Current = Cursors.Default;
+            }
+        }
+
+        // The texture each material shows in the viewer, for the FBX / glTF export (to look at the UVs in a
+        // 3D editor): the one picked by hand in the mesh panel, else the one the game draws it with (the
+        // viewer's automatic textures, ShaderTextures). Each picture is decoded once, written opaque as PNG
+        // (alpha holds masks in FM4 textures and would hide the colour). 'written' collects the picture names.
+        private Func<string, string, uint, ExportTexture> ExportTextureFinder(List<string> written)
+        {
+            ShaderTextures table = ShaderTextures.For(this.GameRoot);
+            Dictionary<string, ExportTexture> bySource = new Dictionary<string, ExportTexture>(StringComparer.OrdinalIgnoreCase);
+            return delegate(string material, string kind, uint lod)
+            {
+                string source = this.ExportTextureSource(table, material, kind, lod);
+                if (source == null)
+                {
+                    return null;
+                }
+                ExportTexture texture;
+                if (bySource.TryGetValue(source, out texture))
+                {
+                    return texture;
+                }
+                texture = null;
+                try
+                {
+                    using (Bitmap image = this.LoadRawTexture(source))
+                    {
+                        texture = new ExportTexture();
+                        string file = source.StartsWith(SharedPrefix) ? "shared_" + Path.GetFileName(source.Substring(SharedPrefix.Length))
+                            : Path.GetFileName(source.StartsWith(ArchivePrefix) ? source.Substring(ArchivePrefix.Length) : source);
+                        texture.Name = Path.GetFileNameWithoutExtension(file) + ".png";
+                        texture.Png = OpaquePng(image);
+                        written.Add(texture.Name);
+                    }
+                }
+                catch (Exception)
+                {
+                    texture = null;     // a picture that cannot be read: the material keeps its colour
+                }
+                bySource[source] = texture;
+                return texture;
+            };
+        }
+
+        private string ExportTextureSource(ShaderTextures table, string material, string kind, uint lod)
+        {
+            string chosen;
+            if (this.materialTextures.TryGetValue(material, out chosen) && chosen.Length > 0 && this.SourceExists(chosen))
+            {
+                return chosen;
+            }
+            if (table.Problem != null)
+            {
+                return null;
+            }
+            ShaderTextures.Kind where = (kind == CarModelFolder.Cockpit) ? ShaderTextures.Kind.Cockpit
+                : (kind == CarModelFolder.Lod0 || lod == 0) ? ShaderTextures.Kind.Lod0 : ShaderTextures.Kind.Main;
+            foreach (ShaderTextures.Texture texture in table.ColourTextures(material, where))
+            {
+                // As SetAutoTexture: a shared texture this game lacks may be carried in the car's own zip.
+                string source = (texture.Where == ShaderTextures.Place.Shared) ? SharedPrefix + texture.File
+                    : (texture.Where == ShaderTextures.Place.Car) ? ArchivePrefix + texture.File : null;
+                if (texture.Where == ShaderTextures.Place.Shared && !this.SourceExists(source))
+                {
+                    source = ArchivePrefix + texture.File;
+                }
+                if (source != null && this.SourceExists(source))
+                {
+                    return source;
+                }
+            }
+            return null;
+        }
+
+        private static byte[] OpaquePng(Bitmap image)
+        {
+            using (Bitmap copy = new Bitmap(image.Width, image.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                using (Graphics graphics = Graphics.FromImage(copy))
+                {
+                    graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                    graphics.DrawImage(image, 0, 0, image.Width, image.Height);
+                }
+                Rectangle all = new Rectangle(0, 0, copy.Width, copy.Height);
+                System.Drawing.Imaging.BitmapData data = copy.LockBits(all, System.Drawing.Imaging.ImageLockMode.ReadWrite, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                try
+                {
+                    byte[] pixels = new byte[data.Stride * copy.Height];
+                    System.Runtime.InteropServices.Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
+                    for (int i = 3; i < pixels.Length; i += 4)
+                    {
+                        pixels[i] = 255;
+                    }
+                    System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+                }
+                finally
+                {
+                    copy.UnlockBits(data);
+                }
+                using (MemoryStream png = new MemoryStream())
+                {
+                    copy.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+                    return png.ToArray();
+                }
             }
         }
 

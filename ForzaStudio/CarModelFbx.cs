@@ -8,11 +8,30 @@ namespace ForzaStudio
     using System.Text.RegularExpressions;
 
     // What writes a scene file for the model export (FbxBuilder, GltfBuilder). Parent 0 = scene root.
+    // 'texture' (may be null) is the picture the material shows, for looking at the UVs in the 3D editor;
+    // the import ignores it. A .glb holds the pictures, the other files write them to a "textures" folder next to them.
     public interface IModelSceneBuilder
     {
         long AddNull(string name, long parent);
-        long AddMesh(string name, long parent, string materialName, ObjMesh.Material mesh);
+        long AddMesh(string name, long parent, string materialName, ObjMesh.Material mesh, ExportTexture texture);
         void Save(string path);
+    }
+
+    // A texture for the export: a file name (unique per picture, .png) and the PNG bytes.
+    public class ExportTexture
+    {
+        public string Name;
+        public byte[] Png;
+
+        public string Stem
+        {
+            get { return Path.GetFileNameWithoutExtension(this.Name); }
+        }
+
+        public static string TexturesFolder(string scenePath)
+        {
+            return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenePath)), "textures");
+        }
     }
 
     // A node of a scene file read back (FBX or glTF), the same for both formats. Materials is the
@@ -151,6 +170,13 @@ namespace ForzaStudio
         // Returns the number of mesh nodes written.
         public static int Export(Dictionary<string, string> names, Dictionary<string, CarbinModel> models, string path, string source, List<string> wanted)
         {
+            return Export(names, models, path, source, wanted, null);
+        }
+
+        // 'textures' (null = none): material, model kind and LOD -> the texture the material shows, or null.
+        public static int Export(Dictionary<string, string> names, Dictionary<string, CarbinModel> models, string path, string source, List<string> wanted,
+            Func<string, string, uint, ExportTexture> textures)
+        {
             string car = CarModelFolder.FolderName(names.ContainsKey(CarModelFolder.Main) ? names[CarModelFolder.Main] : First(names));
             IModelSceneBuilder builder = IsGltf(path)
                 ? (IModelSceneBuilder) new GltfBuilder("ForzaStudio EVO: " + source)
@@ -204,7 +230,8 @@ namespace ForzaStudio
                         long part = builder.AddNull(section.Name, lodNodes[lod]);
                         foreach (ObjMesh.Material material in ObjMesh.FromLod(section, lod).Materials)
                         {
-                            builder.AddMesh(section.Name + Separator + material.Name, part, material.Name, material);
+                            ExportTexture texture = (textures != null) ? textures(material.Name, kind, lod) : null;
+                            builder.AddMesh(section.Name + Separator + material.Name, part, material.Name, material, texture);
                             count++;
                         }
                     }

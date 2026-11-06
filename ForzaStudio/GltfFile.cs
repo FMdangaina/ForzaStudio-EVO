@@ -950,7 +950,7 @@ namespace ForzaStudio
         }
 
         // A mesh node from a material's triangles: corners shared by exact value.
-        public long AddMesh(string name, long parent, string materialName, ObjMesh.Material mesh)
+        public long AddMesh(string name, long parent, string materialName, ObjMesh.Material mesh, ExportTexture texture)
         {
             bool hasUv = mesh.Triangles.Count > 0;
             bool hasNormal = mesh.Triangles.Count > 0;
@@ -1026,7 +1026,7 @@ namespace ForzaStudio
             Dictionary<string, object> primitive = new Dictionary<string, object>(StringComparer.Ordinal);
             primitive["attributes"] = attributes;
             primitive["indices"] = this.AddIndices(faces, order.Count);
-            primitive["material"] = this.Material(materialName);
+            primitive["material"] = this.Material(materialName, texture);
             primitive["mode"] = 4;
             Dictionary<string, object> meshObject = new Dictionary<string, object>(StringComparer.Ordinal);
             meshObject["name"] = name;
@@ -1045,7 +1045,10 @@ namespace ForzaStudio
             view["buffer"] = 0;
             view["byteOffset"] = this.bin.Length;
             view["byteLength"] = data.Length;
-            view["target"] = target;
+            if (target > 0)
+            {
+                view["target"] = target;    // not for images
+            }
             this.bin.Write(data, 0, data.Length);
             this.views.Add(view);
             return this.views.Count - 1;
@@ -1094,17 +1097,27 @@ namespace ForzaStudio
             return this.accessors.Count - 1;
         }
 
-        // A material per car material name, with a stable random color (as the OBJ and FBX exports).
-        private int Material(string name)
+        // A material per car material name and texture: with a texture it shows that picture (opaque, so
+        // the UVs are easy to see), without one a stable random color (as the OBJ and FBX exports). The same
+        // material name with two textures (main and lod0 files) gives two materials with that name.
+        private int Material(string name, ExportTexture texture)
         {
+            string key = name + "|" + ((texture != null) ? texture.Name : "");
             int at;
-            if (this.materials.TryGetValue(name, out at))
+            if (this.materials.TryGetValue(key, out at))
             {
                 return at;
             }
-            Vector3 color = Utilities.GetRandomColor(name.GetHashCode()).ToVector3();
             Dictionary<string, object> pbr = new Dictionary<string, object>(StringComparer.Ordinal);
-            pbr["baseColorFactor"] = new float[] { color.X, color.Y, color.Z, 1f };
+            if (texture != null)
+            {
+                pbr["baseColorTexture"] = new Dictionary<string, object>(StringComparer.Ordinal) { { "index", this.Texture(texture) } };
+            }
+            else
+            {
+                Vector3 color = Utilities.GetRandomColor(name.GetHashCode()).ToVector3();
+                pbr["baseColorFactor"] = new float[] { color.X, color.Y, color.Z, 1f };
+            }
             pbr["metallicFactor"] = 0f;
             pbr["roughnessFactor"] = 0.6f;
             Dictionary<string, object> material = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -1113,18 +1126,78 @@ namespace ForzaStudio
             material["doubleSided"] = true;
             this.materialList.Add(material);
             at = this.materialList.Count - 1;
-            this.materials[name] = at;
+            this.materials[key] = at;
             return at;
+        }
+
+        private readonly List<ExportTexture> pictures = new List<ExportTexture>();
+        private readonly Dictionary<string, int> textureOf = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        // One glTF texture (and image) per picture; the images are written by Save.
+        private int Texture(ExportTexture texture)
+        {
+            int at;
+            if (!this.textureOf.TryGetValue(texture.Name, out at))
+            {
+                this.pictures.Add(texture);
+                at = this.pictures.Count - 1;
+                this.textureOf[texture.Name] = at;
+            }
+            return at;
+        }
+
+        // images / samplers / textures: in the binary buffer for a .glb, PNG files in "textures" otherwise.
+        private void WriteImages(Dictionary<string, object> root, string path, bool glb)
+        {
+            if (this.pictures.Count == 0)
+            {
+                return;
+            }
+            List<object> images = new List<object>();
+            List<object> textures = new List<object>();
+            string folder = ExportTexture.TexturesFolder(path);
+            foreach (ExportTexture picture in this.pictures)
+            {
+                Dictionary<string, object> image = new Dictionary<string, object>(StringComparer.Ordinal);
+                image["name"] = picture.Stem;
+                if (glb)
+                {
+                    image["bufferView"] = this.AddView(picture.Png, 0);
+                    image["mimeType"] = "image/png";
+                }
+                else
+                {
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllBytes(Path.Combine(folder, picture.Name), picture.Png);
+                    image["uri"] = "textures/" + Uri.EscapeDataString(picture.Name);
+                }
+                images.Add(image);
+                Dictionary<string, object> texture = new Dictionary<string, object>(StringComparer.Ordinal);
+                texture["name"] = picture.Stem;
+                texture["sampler"] = 0;
+                texture["source"] = images.Count - 1;
+                textures.Add(texture);
+            }
+            Dictionary<string, object> sampler = new Dictionary<string, object>(StringComparer.Ordinal);
+            sampler["magFilter"] = 9729;    // LINEAR
+            sampler["minFilter"] = 9987;    // LINEAR_MIPMAP_LINEAR
+            sampler["wrapS"] = 10497;       // REPEAT
+            sampler["wrapT"] = 10497;
+            root["samplers"] = new List<object>(new object[] { sampler });
+            root["images"] = images;
+            root["textures"] = textures;
         }
 
         public void Save(string path)
         {
             bool glb = string.Equals(Path.GetExtension(path), ".glb", StringComparison.OrdinalIgnoreCase);
+            Dictionary<string, object> root = new Dictionary<string, object>(StringComparer.Ordinal);
+            Dictionary<string, object> images = new Dictionary<string, object>(StringComparer.Ordinal);
+            this.WriteImages(images, path, glb);
             while ((this.bin.Length % 4) != 0)
             {
                 this.bin.WriteByte(0);
             }
-            Dictionary<string, object> root = new Dictionary<string, object>(StringComparer.Ordinal);
             Dictionary<string, object> asset = new Dictionary<string, object>(StringComparer.Ordinal);
             asset["version"] = "2.0";
             asset["generator"] = this.creator;
@@ -1146,9 +1219,16 @@ namespace ForzaStudio
             {
                 root["materials"] = this.materialList;
             }
+            foreach (KeyValuePair<string, object> pair in images)
+            {
+                root[pair.Key] = pair.Value;
+            }
             if (this.accessors.Count > 0)
             {
                 root["accessors"] = this.accessors;
+            }
+            if (this.views.Count > 0)
+            {
                 root["bufferViews"] = this.views;
                 Dictionary<string, object> buffer = new Dictionary<string, object>(StringComparer.Ordinal);
                 buffer["byteLength"] = this.bin.Length;
