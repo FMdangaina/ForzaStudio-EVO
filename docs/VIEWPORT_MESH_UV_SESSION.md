@@ -23,7 +23,7 @@ Stato: tutto compilato e provato dall'utente a vista ("direi che ci siamo!"); re
 
 ## 2. Vincoli tecnici
 
-- C# WinForms, **.NET Framework 2.0** (niente HashSet, Action con 3+ parametri, LINQ; c'è `Set<T>` in `Set2.cs`), XNA 3.1 (Matrix a vettori riga, BasicEffect, clip z D3D 0..1).
+- C# WinForms, **.NET Framework 4.8** dal 2026-11-01 (prima 2.0: per questo il codice vecchio usa `Set<T>` di `Set2.cs` invece di HashSet), x86, XNA 3.1 (Matrix a vettori riga, BasicEffect, clip z D3D 0..1).
 - Ogni file nuovo va elencato in `ForzaStudioEVO.csproj`.
 - Build con MSBuild di VS2022 in `bin\Debug`. Se l'exe è aperto la build fallisce (MSB3021/3027): chiedere all'utente di chiuderlo, mai ucciderlo.
 - Harness headless: `E:\DEV\fm4dev\MeshEdit\meshtest.cs` (csc 4.0, serve `meshtest.exe.config` da colsurvey e il riferimento XNA 3.1 dal GAC).

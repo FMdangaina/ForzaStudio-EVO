@@ -381,7 +381,7 @@ Background C3 (research). Paused by the user 2026-10-19.
 Both points wait for a proper release (user 2026-10-28), not before.
 
 - [ ] 15.1 Conversion tool as MDI (child windows inside the main window)
-- [ ] 15.2 Recent .NET Framework (today `v2.0` with XNA, x86): newest one XNA allows; check SQLite, HexBox. Last, it touches everything
+- [ ] 15.2 Recent .NET Framework: since 2026-11-01 (bbc56ae) the project targets **.NET Framework 4.8**, x86, with XNA 3.1 (loaded through `useLegacyV2RuntimeActivationPolicy` in app.config); check SQLite, HexBox. Last, it touches everything
 
 ### 16. Documentation and community 🔧
 

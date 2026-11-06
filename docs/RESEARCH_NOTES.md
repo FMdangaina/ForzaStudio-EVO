@@ -4,7 +4,8 @@ Moved out of ROADMAP.md on 2026-10-23 (the roadmap holds goals only). Topic numb
 
 ## C1. Platform (topic 15)
 
-- **.NET:** today `v2.0` with XNA, x86. The renderer stays XNA, so the target is the newest .NET XNA allows. To find out what else breaks
+- **.NET:** **.NET Framework 4.8** since 2026-11-01, x86, with XNA 3.1 (a .NET 2.0 mixed-mode assembly, loaded through
+  `useLegacyV2RuntimeActivationPolicy` in app.config). The renderer stays XNA. To find out what else breaks
   (SQLite, HexBox). `xdevkit.dll` no longer blocks it.
 
 ## C2. Viewer and materials (topic 9)
