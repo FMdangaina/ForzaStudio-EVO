@@ -187,25 +187,26 @@ namespace ForzaStudio
             this.ApplyModelImport(files, models, folders, null, "OBJ");
         }
 
-        // The whole car as one FBX scene with its hierarchy (see CarModelFbx).
-        private void ExportModelFbx()
+        // The whole car as one FBX or glTF scene with its carbin hierarchy (see CarModelFbx).
+        private void ExportModelFbx(bool gltf)
         {
+            string title = gltf ? "Export Model to glTF" : "Export Model to FBX";
             Dictionary<string, CarbinModel> models;
             Dictionary<string, ForzaZip.Entry> files;
             try
             {
-                models = this.LoadCarModels("Export Model to FBX", out files);
+                models = this.LoadCarModels(title, out files);
             }
             catch (Exception exception)
             {
-                MessageBox.Show(this, exception.Message, "Export Model to FBX", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                MessageBox.Show(this, exception.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return;
             }
             if (models == null)
             {
                 return;
             }
-            List<string> wanted = this.ChooseFbxLevels(CarModelFbx.Levels(models));
+            List<string> wanted = this.ChooseFbxLevels(CarModelFbx.Levels(models), title, gltf ? "glTF" : "FBX");
             if (wanted == null)
             {
                 return;
@@ -213,10 +214,10 @@ namespace ForzaStudio
             string path;
             using (SaveFileDialog dialog = new SaveFileDialog())
             {
-                dialog.Title = "Export Model to FBX";
-                dialog.Filter = "FBX (*.fbx)|*.fbx";
+                dialog.Title = title;
+                dialog.Filter = gltf ? "glTF binary (*.glb)|*.glb|glTF + bin (*.gltf)|*.gltf" : "FBX (*.fbx)|*.fbx";
                 dialog.FileName = CarModelFolder.FolderName(CarbinName(files.ContainsKey(CarModelFolder.Main) ? files[CarModelFolder.Main] : First(files)))
-                    + ((wanted.Count == 1) ? FbxSuffix(wanted[0]) : "") + ".fbx";
+                    + ((wanted.Count == 1) ? FbxSuffix(wanted[0]) : "") + (gltf ? ".glb" : ".fbx");
                 string start = AppSettings.Get("Dir.ModelFolder", null);
                 if (start != null && Directory.Exists(start))
                 {
@@ -238,11 +239,11 @@ namespace ForzaStudio
                     names[pair.Key] = CarbinName(pair.Value);
                 }
                 int count = CarModelFbx.Export(names, models, path, this.SourceName, wanted);
-                this.SetStatus(string.Format("{0:N0} meshes exported to {1} (edit it, then Model > Import Model from FBX)", count, path));
+                this.SetStatus(string.Format("{0:N0} meshes exported to {1} (edit it, then Model > " + (gltf ? "Import Model from glTF" : "Import Model from FBX") + ")", count, path));
             }
             catch (Exception exception)
             {
-                MessageBox.Show(this, exception.Message, "Export Model to FBX", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                MessageBox.Show(this, exception.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Hand);
             }
             finally
             {
@@ -259,12 +260,12 @@ namespace ForzaStudio
 
         // Which model files and LODs to put in the FBX (a small scene is quicker to open and edit).
         // Null when cancelled. The lod0 file's LOD 0 (the close-up body) is preselected.
-        private List<string> ChooseFbxLevels(List<CarModelFbx.Level> levels)
+        private List<string> ChooseFbxLevels(List<CarModelFbx.Level> levels, string title, string format)
         {
             Panel panel = new Panel();
             panel.Size = new Size(430, 40 + (Math.Min(levels.Count, 12) * 20) + 40);
             Label header = new Label();
-            header.Text = "Model files and LODs to put in the FBX:";
+            header.Text = "Model files and LODs to put in the " + format + ":";
             header.AutoSize = true;
             header.Location = new Point(0, 2);
             panel.Controls.Add(header);
@@ -300,7 +301,7 @@ namespace ForzaStudio
             panel.Height = none.Bottom + 4;
             while (true)
             {
-                if (!this.ShowOptions("Export Model to FBX", panel))
+                if (!this.ShowOptions(title, panel))
                 {
                     return null;
                 }
@@ -316,7 +317,7 @@ namespace ForzaStudio
                 {
                     return wanted;
                 }
-                MessageBox.Show(this, "Tick at least one model file / LOD.", "Export Model to FBX", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "Tick at least one model file / LOD.", title, MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -329,17 +330,18 @@ namespace ForzaStudio
             return null;
         }
 
-        private void ImportModelFbx()
+        private void ImportModelFbx(bool gltf)
         {
+            string title = gltf ? "Import Model from glTF" : "Import Model from FBX";
             Dictionary<string, ForzaZip.Entry> files;
             Dictionary<string, CarbinModel> models;
             try
             {
-                models = this.LoadCarModels("Import Model from FBX", out files);
+                models = this.LoadCarModels(title, out files);
             }
             catch (Exception exception)
             {
-                MessageBox.Show(this, exception.Message, "Import Model from FBX", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                MessageBox.Show(this, exception.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return;
             }
             if (models == null)
@@ -349,8 +351,8 @@ namespace ForzaStudio
             string path;
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
-                dialog.Title = "Import Model from FBX";
-                dialog.Filter = "FBX (*.fbx)|*.fbx";
+                dialog.Title = title;
+                dialog.Filter = gltf ? "glTF (*.glb, *.gltf)|*.glb;*.gltf" : "FBX (*.fbx)|*.fbx";
                 string start = AppSettings.Get("Dir.ModelFolder", null);
                 if (start != null && Directory.Exists(start))
                 {
@@ -366,17 +368,17 @@ namespace ForzaStudio
             Panel options = new Panel();
             options.Size = new Size(470, 70);
             Label what = new Label();
-            what.Text = "Only the parts the FBX has are compared with the model; the others are left as they are.";
+            what.Text = "Only the parts the file has are compared with the model; the others are left as they are.";
             what.AutoSize = false;
             what.Size = new Size(470, 22);
             what.Location = new Point(0, 2);
             CheckBox drop = new CheckBox();
-            drop.Text = "Remove the parts the FBX does not have (at the LODs it has)";
+            drop.Text = "Remove the parts the file does not have (at the LODs it has)";
             drop.AutoSize = true;
             drop.Location = new Point(0, 32);
             options.Controls.Add(what);
             options.Controls.Add(drop);
-            if (!this.ShowOptions("Import Model from FBX", options))
+            if (!this.ShowOptions(title, options))
             {
                 return;
             }
@@ -398,7 +400,7 @@ namespace ForzaStudio
                 }
                 catch (Exception exception)
                 {
-                    MessageBox.Show(this, exception.Message, "Import Model from FBX", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                    MessageBox.Show(this, exception.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Hand);
                     return;
                 }
                 finally
@@ -407,10 +409,10 @@ namespace ForzaStudio
                 }
                 if (errors.Count > 0)
                 {
-                    MessageBox.Show(this, string.Join("\n", errors.ToArray()), "Import Model from FBX", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, string.Join("\n", errors.ToArray()), title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-                this.ApplyModelImport(files, models, folders, notes, "FBX");
+                this.ApplyModelImport(files, models, folders, notes, CarModelFbx.FormatName(path));
             }
             finally
             {

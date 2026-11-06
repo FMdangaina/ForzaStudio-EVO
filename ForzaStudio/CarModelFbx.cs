@@ -7,7 +7,31 @@ namespace ForzaStudio
     using System.Text;
     using System.Text.RegularExpressions;
 
-    // The car's model as one FBX scene with the model's own hierarchy:
+    // What writes a scene file for the model export (FbxBuilder, GltfBuilder). Parent 0 = scene root.
+    public interface IModelSceneBuilder
+    {
+        long AddNull(string name, long parent);
+        long AddMesh(string name, long parent, string materialName, ObjMesh.Material mesh);
+        void Save(string path);
+    }
+
+    // A node of a scene file read back (FBX or glTF), the same for both formats. Materials is the
+    // reader's own list (cleaning a name there changes what Read gives). Read is null for a node without a mesh.
+    public class ModelSceneNode
+    {
+        public string Name;
+        public ModelSceneNode Parent;
+        public List<ModelSceneNode> Children = new List<ModelSceneNode>();
+        public List<string> Materials = new List<string>();
+        public Func<string, List<ObjMesh.Material>> Read;
+
+        public bool HasMesh
+        {
+            get { return this.Read != null; }
+        }
+    }
+
+    // The car's model as one FBX or glTF scene with the model's own (carbin) hierarchy:
     //   <car>                       (Null)
     //     main | lod0 | cockpit     (Null: the model file)
     //       LOD1 ... LOD5 | LOD0    (Null)
@@ -110,12 +134,27 @@ namespace ForzaStudio
             return levels;
         }
 
+        // True for .gltf / .glb paths (glTF 2.0), false for FBX.
+        public static bool IsGltf(string path)
+        {
+            string extension = Path.GetExtension(path);
+            return string.Equals(extension, ".glb", StringComparison.OrdinalIgnoreCase) || string.Equals(extension, ".gltf", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static string FormatName(string path)
+        {
+            return IsGltf(path) ? "glTF" : "FBX";
+        }
+
         // kind -> .carbin name / parsed model. 'wanted' lists the LevelKeys to write (null = all).
+        // The file format follows the extension (.fbx, .glb, .gltf); the scene is the same.
         // Returns the number of mesh nodes written.
         public static int Export(Dictionary<string, string> names, Dictionary<string, CarbinModel> models, string path, string source, List<string> wanted)
         {
             string car = CarModelFolder.FolderName(names.ContainsKey(CarModelFolder.Main) ? names[CarModelFolder.Main] : First(names));
-            FbxBuilder builder = new FbxBuilder("ForzaStudio EVO: " + source);
+            IModelSceneBuilder builder = IsGltf(path)
+                ? (IModelSceneBuilder) new GltfBuilder("ForzaStudio EVO: " + source)
+                : new FbxBuilder("ForzaStudio EVO: " + source);
             long root = builder.AddNull(car, 0);
             int count = 0;
             foreach (string kind in new string[] { CarModelFolder.Main, CarModelFolder.Lod0, CarModelFolder.Cockpit })
@@ -171,7 +210,7 @@ namespace ForzaStudio
                     }
                 }
             }
-            File.WriteAllBytes(path, builder.ToBytes());
+            builder.Save(path);
             return count;
         }
 
@@ -201,16 +240,77 @@ namespace ForzaStudio
             public ObjMesh Mesh = new ObjMesh();
         }
 
-        // Reads the FBX and lays it out as OBJ model folders in a new temporary folder: the car's own
-        // export, with the OBJs of every part the FBX changed, added or dropped replaced. The result is
+        // Reads the FBX or glTF file and lays it out as OBJ model folders in a new temporary folder: the car's own
+        // export, with the OBJs of every part the file changed, added or dropped replaced. The result is
         // imported like any OBJ folder (CarModelFolder.Prepare / Apply). 'folders' maps kind -> folder;
         // 'root' is the temporary folder to delete afterwards. Notes are the findings of the node check.
-        public static void PrepareFolders(string fbxPath, Dictionary<string, string> names, Dictionary<string, CarbinModel> models,
+        // The nodes of an FBX or glTF file (by extension), in file order.
+        public static List<ModelSceneNode> LoadScene(string path)
+        {
+            List<ModelSceneNode> result = new List<ModelSceneNode>();
+            if (IsGltf(path))
+            {
+                GltfScene gltf = GltfScene.Load(path);
+                Dictionary<GltfScene.Node, ModelSceneNode> map = new Dictionary<GltfScene.Node, ModelSceneNode>();
+                foreach (GltfScene.Node node in gltf.Nodes)
+                {
+                    ModelSceneNode item = new ModelSceneNode();
+                    item.Name = node.Name;
+                    item.Materials = node.Materials;
+                    item.Read = gltf.HasMesh(node) ? GltfReader(gltf, node) : null;
+                    map[node] = item;
+                    result.Add(item);
+                }
+                Link(map, delegate(GltfScene.Node n) { return n.Parent; });
+                return result;
+            }
+            FbxScene fbx = FbxScene.Load(File.ReadAllBytes(path));
+            Dictionary<FbxScene.Model, ModelSceneNode> models = new Dictionary<FbxScene.Model, ModelSceneNode>();
+            foreach (FbxScene.Model model in fbx.ById.Values)
+            {
+                ModelSceneNode item = new ModelSceneNode();
+                item.Name = model.Name;
+                item.Materials = model.Materials;
+                item.Read = fbx.HasMesh(model) ? FbxReader(fbx, model) : null;
+                models[model] = item;
+                result.Add(item);
+            }
+            Link(models, delegate(FbxScene.Model m) { return m.Parent; });
+            return result;
+        }
+
+        // One method per delegate so each one keeps its own node (no shared loop variable).
+        private static Func<string, List<ObjMesh.Material>> GltfReader(GltfScene scene, GltfScene.Node node)
+        {
+            return delegate(string fallback) { return scene.ReadMesh(node, fallback); };
+        }
+
+        private static Func<string, List<ObjMesh.Material>> FbxReader(FbxScene scene, FbxScene.Model model)
+        {
+            return delegate(string fallback) { return scene.ReadMesh(model, fallback); };
+        }
+
+        private static void Link<T>(Dictionary<T, ModelSceneNode> map, Func<T, T> parentOf) where T : class
+        {
+            foreach (KeyValuePair<T, ModelSceneNode> pair in map)
+            {
+                T parent = parentOf(pair.Key);
+                ModelSceneNode owner;
+                if (parent != null && map.TryGetValue(parent, out owner))
+                {
+                    pair.Value.Parent = owner;
+                    owner.Children.Add(pair.Value);
+                }
+            }
+        }
+
+        public static void PrepareFolders(string scenePath, Dictionary<string, string> names, Dictionary<string, CarbinModel> models,
             bool dropMissing, out Dictionary<string, string> folders, out string root, List<string> notes, List<string> errors)
         {
-            root = Path.Combine(Path.GetTempPath(), "ForzaStudio_fbx_" + Guid.NewGuid().ToString("N"));
+            string format = FormatName(scenePath);
+            root = Path.Combine(Path.GetTempPath(), "ForzaStudio_" + format.ToLowerInvariant() + "_" + Guid.NewGuid().ToString("N"));
             folders = new Dictionary<string, string>();
-            FbxScene scene = FbxScene.Load(File.ReadAllBytes(fbxPath));
+            List<ModelSceneNode> scene = LoadScene(scenePath);
 
             Dictionary<string, bool> carMaterials = new Dictionary<string, bool>(StringComparer.Ordinal);
             Dictionary<string, bool> knownNames = new Dictionary<string, bool>(StringComparer.Ordinal);   // parts and materials of the car
@@ -232,9 +332,9 @@ namespace ForzaStudio
             Dictionary<string, bool> lodsSeen = new Dictionary<string, bool>();
             List<string> outside = new List<string>();
             int meshes = 0;
-            foreach (FbxScene.Model node in scene.ById.Values)
+            foreach (ModelSceneNode node in scene)
             {
-                if (node.Children.Count > 0 && !scene.HasMesh(node))
+                if (node.Children.Count > 0 && !node.HasMesh)
                 {
                     // Pure group; only its meshes count. Remember the LOD levels the file has.
                     Match lodMatch = LodNode.Match(StripCopy(node.Name));
@@ -247,15 +347,15 @@ namespace ForzaStudio
                         }
                     }
                 }
-                if (!scene.HasMesh(node))
+                if (!node.HasMesh)
                 {
                     continue;
                 }
                 meshes++;
                 string kind = null;
                 uint lod = 0;
-                FbxScene.Model partNode = null;
-                for (FbxScene.Model walk = node; walk != null; walk = walk.Parent)
+                ModelSceneNode partNode = null;
+                for (ModelSceneNode walk = node; walk != null; walk = walk.Parent)
                 {
                     Match match = LodNode.Match(StripCopy(walk.Name));
                     if (match.Success && walk.Parent != null && KindOf(walk.Parent.Name) != null && partNode != null)
@@ -309,7 +409,7 @@ namespace ForzaStudio
                     target.Part = partName;
                     found[key] = target;
                 }
-                foreach (ObjMesh.Material material in scene.ReadMesh(node, fallback ?? partName))
+                foreach (ObjMesh.Material material in node.Read(fallback ?? partName))
                 {
                     ObjMesh.Material into = null;
                     foreach (ObjMesh.Material have in target.Mesh.Materials)
@@ -335,7 +435,7 @@ namespace ForzaStudio
             }
             if (found.Count == 0)
             {
-                errors.Add("No mesh found under a model file node (main, lod0, cockpit) and a LOD node (LOD0, LOD1...). Export the model to FBX first and edit that scene.");
+                errors.Add("No mesh found under a model file node (main, lod0, cockpit) and a LOD node (LOD0, LOD1...). Export the model to " + format + " first and edit that scene.");
                 return;
             }
 
@@ -343,7 +443,7 @@ namespace ForzaStudio
             foreach (KeyValuePair<string, CarbinModel> pair in models)
             {
                 string folder = Path.Combine(root, CarModelFolder.FolderName(names[pair.Key]));
-                CarModelFolder.Export(pair.Value, names[pair.Key], folder, "FBX import");
+                CarModelFolder.Export(pair.Value, names[pair.Key], folder, format + " import");
                 folders[pair.Key] = folder;
             }
 
@@ -399,7 +499,7 @@ namespace ForzaStudio
                         }
                         else
                         {
-                            mine.Mesh.Save(obj, section.Name, "ForzaStudio EVO: " + section.Name + " from FBX", CarModelFolder.MaterialsName);
+                            mine.Mesh.Save(obj, section.Name, "ForzaStudio EVO: " + section.Name + " from " + format, CarModelFolder.MaterialsName);
                             changed++;
                         }
                     }
@@ -413,18 +513,18 @@ namespace ForzaStudio
                     }
                     string directory = Path.Combine(folder, "lod" + item.Lod.ToString(CultureInfo.InvariantCulture));
                     Directory.CreateDirectory(directory);
-                    item.Mesh.Save(Path.Combine(directory, item.Part + ".obj"), item.Part, "ForzaStudio EVO: " + item.Part + " from FBX", CarModelFolder.MaterialsName);
+                    item.Mesh.Save(Path.Combine(directory, item.Part + ".obj"), item.Part, "ForzaStudio EVO: " + item.Part + " from " + format, CarModelFolder.MaterialsName);
                     added++;
                 }
             }
-            notes.Add(string.Format("FBX: {0} mesh nodes, {1} part LODs unchanged, {2} changed, {3} new, {4} dropped, {5} not in the file (left as they are).", meshes, same, changed, added, dropped, absent));
+            notes.Add(string.Format(format + ": {0} mesh nodes, {1} part LODs unchanged, {2} changed, {3} new, {4} dropped, {5} not in the file (left as they are).", meshes, same, changed, added, dropped, absent));
             if (droppedNames.Count > 0)
             {
                 notes.Add("Dropped: " + Short(droppedNames));
             }
         }
 
-        private static string KindAbove(FbxScene.Model node)
+        private static string KindAbove(ModelSceneNode node)
         {
             return (node.Parent != null) ? KindOf(node.Parent.Name) : null;
         }

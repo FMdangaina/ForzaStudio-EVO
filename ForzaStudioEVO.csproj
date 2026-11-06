@@ -179,6 +179,7 @@
     <Compile Include="ForzaStudio\CarModelFolder.cs" />
     <Compile Include="ForzaStudio\FbxFile.cs" />
     <Compile Include="ForzaStudio\FbxScene.cs" />
+    <Compile Include="ForzaStudio\GltfFile.cs" />
     <Compile Include="ForzaStudio\GameInfo.cs" />
     <Compile Include="ForzaStudio\GameMusic.cs" />
     <Compile Include="ForzaStudio\MusicInstaller.cs" />

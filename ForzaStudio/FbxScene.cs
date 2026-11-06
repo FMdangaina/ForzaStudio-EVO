@@ -511,7 +511,7 @@ namespace ForzaStudio
             return result;
         }
 
-        private static Vector3 Transform(double[] m, double x, double y, double z)
+        internal static Vector3 Transform(double[] m, double x, double y, double z)
         {
             return new Vector3(
                 (float) ((m[0] * x) + (m[1] * y) + (m[2] * z) + m[3]),
@@ -519,7 +519,7 @@ namespace ForzaStudio
                 (float) ((m[8] * x) + (m[9] * y) + (m[10] * z) + m[11]));
         }
 
-        private static Vector3 Rotate(double[] m, double x, double y, double z)
+        internal static Vector3 Rotate(double[] m, double x, double y, double z)
         {
             Vector3 v = new Vector3(
                 (float) ((m[0] * x) + (m[1] * y) + (m[2] * z)),
@@ -528,7 +528,7 @@ namespace ForzaStudio
             return v;
         }
 
-        private static double Determinant3(double[] m)
+        internal static double Determinant3(double[] m)
         {
             return (m[0] * ((m[5] * m[10]) - (m[6] * m[9])))
                 - (m[1] * ((m[4] * m[10]) - (m[6] * m[8])))
@@ -536,7 +536,7 @@ namespace ForzaStudio
         }
 
         // Inverse transpose of the upper 3x3 (cofactors / determinant), so normals stay normals under scaling.
-        private static double[] NormalMatrix(double[] m)
+        internal static double[] NormalMatrix(double[] m)
         {
             double det = Determinant3(m);
             double[] n = Identity();
@@ -561,7 +561,7 @@ namespace ForzaStudio
 
     // Writes an FBX scene: Null models for the hierarchy, Mesh models with one material each.
     // Units: meters (UnitScaleFactor 100), Y up, Z front, as the OBJ export; values are the car's own.
-    public class FbxBuilder
+    public class FbxBuilder : IModelSceneBuilder
     {
         private readonly FbxNode objects = new FbxNode("Objects");
         private readonly FbxNode connections = new FbxNode("Connections");
@@ -738,6 +738,11 @@ namespace ForzaStudio
             Vector3 color = Utilities.GetRandomColor(name.GetHashCode()).ToVector3();
             Property(properties, "DiffuseColor", "Color", "", (double) color.X, (double) color.Y, (double) color.Z);
             return id;
+        }
+
+        public void Save(string path)
+        {
+            File.WriteAllBytes(path, this.ToBytes());
         }
 
         public byte[] ToBytes()

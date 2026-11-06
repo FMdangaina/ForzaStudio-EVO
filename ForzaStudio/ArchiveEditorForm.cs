@@ -256,8 +256,10 @@
             model.DropDownItems.Add(new ToolStripSeparator());
             model.DropDownItems.Add(new ToolStripMenuItem("&Export Model to OBJ Folder...", null, delegate { this.ExportModelFolder(); }));
             model.DropDownItems.Add(new ToolStripMenuItem("&Import Model from OBJ Folder...", null, delegate { this.ImportModelFolder(); }));
-            model.DropDownItems.Add(new ToolStripMenuItem("Export Model to &FBX...", null, delegate { this.ExportModelFbx(); }));
-            model.DropDownItems.Add(new ToolStripMenuItem("Import Model from F&BX...", null, delegate { this.ImportModelFbx(); }));
+            model.DropDownItems.Add(new ToolStripMenuItem("Export Model to &FBX...", null, delegate { this.ExportModelFbx(false); }));
+            model.DropDownItems.Add(new ToolStripMenuItem("Import Model from F&BX...", null, delegate { this.ImportModelFbx(false); }));
+            model.DropDownItems.Add(new ToolStripMenuItem("Export Model to &glTF...", null, delegate { this.ExportModelFbx(true); }));
+            model.DropDownItems.Add(new ToolStripMenuItem("Import Model from gl&TF...", null, delegate { this.ImportModelFbx(true); }));
             model.DropDownItems.Add(new ToolStripSeparator());
             model.DropDownItems.Add(new ToolStripMenuItem("Export &UV Map to TGA...", null, delegate { this.ExportUvMap(); }));
             model.DropDownOpening += delegate { exportChecked.Enabled = this.pnlModel.Visible && this.scene != null; };
