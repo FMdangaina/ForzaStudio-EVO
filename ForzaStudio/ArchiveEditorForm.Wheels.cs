@@ -167,6 +167,15 @@ namespace ForzaStudio
             string root = this.GameRoot;
             string model = GamePaths.FindMedia(root, "wheels", media);
             string kind = stock ? "Stock wheel" + ((owner != null) ? " of " + owner : "") : "Aftermarket wheel (fits every car)";
+            ForzaZip.Entry own = this.OwnMedia("wheels", media);
+            if (own != null)
+            {
+                // A DLC (pack zip or development folder) carries its wheels under its own media\wheels.
+                this.lblWheelInfo.Text = kind + "\nModel: " + own.Name + " (in this DLC)";
+                this.btnWheelModel.Enabled = true;
+                this.ShowDbContent(this.tabWheel);
+                return;
+            }
             this.lblWheelInfo.Text = (root == null)
                 ? kind + "\nOpen the game folder to see the icon and the model."
                 : kind + "\nModel: " + ((model != null) ? model.Substring(root.Length).TrimStart('\\') : "Media\\wheels\\" + media + " not found");
@@ -178,6 +187,12 @@ namespace ForzaStudio
         private void OpenWheelFiles()
         {
             object media = (this.gameDb == null) ? null : this.gameDb.Sql.Scalar("SELECT MediaName FROM List_Wheels WHERE ID = ?", this.dbWheelId);
+            ForzaZip.Entry own = this.OwnMedia("wheels", media as string);
+            if (own != null)
+            {
+                this.OpenOwnEntry(own);
+                return;
+            }
             string root = this.GameRoot;
             string model = GamePaths.FindMedia(root, "wheels", media as string);
             if (model == null)

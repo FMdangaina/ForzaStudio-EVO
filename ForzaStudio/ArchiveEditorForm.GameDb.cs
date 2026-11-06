@@ -346,6 +346,14 @@ namespace ForzaStudio
                 this.btnDbOpenPath.ToolTipText = "Select a field that holds a GAME:\\ path";
                 return;
             }
+            ForzaZip.Entry own = this.OwnEntry(this.focusedGamePath);
+            if (own != null)
+            {
+                string inZip = "in this DLC (" + own.Name + ") - double-click, Enter or this button shows it";
+                this.btnDbOpenPath.ToolTipText = this.focusedGamePath + "\n" + inZip;
+                this.SetStatus(GamePaths.RelativePath(this.focusedGamePath) + " - " + inZip);
+                return;
+            }
             GamePaths.GameFile file = GamePaths.Locate(this.GameRoot, this.focusedGamePath);
             string state = (file == null) ? "not found" : !CanView(file.Name) && (file.InZip || File.Exists(file.FilePath)) ? "no viewer for this type"
                 : (file.InZip ? "in " + Path.GetFileName(file.ZipPath) + " - " : "") + "double-click, Enter or this button opens it";
@@ -1484,6 +1492,15 @@ namespace ForzaStudio
             SetPicture(this.picCarThumb, this.LoadGameImage(row[0] as string));
             SetPicture(this.picCarLogo, this.LoadGameImage(row[1] as string));
             string media = row[2] as string;
+            ForzaZip.Entry own = this.OwnMedia("cars", media);
+            if (own != null)
+            {
+                // A DLC (pack zip or development folder) carries its cars under its own media\cars: the database links to them.
+                this.lblCarFiles.Text = string.Format("Car model: {0} (in this DLC)\nGAME:\\ = {1}", own.Name, root ?? "game folder not found");
+                this.carHeaderTip.SetToolTip(this.lblCarFiles, this.lblCarFiles.Text);
+                this.btnCarFiles.Enabled = true;
+                return;
+            }
             if (root == null)
             {
                 this.lblCarFiles.Text = "Game folder not found. Open the game's base folder (the one that contains Media), or a folder inside it, to see the thumbnail, the logo and the car's model files.";
@@ -1529,6 +1546,15 @@ namespace ForzaStudio
                         return game;
                     }
                 }
+                // A DLC development folder (DlcFolderRoot) has only its own files: its base is FM4, the port target.
+                if (this.DlcFolderRoot != null)
+                {
+                    string game = AppSettings.Get("CarPort.Target", "");
+                    if (!string.IsNullOrEmpty(game) && Directory.Exists(Path.Combine(game, "Media")))
+                    {
+                        return game;
+                    }
+                }
                 return GamePaths.FindRoot(this.zip.FilePath);
             }
         }
@@ -1569,8 +1595,125 @@ namespace ForzaStudio
             return (relative == null) ? null : this.zip.Find(relative);
         }
 
+        // A DLC pack zip (Media\DLCZips\36_pri_65.zip) holds the files its database names under its own media\
+        // folder, mounted by the game at GAME:\Media: the open zip's entry for a GAME:\ path (or the .xds built
+        // from a .tga/.dds/.png), else null. Only for a zip: an open folder is found through GameRoot.
+        private ForzaZip.Entry OwnEntry(string gamePath)
+        {
+            if (!GamePaths.IsGamePath(gamePath))
+            {
+                return null;
+            }
+            string relative = this.OwnName(GamePaths.RelativePath(gamePath));
+            if (relative == null)
+            {
+                return null;
+            }
+            ForzaZip.Entry entry = this.zip.Find(relative);
+            string extension = Path.GetExtension(relative).ToLowerInvariant();
+            if (entry == null && (extension == ".tga" || extension == ".dds" || extension == ".png"))
+            {
+                entry = this.zip.Find(Path.ChangeExtension(relative, ".xds"));
+            }
+            return (entry == null || entry.IsDirectory || entry.IsDeleted) ? null : entry;
+        }
+
+        // A DLC development folder: loose files laid out like a pack zip (Media\cars, Media\UI...) with the pack's
+        // database in Media\db\patch\*_merge.slt and no gamedb.slt of its own. Its base is the main game
+        // (GameRoot), its own files are looked up first. Null when the open folder is not one.
+        private string DlcFolderRoot
+        {
+            get
+            {
+                if (this.zip == null || !this.zip.IsFolder || this.InPackage(this.zip.FilePath))
+                {
+                    return null;
+                }
+                string root = GamePaths.FindRoot(this.zip.FilePath);
+                if (root == null)
+                {
+                    return null;
+                }
+                string db = Path.Combine(Path.Combine(root, "Media"), "db");
+                string patch = Path.Combine(db, "patch");
+                if (File.Exists(Path.Combine(db, "gamedb.slt")) || !Directory.Exists(patch) || Directory.GetFiles(patch, "*_merge.slt").Length == 0)
+                {
+                    return null;
+                }
+                return root;
+            }
+        }
+
+        // A path below the DLC's root ("Media\cars\...") as the name of the open zip's entry, or null: the same
+        // name in a pack zip, the name below the open folder in a DLC development folder.
+        private string OwnName(string relative)
+        {
+            if (this.zip == null)
+            {
+                return null;
+            }
+            if (!this.zip.IsFolder)
+            {
+                return relative.Replace('\\', '/');
+            }
+            string dlc = this.DlcFolderRoot;
+            return (dlc == null) ? null : RelativeToFolder(this.zip.FilePath, Path.Combine(dlc, relative.Replace('/', '\\')));
+        }
+
+        // media/<folder>/<name> of the DLC open (a pack zip or a DLC development folder): its main .carbin, else its
+        // first .carbin, else its first file; or media/<folder>/<name>.zip. Null when the DLC does not carry it.
+        private ForzaZip.Entry OwnMedia(string folder, string name)
+        {
+            string parent = string.IsNullOrEmpty(name) ? null : this.OwnName("media/" + folder);
+            if (parent == null)
+            {
+                return null;
+            }
+            string prefix = parent + "/" + name + "/";
+            ForzaZip.Entry found = this.zip.Find(prefix + name + ".carbin") ?? this.zip.Find(parent + "/" + name + ".zip");
+            ForzaZip.Entry first = null;
+            foreach (ForzaZip.Entry entry in this.zip.Entries)
+            {
+                if (found != null)
+                {
+                    break;
+                }
+                if (entry.IsDirectory || entry.IsDeleted || !entry.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (entry.Name.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
+                {
+                    found = entry;
+                }
+                else if (first == null)
+                {
+                    first = entry;
+                }
+            }
+            return found ?? first;
+        }
+
+        // Shows an entry of the open zip (Back returns to where the jump started).
+        private void OpenOwnEntry(ForzaZip.Entry entry)
+        {
+            string name = entry.Name;
+            this.NavigateFrom(delegate { this.SelectEntry(name); });
+        }
+
         private Bitmap LoadGameImage(string gamePath)
         {
+            ForzaZip.Entry own = this.OwnEntry(gamePath);
+            if (own != null)
+            {
+                try
+                {
+                    return ImageFromData(this.zip.Read(own), own.Name);
+                }
+                catch (Exception)
+                {
+                }
+            }
             GamePaths.GameFile file = GamePaths.Locate(this.GameRoot, gamePath);
             if (file == null || (!file.InZip && !File.Exists(file.FilePath)))
             {
@@ -1581,24 +1724,7 @@ namespace ForzaStudio
                 // A loose file open in the tree is read from there, so pending edits show.
                 ForzaZip.Entry entry = file.InZip ? null : this.EntryForFile(file.FilePath);
                 byte[] data = (entry != null) ? this.zip.Read(entry) : GamePaths.Read(file);
-                string extension = Path.GetExtension(file.Name).ToLowerInvariant();
-                if (extension == ".xds")
-                {
-                    return new XdsTexture(data).GetLevelBitmap(0);
-                }
-                if (extension == ".xdc")
-                {
-                    return new XdsTexture(XdcFile.Unpack(data)).GetLevelBitmap(0);
-                }
-                if (extension == ".tga")
-                {
-                    return new TgaImage(data).ToBitmap();
-                }
-                using (MemoryStream stream = new MemoryStream(data))
-                using (Image image = Image.FromStream(stream))
-                {
-                    return new Bitmap(image);
-                }
+                return ImageFromData(data, file.Name);
             }
             catch (Exception)
             {
@@ -1606,10 +1732,39 @@ namespace ForzaStudio
             }
         }
 
+        private static Bitmap ImageFromData(byte[] data, string name)
+        {
+            string extension = Path.GetExtension(name).ToLowerInvariant();
+            if (extension == ".xds")
+            {
+                return new XdsTexture(data).GetLevelBitmap(0);
+            }
+            if (extension == ".xdc")
+            {
+                return new XdsTexture(XdcFile.Unpack(data)).GetLevelBitmap(0);
+            }
+            if (extension == ".tga")
+            {
+                return new TgaImage(data).ToBitmap();
+            }
+            using (MemoryStream stream = new MemoryStream(data))
+            using (Image image = Image.FromStream(stream))
+            {
+                return new Bitmap(image);
+            }
+        }
+
         private void OpenGamePath(string gamePath)
         {
             if (!GamePaths.IsGamePath(gamePath))
             {
+                return;
+            }
+            ForzaZip.Entry own = this.OwnEntry(gamePath);
+            if (own != null)
+            {
+                // A file of the DLC pack zip open: shown in its tree.
+                this.OpenOwnEntry(own);
                 return;
             }
             string root = this.GameRoot;
@@ -1831,6 +1986,12 @@ namespace ForzaStudio
         {
             string root = this.GameRoot;
             string media = (this.gameDb == null) ? null : this.gameDb.Sql.Scalar("SELECT MediaName FROM Data_Car WHERE Id = ?", this.dbCarId) as string;
+            ForzaZip.Entry own = this.OwnMedia("cars", media);
+            if (own != null)
+            {
+                this.OpenOwnEntry(own);
+                return;
+            }
             string car = GamePaths.FindCar(root, media);
             if (car == null)
             {
