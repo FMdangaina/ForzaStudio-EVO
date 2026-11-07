@@ -74,6 +74,8 @@ namespace ForzaStudio
             this.tabSideDriver = this.tabSide.TabPages[5];
             FlowLayoutPanel meshEdit = this.AddSideTab("Mesh");
             this.tabSideMesh = this.tabSide.TabPages[6];
+            FlowLayoutPanel gauges = this.AddSideTab("Gauges");
+            this.tabSideGauges = this.tabSide.TabPages[7];
             this.tabSide.SelectedIndexChanged += delegate { this.MeshWireframeFollowTab(); this.UpdateViewOverlay(); };
             host.Controls.Add(SideRailHost(this.tabSide));
 
@@ -142,6 +144,7 @@ namespace ForzaStudio
             this.AddExhaustControls(exhaust);
             this.AddDriverControls(driver);
             this.AddMeshEditControls(meshEdit);
+            this.AddGaugeControls(gauges);
 
             this.tvModel.AfterSelect += delegate { this.TreeSelected(); };
             return host;
@@ -207,7 +210,9 @@ namespace ForzaStudio
             bool collisionShown = this.tabSide.TabPages.Contains(this.tabSideCollision);
             bool exhaustShown = this.tabSide.TabPages.Contains(this.tabSideExhaust);
             bool driverShown = this.tabSide.TabPages.Contains(this.tabSideDriver);
-            if (cameraShown == this.cameraTabWanted && collisionShown == this.collisionTabWanted && exhaustShown == this.exhaustTabWanted && driverShown == this.driverTabWanted)
+            bool gaugesShown = this.tabSide.TabPages.Contains(this.tabSideGauges);
+            if (cameraShown == this.cameraTabWanted && collisionShown == this.collisionTabWanted && exhaustShown == this.exhaustTabWanted && driverShown == this.driverTabWanted
+                && gaugesShown == this.gaugesTabWanted)
             {
                 return;
             }
@@ -216,6 +221,7 @@ namespace ForzaStudio
             this.tabSide.TabPages.Remove(this.tabSideCollision);
             this.tabSide.TabPages.Remove(this.tabSideExhaust);
             this.tabSide.TabPages.Remove(this.tabSideDriver);
+            this.tabSide.TabPages.Remove(this.tabSideGauges);
             if (this.cameraTabWanted)
             {
                 this.tabSide.TabPages.Add(this.tabSideCamera);
@@ -231,6 +237,10 @@ namespace ForzaStudio
             if (this.driverTabWanted)
             {
                 this.tabSide.TabPages.Add(this.tabSideDriver);
+            }
+            if (this.gaugesTabWanted)
+            {
+                this.tabSide.TabPages.Add(this.tabSideGauges);
             }
             if (selected != null && this.tabSide.TabPages.Contains(selected))
             {
@@ -252,7 +262,9 @@ namespace ForzaStudio
                 : (open == this.tabSideCollision) ? this.CollisionOverlayLines()
                 : (open == this.tabSideExhaust) ? this.ExhaustOverlayLines()
                 : (open == this.tabSideDriver) ? this.DriverOverlayLines()
+                : (open == this.tabSideGauges) ? this.GaugeOverlayLines()
                 : (open == this.tabSideMesh) ? this.MeshEditOverlayLines() : null;
+            this.UpdateGaugePreview(open == this.tabSideGauges);
             this.scene.Overlay = (lines != null && lines.Count >= 2) ? lines.ToArray() : null;
             this.scene.OverlayFaces = (open == this.tabSideMesh) ? this.MeshEditFaceFill() : null;
             this.scene.Update(true);

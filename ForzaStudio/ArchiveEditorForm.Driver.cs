@@ -12,7 +12,7 @@ namespace ForzaStudio
 
     // The driver of a car (ROADMAP 6.2), edited by hand like the exhaust points. Shown with the car's _cockpit.carbin:
     //  - the rig in the cockpit header (big-endian floats, model axes, the layout of CarPort.CockpitRig): the six
-    //    hand grips on the steering wheel, the wheel pivot and axis, the shifter point and the eye-level records;
+    //    hand grips on the steering wheel, the wheel pivot and axis, the shifter point (the gauges that follow are in the GAUGES tab);
     //  - the offsets of carattribs.xml: DriverHandsOffset and the Driver element (ButtOffset = where the body sits,
     //    the hand, shifter and hand brake offsets), plus BodyLean and BodyScale.
     // The header points are drawn as crosses in the view while the DRIVER tab is open. The carattribs offsets are
@@ -145,11 +145,8 @@ namespace ForzaStudio
                         items.Add(HeaderItem("Steering wheel axis (direction)", 0x238, true, model.Head));
                         items.Add(HeaderItem("Point 0x248 ?", 0x248, false, model.Head));
                         items.Add(HeaderItem("Shifter point ?", 0x258, false, model.Head));
-                        for (int r = 0; r < 4; r++)
-                        {
-                            items.Add(HeaderItem("Record " + (r + 1) + " point (eye level ?)", 0x270 + (r * 36), false, model.Head));
-                            items.Add(HeaderItem("Record " + (r + 1) + " direction", 0x270 + (r * 36) + 16, true, model.Head));
-                        }
+                        // From 0x270 the header holds the 15 analogue gauges (pivot, axis, max rotation), not driver
+                        // points (default.xex, 2026-11-07): they are edited in the GAUGES tab (CarGauges).
                         this.drvEntry = this.currentEntry;
                         this.drvItems = items;
                         this.AddDriverAttributes(items);

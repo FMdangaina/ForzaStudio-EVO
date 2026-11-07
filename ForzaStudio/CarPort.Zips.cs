@@ -2155,6 +2155,17 @@ namespace ForzaStudio
                         ticks.Add(mark.Value);
                     }
                 }
+                if (ticks.Count == 1)
+                {
+                    // One mark gives FM4 nothing to interpolate between: the needle spins or vanishes (FH2 Delta S4
+                    // Boost: one mark 0 -> 0). No FM4 file has a single mark; an unscaled needle is NumTicks="0"
+                    // (FM4 Volvo 850 boost needle). See E:\DEV\fm4dev\XexCars\NOTES_CARBIN.md "Gauges".
+                    if (report != null)
+                    {
+                        report.AppendLine(string.Format("  carattribs: {0} gauge 1 tick mark -> 0 (FM4 needs none or at least 2)", gauge.Groups[1].Value));
+                    }
+                    return "<" + gauge.Groups[1].Value + " NumTicks=\"0\"/>";
+                }
                 if (ticks.Count == marks.Count)
                 {
                     return gauge.Value;

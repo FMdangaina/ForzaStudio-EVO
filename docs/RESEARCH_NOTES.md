@@ -23,6 +23,12 @@ Moved out of ROADMAP.md on 2026-10-23 (the roadmap holds goals only). Topic numb
     (0-100). FH lights closest to `reflector` / `tail_light` (70-75), FM3 same-name materials 59-89. Used by 9.1.
 - **Viewer camera:** the game's FOVs are vertical degrees, in `Media\Camera\CameraSettings.ini` and `Media\UICarTargetCameraPresets.xml`.
 
+## C2b. The .carbin as the game reads it (2026-11-07)
+
+- Traced in `default.xex`: the carbin is a versioned serialized object tree; every opaque block now has the game's
+  name (glass particles, morph targets, UnpackingData, CCarMaterialData, header emitters / driver controls / gauges),
+  the damage word is a Xenos 10_11_11 direction, gauge axes are stored as (-x, -y, z). Full table: `CARBIN_FROM_XEX.md`.
+
 ## C3. Wheels and morph targets (topics 10, 11)
 
 - **Wheel morph.** [Aiden-Piercee](https://github.com/Aiden-Piercee): *"it's dependant on the wheel having a morph target in its package"*.

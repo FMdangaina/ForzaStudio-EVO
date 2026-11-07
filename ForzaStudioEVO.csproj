@@ -171,6 +171,7 @@
     <Compile Include="ForzaStudio\Fm2Source.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Exhaust.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Driver.cs" />
+    <Compile Include="ForzaStudio\ArchiveEditorForm.Gauges.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.XeniaThumbnail.cs" />
     <Compile Include="ForzaStudio\XeniaThumbnails.cs" />
     <Compile Include="ForzaStudio\FolderBrowserDialog.cs" />
@@ -234,6 +235,7 @@
     <Compile Include="ForzaStudio\PortSettings.cs" />
     <Compile Include="ForzaStudio\SettingsForm.cs" />
     <Compile Include="ForzaStudio\CarCamera.cs" />
+    <Compile Include="ForzaStudio\CarGauges.cs" />
     <Compile Include="ForzaStudio\ThumbnailCamera.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.CollisionGenerate.cs">
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>

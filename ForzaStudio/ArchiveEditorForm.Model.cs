@@ -287,6 +287,7 @@ namespace ForzaStudio
             this.LoadCollision();
             this.LoadExhaust();
             this.LoadDriver();
+            this.LoadGauges();
             this.modelTimer.Start();
         }
 
