@@ -27,7 +27,7 @@ Moved out of ROADMAP.md on 2026-10-23 (the roadmap holds goals only). Topic numb
 
 - Traced in `default.xex`: the carbin is a versioned serialized object tree; every opaque block now has the game's
   name (glass particles, morph targets, UnpackingData, CCarMaterialData, header emitters / driver controls / gauges),
-  the damage word is a Xenos 10_11_11 direction, gauge axes are stored as (-x, -y, z). Full table: `CARBIN_FROM_XEX.md`.
+  the damage word is a Xenos 10_11_11 vector of length 0..1, gauge axes are stored as (-x, -y, z). Full table: `CARBIN_FROM_XEX.md`.
 
 ## C3. Wheels and morph targets (topics 10, 11)
 

@@ -213,11 +213,53 @@ namespace ForzaStudio
                 car.Add("versiondata.xml", donor.Read(version));
                 this.donorContent.Add("car zip versiondata.xml: the donor's (" + this.game + " has none)");
             }
+            this.CheckModelFormat(car);
             string path = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "cars"), this.CarName + ".zip");
             // Saved with the other files at the end, with the report as port_log.txt.
             this.carZip = car;
             this.carZipPath = path;
             this.Line("car zip: {0} entries + port_log.txt, {1} models converted -> {2}", car.Entries.Count, models, this.Relative(path));
+        }
+
+        // The finished car models against the FM4 format as the game reads it (CarbinValidator, default.xex): a line per
+        // model with findings in the report, nothing changed (CarPort always writes FM4 models).
+        private void CheckModelFormat(ForzaZip car)
+        {
+            int checkedModels = 0;
+            int findings = 0;
+            foreach (ForzaZip.Entry entry in car.Entries)
+            {
+                string name = entry.Name.ToLowerInvariant();
+                if (!name.EndsWith(".carbin"))
+                {
+                    continue;
+                }
+                CarbinModel model;
+                try
+                {
+                    model = new CarbinModel(car.Read(entry));
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+                if (model.IsHorizon || model.IsMotorsport3)
+                {
+                    continue;
+                }
+                checkedModels++;
+                List<CarbinValidator.Finding> found = CarbinValidator.Check(model, entry.Name);
+                findings += found.Count;
+                for (int i = 0; i < found.Count && i < 5; i++)
+                {
+                    this.Line("  model format: {0}: {1}", entry.Name, found[i]);
+                }
+                if (found.Count > 5)
+                {
+                    this.Line("  model format: {0}: {1} more findings", entry.Name, found.Count - 5);
+                }
+            }
+            this.Line("model format check (FM4, default.xex layout): {0} models, {1} findings", checkedModels, findings);
         }
 
         // FH keeps the LOD 0 of the headlights (headlightL / headlightR, deformable) in the cockpit file; FM4 has

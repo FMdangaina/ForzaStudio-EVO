@@ -41,7 +41,8 @@ namespace ForzaStudio
             internal byte[] ExtraFor;
         }
 
-        public class SubSection
+        // The game names of the raw blocks below (CCarMesh, CCarMaterialData, UnpackingData...): CarbinModel.Names.cs.
+        public partial class SubSection
         {
             public byte[] Pre5;                  // FM3: 9 bytes, and no Uv or Fixed36
             public float[] Uv = new float[8];    // offset/scale for U, V, U2, V2
@@ -71,7 +72,8 @@ namespace ForzaStudio
             }
         }
 
-        public class Section
+        // The game names of the raw blocks below (CCarSubModel, GlassParticles, MorphTargets...): CarbinModel.Names.cs.
+        public partial class Section
         {
             public byte[] Marker = new byte[0];
             public float[] Bounds = new float[9];        // origin, min, max (min/max relative to origin)
@@ -1105,7 +1107,7 @@ namespace ForzaStudio
 
         #region Structural edits
 
-        private static bool IsRestart(SubSection sub, int index)
+        internal static bool IsRestart(SubSection sub, int index)
         {
             // Restart markers: 0xFFFF (16-bit) and 0x00FFFFFF (32-bit) in every original file.
             return (sub.IndexSize == 2) ? index == 0xFFFF : (index < 0 || index >= 0xFFFFFF);
@@ -2486,15 +2488,12 @@ namespace ForzaStudio
                 damage.Count = work.Vertices.Count;
                 damage.Data = damageData;
             }
-            // Arrays A/B (only on the LOD glass of main files; per-triangle data whose meaning is not
-            // known) describe the old triangles: dropped with them, as on every other part.
+            // GlassParticles (A/B: the mesh the glass shatters into, only next to LOD1 in main files) follow the old
+            // shape: rebuilt from the new LOD1 triangles (CarbinGlass.cs) once the buffer above is in place.
             if (rebuilt && !useLod0 && (section.ACount > 0 || section.BCount > 0))
             {
-                section.ACount = 0;
-                section.A = new byte[0];
-                section.BCount = 0;
-                section.B = new byte[0];
-                work.Report.AppendFormat("{0}: glass sorting arrays (A/B) cleared\r\n", sectionName);
+                int particles = BuildGlassParticles(section);
+                work.Report.AppendFormat("{0}: glass particles rebuilt from the new shape ({1} vertices, {2} triangles)\r\n", sectionName, particles, section.GlassIndexCount / 3);
             }
 
             // Draw lists: old entries of the part out, new ones in.

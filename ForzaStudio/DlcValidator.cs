@@ -348,21 +348,61 @@ namespace ForzaStudio
             {
                 int bad = 0;
                 int total = 0;
+                int models = 0;
                 foreach (string path in source.MountedPaths())
                 {
                     total++;
+                    byte[] bytes;
                     try
                     {
-                        source.ReadMounted(path);
+                        bytes = source.ReadMounted(path);
                     }
                     catch (Exception e)
                     {
                         bad++;
                         cx.Add(Error, "structure", "cannot be unpacked: " + path + " (" + e.Message + ")");
+                        continue;
+                    }
+                    if (path.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
+                    {
+                        models += CheckModel(cx, path, bytes) ? 1 : 0;
                     }
                 }
                 cx.Add(Info, "structure", string.Format(CultureInfo.InvariantCulture, "deep check: {0} files unpacked, {1} damaged.", total, bad));
+                cx.Add(Info, "models", string.Format(CultureInfo.InvariantCulture, "deep check: {0} .carbin models checked against the FM4 format (CarbinValidator).", models));
             }
+        }
+
+        // Deep check of one car model: the FM4 format as the game reads it (CarbinValidator). FH / FM3 files in a
+        // package are not checked (an FM4 package holds FM4 models after a port). Returns whether it was checked.
+        private static bool CheckModel(Context cx, string path, byte[] bytes)
+        {
+            CarbinModel model;
+            try
+            {
+                model = new CarbinModel(bytes);
+            }
+            catch (Exception e)
+            {
+                cx.Add(Warning, "models", path + ": not read as a car model (" + e.Message + ")");
+                return false;
+            }
+            if (model.IsHorizon)
+            {
+                cx.Add(Warning, "models", path + ": FH model format (not converted to FM4)");
+                return false;
+            }
+            List<CarbinValidator.Finding> found = CarbinValidator.Check(model, path);
+            const int shown = 6;
+            for (int i = 0; i < found.Count && i < shown; i++)
+            {
+                cx.Add(found[i].Error ? Error : Warning, "models", path + ": " + found[i].Where + ": " + found[i].Text);
+            }
+            if (found.Count > shown)
+            {
+                cx.Add(Warning, "models", string.Format(CultureInfo.InvariantCulture, "{0}: {1} more format findings", path, found.Count - shown));
+            }
+            return true;
         }
 
         // ----- databases -----

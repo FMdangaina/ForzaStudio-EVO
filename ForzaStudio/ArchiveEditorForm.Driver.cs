@@ -11,14 +11,17 @@ namespace ForzaStudio
     using System.Windows.Forms;
 
     // The driver of a car (ROADMAP 6.2), edited by hand like the exhaust points. Shown with the car's _cockpit.carbin:
-    //  - the rig in the cockpit header (big-endian floats, model axes, the layout of CarPort.CockpitRig): the six
-    //    hand grips on the steering wheel, the wheel pivot and axis, the shifter point (the gauges that follow are in the GAUGES tab);
+    //  - the rig in the cockpit header = CDriverControls (default.xex, 2026-11-07; CarbinModel.DriverControlNames): the six
+    //    hand grips on the steering wheel (Right / LeftHandOuter, Inner, Center), SteeringPivotLOD0, SteeringWheelAxisLOD0,
+    //    ButtAnchorPositionLOD0 and ShifterAnchorPositionLOD0 (the gauges that follow are in the GAUGES tab). The first six
+    //    vectors (SteeringWheelPosition / Axis, Left / RightHandAnchor, ButtAnchor, ShifterAnchor) are zero in a cockpit
+    //    (axis set) and filled in the main file, for the distant LODs: not listed here;
     //  - the offsets of carattribs.xml: DriverHandsOffset and the Driver element (ButtOffset = where the body sits,
     //    the hand, shifter and hand brake offsets), plus BodyLean and BodyScale.
     // The header points are drawn as crosses in the view while the DRIVER tab is open. The carattribs offsets are
     // relative to something the game adds (seat / hands anchors), so they are only listed. Apply writes both files
-    // into the archive, pending until File > Save. Not checked in game: what each point does is partly a guess
-    // (names marked with ?).
+    // into the archive, pending until File > Save. The header names are the game's; what each point does in game
+    // follows from the names, not all checked by hand.
     public partial class ArchiveEditorForm
     {
         private sealed class DriverItem
@@ -89,7 +92,7 @@ namespace ForzaStudio
             side.Controls.Add(this.chkDrvShow);
             side.Controls.Add(SideHeading("Write", false));
             side.Controls.Add(this.btnDrvApply);
-            side.Controls.Add(SideNote("Header: the points stored in the cockpit model (hand grips on the wheel rim, wheel pivot and axis, shifter, eye-level records), drawn in the view: yellow the selected one, orange the others, a line for a direction. Z is the model axis (positive to the rear). Carattribs: the offsets of the Driver element and DriverHandsOffset, relative to the points the game places the driver from (listed, not drawn). Names with ? are guesses. Apply writes the cockpit model and carattribs.xml into the car file, pending until File > Save."));
+            side.Controls.Add(SideNote("Header: the points stored in the cockpit model (CDriverControls, the game's names: hand grips on the wheel rim, wheel pivot and axis, seat and shifter points), drawn in the view: yellow the selected one, orange the others, a line for a direction. Z is the model axis (positive to the rear). Carattribs: the offsets of the Driver element and DriverHandsOffset, relative to the points the game places the driver from (listed, not drawn). Apply writes the cockpit model and carattribs.xml into the car file, pending until File > Save."));
             this.EnableDriverEdit();
         }
 
@@ -135,16 +138,20 @@ namespace ForzaStudio
                     if (model.Head != null && model.Head.Length >= 0x300)
                     {
                         List<DriverItem> items = new List<DriverItem>();
-                        string[] radius = { "outer edge", "inner edge", "tube middle" };
-                        for (int g = 0; g < 3; g++)
+                        // CDriverControls vectors 6..15 (CarbinModel.DriverControlNames); a cockpit has no emitters,
+                        // so they sit at 0x1C8..0x258.
+                        CarbinModel.HeaderLayout layout = CarbinModel.HeaderLayout.Walk(model.Head);
+                        int controls = (layout != null) ? layout.DriverControls : 0x164;
+                        string[] hints =
                         {
-                            items.Add(HeaderItem("Grip +X, " + radius[g] + " ?", 0x1C8 + (g * 32), false, model.Head));
-                            items.Add(HeaderItem("Grip -X, " + radius[g] + " ?", 0x1C8 + (g * 32) + 16, false, model.Head));
+                            "right grip, rim outer edge", "left grip, rim outer edge", "right grip, rim inner edge", "left grip, rim inner edge",
+                            "right grip, tube middle", "left grip, tube middle", "steering wheel pivot", "steering wheel axis",
+                            "seat point", "shifter point",
+                        };
+                        for (int v = 6; v < CarbinModel.HeaderLayout.DriverVectorCount; v++)
+                        {
+                            items.Add(HeaderItem(CarbinModel.DriverControlNames[v] + " (" + hints[v - 6] + ")", controls + 4 + (v * 16), v == 13, model.Head));
                         }
-                        items.Add(HeaderItem("Steering wheel pivot", 0x228, false, model.Head));
-                        items.Add(HeaderItem("Steering wheel axis (direction)", 0x238, true, model.Head));
-                        items.Add(HeaderItem("Point 0x248 ?", 0x248, false, model.Head));
-                        items.Add(HeaderItem("Shifter point ?", 0x258, false, model.Head));
                         // From 0x270 the header holds the 15 analogue gauges (pivot, axis, max rotation), not driver
                         // points (default.xex, 2026-11-07): they are edited in the GAUGES tab (CarGauges).
                         this.drvEntry = this.currentEntry;

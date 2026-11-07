@@ -163,6 +163,12 @@
     <Compile Include="ForzaStudio\TgaImage.cs" />
     <Compile Include="ForzaStudio\CarbinFile.cs" />
     <Compile Include="ForzaStudio\CarbinModel.cs" />
+    <Compile Include="ForzaStudio\CarbinModel.Names.cs" />
+    <Compile Include="ForzaStudio\CarbinValidator.cs" />
+    <Compile Include="ForzaStudio\CarbinGlass.cs" />
+    <Compile Include="ForzaStudio\ArchiveEditorForm.ModelFormat.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ForzaStudio\CarbinModelMotorsport3.cs" />
     <Compile Include="ForzaStudio\CarbinModelToMotorsport3.cs" />
     <Compile Include="ForzaStudio\CarPortToFm3.cs" />

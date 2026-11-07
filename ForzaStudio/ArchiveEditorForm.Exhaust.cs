@@ -75,7 +75,7 @@ namespace ForzaStudio
             side.Controls.Add(this.chkExhShow);
             side.Controls.Add(SideHeading("Write", false));
             side.Controls.Add(this.btnExhApply);
-            side.Controls.Add(SideNote("The backfire flames of the car (Media\\Effects\\Backfire.xml) start at these points. Yellow: the selected one, orange: the others, the line points backwards. Z is the model axis (positive to the rear). Add copies the selected point, Mirror copies it to the other side (X negated). Apply writes the points into the car file, pending until File > Save."));
+            side.Controls.Add(SideNote("The exhaust emitters of the car (CCarEmitterData in the model header): the backfire flames (Media\\Effects\\Backfire.xml) start at these points. Yellow: the selected one, orange: the others, the line points backwards. Z is the model axis (positive to the rear). Add copies the selected point, Mirror copies it to the other side (X negated). Apply writes the points into the car file, pending until File > Save."));
             this.EnableExhaustEdit();
         }
 
@@ -149,7 +149,7 @@ namespace ForzaStudio
                 {
                     this.lstExhaust.SelectedIndex = Math.Max(0, Math.Min(select, this.lstExhaust.Items.Count - 1));
                 }
-                this.lblExhInfo.Text = this.exhTips.Count + " exhaust point" + (this.exhTips.Count == 1 ? "" : "s") + (this.exhDirty ? "\nedited, not applied" : "");
+                this.lblExhInfo.Text = this.exhTips.Count + " exhaust emitter" + (this.exhTips.Count == 1 ? "" : "s") + (this.exhDirty ? "\nedited, not applied" : "");
             }
             this.fillingExh = false;
             this.FillExhaustControls();

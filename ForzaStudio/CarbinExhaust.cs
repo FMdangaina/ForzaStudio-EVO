@@ -8,6 +8,9 @@ namespace ForzaStudio
     // (type), word 2 = -1, a 4x4 matrix at +0x0C whose translation (+0x3C, +0x40, +0x44) is the pipe tip, a second 4x4
     // at +0x4C (translation ~ 0, -0.02, 1.0 .. 1.6). The backfire flames start at the tip and follow the matrix axes.
     // N is part of the header length formula (CarbinModel.HeadLength), so a car can have any number of pipes.
+    // Game names (default.xex, 2026-11-07): 0x154 = CBaseCarModelData version 0x10, ShaderVersion 16, the Emitters
+    // container (version 1, count N); record = CCarEmitterData: version 2, type (0 on every DLC car), parent (-1),
+    // location matrix (+0x0C), location2 matrix (+0x4C). See CarbinModel.HeaderLayout.
     public partial class CarbinModel
     {
         public const int ExhaustBlock = 0x154;
