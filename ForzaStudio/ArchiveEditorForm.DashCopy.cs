@@ -41,7 +41,7 @@ namespace ForzaStudio
             ForzaZip other;
             try
             {
-                other = ForzaZip.OpenFile(sourcePath);
+                other = IsArchive(sourcePath) ? new ForzaZip(sourcePath) : ForzaZip.OpenFile(sourcePath);
             }
             catch (Exception ex)
             {

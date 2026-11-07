@@ -349,6 +349,7 @@ namespace ForzaStudio
                 int bad = 0;
                 int total = 0;
                 int models = 0;
+                int dashes = 0;
                 foreach (string path in source.MountedPaths())
                 {
                     total++;
@@ -367,9 +368,14 @@ namespace ForzaStudio
                     {
                         models += CheckModel(cx, path, bytes) ? 1 : 0;
                     }
+                    if (path.EndsWith(".fbf", StringComparison.OrdinalIgnoreCase))
+                    {
+                        dashes += CheckDash(cx, path, bytes) ? 1 : 0;
+                    }
                 }
                 cx.Add(Info, "structure", string.Format(CultureInfo.InvariantCulture, "deep check: {0} files unpacked, {1} damaged.", total, bad));
                 cx.Add(Info, "models", string.Format(CultureInfo.InvariantCulture, "deep check: {0} .carbin models checked against the FM4 format (CarbinValidator).", models));
+                cx.Add(Info, "dash", string.Format(CultureInfo.InvariantCulture, "deep check: {0} digital dashes checked (model/material/slide links).", dashes));
             }
         }
 
@@ -401,6 +407,34 @@ namespace ForzaStudio
             if (found.Count > shown)
             {
                 cx.Add(Warning, "models", string.Format(CultureInfo.InvariantCulture, "{0}: {1} more format findings", path, found.Count - shown));
+            }
+            return true;
+        }
+
+        // Deep check of one digital dash: the model / material / mesh links FM4 needs (AnarkDash.LinkProblems, 0 on all
+        // 431 game dashes). A dash with models copied by a build before 2026-11-07 has them wrong and FM4 crashes when
+        // the car loads. Returns whether it was checked.
+        private static bool CheckDash(Context cx, string path, byte[] fbf)
+        {
+            byte[] bgf = cx.Source.ReadMounted(path.Substring(0, path.Length - 4) + ".bgf");
+            if (bgf == null)
+            {
+                return false;
+            }
+            int wrong;
+            try
+            {
+                wrong = new AnarkDash(AnarkFbf.Read(fbf), AnarkBgf.Read(bgf), null).LinkProblems();
+            }
+            catch (Exception e)
+            {
+                cx.Add(Warning, "dash", path + ": not read as a digital dash (" + e.Message + ")");
+                return false;
+            }
+            if (wrong > 0)
+            {
+                cx.Add(Error, "dash", string.Format(CultureInfo.InvariantCulture,
+                    "{0}: {1} model/material/slide link(s) wrong (edited by an older build): FM4 crashes loading the car. Open the dash in Forza Studio (repaired on open) and save.", path, wrong));
             }
             return true;
         }

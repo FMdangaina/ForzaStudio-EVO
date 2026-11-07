@@ -146,7 +146,7 @@ namespace ForzaStudio
             fields = new List<int[]>(fields) { new int[] { 0x1C, (int) (maxId << 8) } }.ToArray();
             if (this.Slides != null)
             {
-                int entries = 0, items = 0, tracks = 0;
+                int entries = 0, items = 0, tracks = 0, odd = 0;
                 foreach (Slide slide in this.Slides)
                 {
                     entries += slide.Entries.Count;
@@ -154,11 +154,15 @@ namespace ForzaStudio
                     {
                         items += e.ItemCount;
                         tracks += e.TrackCount;
+                        odd += e.TrackCount & 1;
                     }
                 }
+                // 0x6C = entries with an odd number of references (431/431). The game's slide builder (default.xex 82CF0408)
+                // sizes its memory with it: the u16 references of each entry are padded to 4 bytes, one pad per odd entry.
                 fields = new List<int[]>(fields)
                 {
                     new int[] { 0x5C, this.Slides.Count }, new int[] { 0x60, entries }, new int[] { 0x64, items }, new int[] { 0x68, tracks },
+                    new int[] { 0x6C, odd },
                 }.ToArray();
             }
             if (this.Declared != null)
@@ -359,6 +363,40 @@ namespace ForzaStudio
                     return Latin1.GetString(this.Name, 0, (n < 0) ? this.Name.Length : n);
                 }
             }
+
+            // Name bytes 16-19 = the element index of the component that owns the slide, always its first entry (3684/3684
+            // game slides). Copied gauges kept the original's and removals did not renumber it: FM4 crashed in the
+            // slide builder (82CF04E8, Brera with Gauge_Gear_2 and a new clock, 2026-11-07).
+            public bool OwnerMatchesEntries
+            {
+                get { return this.Entries.Count == 0 || ReadU32(this.Name, 16) == (int) this.Entries[0].Index; }
+            }
+
+            public void SetOwnerFromEntries()
+            {
+                if (this.Entries.Count > 0)
+                {
+                    uint owner = this.Entries[0].Index;
+                    this.Name[16] = (byte) (owner >> 24);
+                    this.Name[17] = (byte) (owner >> 16);
+                    this.Name[18] = (byte) (owner >> 8);
+                    this.Name[19] = (byte) owner;
+                }
+            }
+        }
+
+        // Slides whose owner (header) is not their first entry: written right by Write, wrong in files saved before 2026-11-07.
+        public int SlideOwnerProblems()
+        {
+            int wrong = 0;
+            if (this.Slides != null)
+            {
+                foreach (Slide slide in this.Slides)
+                {
+                    wrong += slide.OwnerMatchesEntries ? 0 : 1;
+                }
+            }
+            return wrong;
         }
 
         public List<Slide> Slides;           // null when the tail did not read as expected: then Rest is written as it is
@@ -672,6 +710,7 @@ namespace ForzaStudio
             MemoryStream slides = new MemoryStream();
             foreach (Slide slide in this.Slides)
             {
+                slide.SetOwnerFromEntries();
                 slides.Write(slide.Name, 0, 25);
                 WriteU32(slides, slide.Duration);
                 WriteU32(slides, (uint) slide.Entries.Count);
@@ -1082,35 +1121,36 @@ namespace ForzaStudio
         // 97 hashes in all 431 dashes of FM4, FH2 and FH1). The game fills the dash through it: a parameter pair "on"
         // (bool) + "target" (string) says which element of the dash receives a value; the target is a path of names
         // from the scene ("parent.Layer.Gauge_Gear.Group.TEXT_GEAR_DATA"), "Scene.UIContract" or "this" when unused.
-        // The meaning of each hash is read from the names of the targets the dashes use (TEXT_TACH_DATA on 001BB29C...)
-        // and from the values (a redline of 8000-10000 rpm, 6 gears...): the labels are deductions, not game names.
+        // Names in capitals are the game's own (2026-11-07, strings of default.xex at 820317EC, read by 824F43F8; the
+        // OIL/WATER text, min/max and units names are not in the FM4 xex: found by their hash, FM4 does not read them).
+        // Units: LIST_SPEED_UNIT 0 = mph, 1 = km/h (from LONG_MAX_SPEED ~200 vs 300-450); other units 0/1, meaning unchecked.
         private static readonly string[] ContractLabels = new string[]
         {
-            "064CB58A:Contract name", "073F25FB:Contract is on", "04A9EC63:Contract type", "02C190DD:Overlays group",
-            "02FB3C14:Speed gauge on", "012D5B95:Speed gauge target", "01CC92B1:Speed text on", "01F1A7EB:Speed text target", "071FE357:Speed max (km/h)",
-            "001001EB:Odometer text on", "030765FF:Odometer text target", "06E717D2:Trip text on", "015CE8CE:Trip text target", "04447E03:Odometer units?",
-            "078C1FAF:Tach gauge on", "03F59520:Gear gauge on (extra slot)", "03FFB820:Gear gauge target (extra slot)", "05667472:Tach gauge target",
-            "026A51D2:Tach text on", "001BB29C:Tach text target (rpm number)", "008BDC30:Tach max rpm", "06B664B0:Tach (always 0)",
-            "07F77F3B:Gear gauge on", "038EC7D5:Gear gauge target", "06BAFBAF:Gear text on", "064405FF:Gear text target", "01946C81:Gear (-1 or 0)", "06B42F93:Number of gears",
-            "030EA3D3:Fuel gauge on", "0201B14E:Fuel gauge target", "05ECD5F6:Fuel text on", "04B6EF78:Fuel text target", "071C402C:Fuel capacity",
-            "072842D0:Boost gauge on", "04878BD9:Boost gauge target", "05F9996D:Boost text on", "054BD82F:Boost text target (turbo pressure)",
-            "070BB30D:Boost min", "04EEB47B:Boost max", "077022BF:Boost (0 or 1)",
-            "045E1DF7:Current lap time text on", "00B74AB7:Current lap time text target", "058A8F84:Last lap text on", "03DC8BD8:Last lap text target",
-            "06AD5476:Best lap text on", "04FB9F66:Best lap text target", "03019601:Race position text on", "01446A9B:Race position text target",
-            "068C0956:Race cars text target", "013C521F:Lap number text on", "042EF57D:Lap number text target", "0720D35B:Total laps text target",
-            "06079D40:ABS light on", "05CD6BF1:ABS light target", "024544BA:Stability light on", "041F2EF7:Stability light target",
-            "04B5A012:Traction light on", "024CF99F:Traction light target", "070BB8D0:Shift lights on", "04EF8E64:Shift lights target",
-            "02A10FFC:Clock text on", "07C92224:Clock text target",
-            "0421DCCF:Oil pressure gauge on", "000C0752:Oil pressure gauge target", "06A108F2:Oil pressure text on", "06FE717C:Oil pressure text target",
-            "06343B1E:Oil pressure min", "00DD5A30:Oil pressure max",
-            "062AC6FE:Oil temp gauge on", "0260E6E3:Oil temp gauge target", "06E7F621:Oil temp text on", "03DFBB0D:Oil temp text target",
-            "000C66AF:Oil temp min", "0127D7C1:Oil temp max", "04C7B9AE:Oil temp units?",
-            "02D9FCD9:Water temp gauge on", "053A43C8:Water temp gauge target", "032BCA7C:Water temp text on", "013DA2F2:Water temp text target",
-            "038A9D94:Water temp min", "04DAA5A6:Water temp max", "01D42193:Water temp units?",
-            "0775A5DF:Extra slot on", "01E4B312:Extra slot target", "07F5FDF2:Outside temp text on", "06CD5CEA:Outside temp text target", "010BBFA9:Outside temp units?",
-            "0455E536:G meter on", "076FA337:G meter text on", "000912F3:G meter horizontal target", "000A1332:G meter vertical target",
-            "061C739A:G meter number on", "042B33C2:G meter number target",
-            "0523363B:Memory on", "03C40DE5:Animation name", "0263A72E:Tach memory target",
+            "064CB58A:AKCustomObjType (\"contract\")", "073F25FB:Contract is on", "04A9EC63:_AKContractClass (contract name)", "02C190DD:GROUP_OVERLAYS",
+            "02FB3C14:BOOLEAN_ANALOG_SPEED_EXISTS", "012D5B95:CONTROL_PROGRESS_BAR_SPEED", "01CC92B1:BOOLEAN_TEXT_SPEED_EXISTS", "01F1A7EB:TEXT_SPEED", "071FE357:LONG_MAX_SPEED",
+            "001001EB:BOOLEAN_ODOMETER_EXISTS", "030765FF:TEXT_ODOMETER", "06E717D2:BOOLEAN_TRIPMETER_EXISTS", "015CE8CE:TEXT_TRIPMETER", "04447E03:LIST_SPEED_UNIT (0 mph, 1 km/h)",
+            "078C1FAF:BOOLEAN_ANALOG_TACH_EXISTS", "03F59520:BOOLEAN_ANALOG_GEARED_RPM_TACH_EXISTS", "03FFB820:CONTROL_GEARED_RPM_PROGRESS_BAR", "05667472:CONTROL_PROGRESS_BAR_TACH",
+            "026A51D2:BOOLEAN_TEXT_TACH_EXISTS", "001BB29C:TEXT_TACH", "008BDC30:LONG_MAX_TACH", "06B664B0:LIST_TACH_UNIT",
+            "07F77F3B:BOOLEAN_PROGRESS_BAR_GEAR_EXISTS", "038EC7D5:CONTROL_PROGRESS_BAR_GEAR", "06BAFBAF:BOOLEAN_TEXT_GEAR_EXISTS", "064405FF:TEXT_GEAR", "01946C81:LONG_MIN_GEAR", "06B42F93:LONG_MAX_GEAR",
+            "030EA3D3:BOOLEAN_ANALOG_FUEL_EXISTS", "0201B14E:CONTROL_PROGRESS_BAR_FUEL", "05ECD5F6:BOOLEAN_TEXT_FUEL_EXISTS", "04B6EF78:TEXT_FUEL", "071C402C:FLOAT_MAX_FUEL",
+            "072842D0:BOOLEAN_ANALOG_BOOST_EXISTS", "04878BD9:CONTROL_PROGRESS_BAR_BOOST", "05F9996D:BOOLEAN_TEXT_BOOST_EXISTS", "054BD82F:TEXT_BOOST",
+            "070BB30D:FLOAT_MIN_BOOST", "04EEB47B:FLOAT_MAX_BOOST", "077022BF:LIST_BOOST_UNIT",
+            "045E1DF7:BOOLEAN_TEXT_CURRENT_LAP_TIME_EXISTS", "00B74AB7:TEXT_CURRENT_LAP_TIME", "058A8F84:BOOLEAN_TEXT_LAST_LAP_TIME_EXISTS", "03DC8BD8:TEXT_LAST_LAP_TIME",
+            "06AD5476:BOOLEAN_TEXT_BEST_LAP_TIME_EXISTS", "04FB9F66:TEXT_BEST_LAP_TIME", "03019601:BOOLEAN_TEXT_RACE_POSITION_EXISTS", "01446A9B:TEXT_RACE_POSITION",
+            "068C0956:TEXT_MAX_RACE_POSITION", "013C521F:BOOLEAN_TEXT_CURRENT_LAP_EXISTS", "042EF57D:TEXT_CURRENT_LAP", "0720D35B:TEXT_MAX_LAPS",
+            "06079D40:BOOLEAN_ABS_EXISTS", "05CD6BF1:CONTROL_COCKPIT_LIGHT_ABS", "024544BA:BOOLEAN_STM_EXISTS", "041F2EF7:CONTROL_COCKPIT_LIGHT_STM",
+            "04B5A012:BOOLEAN_TCS_EXISTS", "024CF99F:CONTROL_COCKPIT_LIGHT_TCS", "070BB8D0:BOOLEAN_SHIFT_EXISTS", "04EF8E64:CONTROL_SHIFT_LIGHTS",
+            "02A10FFC:BOOLEAN_CLOCK_EXISTS", "07C92224:TEXT_CLOCK",
+            "0421DCCF:BOOLEAN_ANALOG_OIL_PRESSURE_EXISTS", "000C0752:CONTROL_PROGRESS_BAR_OIL_PRESSURE", "06A108F2:BOOLEAN_TEXT_OIL_PRESSURE_EXISTS (not read by FM4)", "06FE717C:TEXT_OIL_PRESSURE (not read by FM4)",
+            "06343B1E:FLOAT_MIN_OIL_PRESSURE (not read by FM4)", "00DD5A30:FLOAT_MAX_OIL_PRESSURE (not read by FM4)",
+            "062AC6FE:BOOLEAN_ANALOG_OIL_TEMP_EXISTS", "0260E6E3:CONTROL_PROGRESS_BAR_OIL_TEMP", "06E7F621:BOOLEAN_TEXT_OIL_TEMP_EXISTS (not read by FM4)", "03DFBB0D:TEXT_OIL_TEMP (not read by FM4)",
+            "000C66AF:FLOAT_MIN_OIL_TEMP (not read by FM4)", "0127D7C1:FLOAT_MAX_OIL_TEMP (not read by FM4)", "04C7B9AE:LIST_OIL_TEMP_UNITS (not read by FM4)",
+            "02D9FCD9:BOOLEAN_ANALOG_WATER_TEMP_EXISTS", "053A43C8:CONTROL_PROGRESS_BAR_WATER_TEMP", "032BCA7C:BOOLEAN_TEXT_WATER_TEMP_EXISTS (not read by FM4)", "013DA2F2:TEXT_WATER_TEMP (not read by FM4)",
+            "038A9D94:FLOAT_MIN_WATER_TEMP (not read by FM4)", "04DAA5A6:FLOAT_MAX_WATER_TEMP (not read by FM4)", "01D42193:LIST_WATER_TEMP_UNITS (not read by FM4)",
+            "0775A5DF:Extra slot on", "01E4B312:Extra slot target", "07F5FDF2:BOOLEAN_TEXT_EXTERNAL_TEMP_EXISTS", "06CD5CEA:TEXT_EXTERNAL_TEMP", "010BBFA9:LIST_EXTERNAL_TEMP_UNITS",
+            "0455E536:BOOLEAN_ANALOG_G_ACCEL_X_EXISTS", "076FA337:BOOLEAN_ANALOG_G_ACCEL_Y_EXISTS", "000912F3:CONTROL_PROGRESS_BAR_G_ACCEL_X", "000A1332:CONTROL_PROGRESS_BAR_G_ACCEL_Y",
+            "061C739A:BOOLEAN_TEXT_G_ACCEL_EXISTS", "042B33C2:TEXT_G_ACCEL",
+            "0523363B:BOOLEAN_ANALOG_TACH_MEMORY_EXISTS", "03C40DE5:CAR_PRES_GAUGE_ANIM", "0263A72E:CONTROL_PROGRESS_BAR_TACH_MEMORY",
         };
 
         private static Dictionary<uint, string> names, contract;

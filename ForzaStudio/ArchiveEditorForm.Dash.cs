@@ -162,6 +162,18 @@ namespace ForzaStudio
             AnarkBgf bgf = AnarkBgf.Read(bgfEntry == entry ? data : this.zip.Read(bgfEntry));
             AnarkBsg bsg = (bsgEntry != null) ? AnarkBsg.Read(bsgEntry == entry ? data : this.zip.Read(bsgEntry)) : null;
             AnarkDash dash = new AnarkDash(fbf, bgf, bsg);
+            // a dash saved by an older build (copied models before 2026-11-07) crashes FM4 on load: repaired before the
+            // view is built, written to the archive below and saved with Save like any other dash edit
+            int repaired = 0;
+            string repairError = null;
+            try
+            {
+                repaired = dash.RepairLinks();
+            }
+            catch (InvalidDataException ex)
+            {
+                repairError = ex.Message;
+            }
             this.dashFbfEntry = fbfEntry;
             this.dashBgfEntry = bgfEntry;
             this.dashBsgEntry = bsgEntry;
@@ -184,6 +196,15 @@ namespace ForzaStudio
             this.lblDashInfo.Text = string.Format("FBF 0x{0:X} ({1})   {2} elements, {3} meshes{4}{5}",
                 fbf.Version, fbf.IsFH2 ? "FH2" : "FM4", bgf.Elements.Count, fbf.Meshes.Count,
                 (bsg == null) ? ", no .bsg" : "", (missing > 0) ? string.Format(", {0} textures missing", missing) : "");
+
+            if (repaired > 0)
+            {
+                this.DashEdited(true, repaired + " model/material/slide link(s) of an older edit repaired (FM4 would crash on this dash)", false);
+            }
+            else if (repairError != null)
+            {
+                this.SetStatus("Dash: model/material/slide links cannot be checked (" + repairError + ").");
+            }
         }
 
         private void FillDashTree(AnarkDash dash)
@@ -220,40 +241,57 @@ namespace ForzaStudio
             {
                 return;
             }
-            List<int> originals = new List<int>();
+            // by element id: a copy is inserted right after its original, so the indexes of the next originals move
+            List<uint> originals = new List<uint>();
             foreach (AnarkDash.Node n in nodes)
             {
-                originals.Add(n.Index);       // element indexes stay valid: copies are added at the end
+                originals.Add(n.Element.Id);
             }
-            List<int> created = new List<int>();
-            foreach (int index in originals)
+            List<uint> created = new List<uint>();
+            bool texts = false;
+            foreach (uint id in originals)
             {
-                AnarkDash.Node original = dash.Nodes[index];
-                AnarkDash.Node copy = dash.Duplicate(original, (nodes.Count == 1) ? name : original.Name + name, sameNames);
+                AnarkDash.Node original = ById(dash, id);
+                AnarkDash.Node copy = (original != null) ? dash.Duplicate(original, (nodes.Count == 1) ? name : original.Name + name, sameNames) : null;
                 if (copy == null)
                 {
                     this.SetStatus("Dash: " + dash.Blocked + ".");
                     continue;
                 }
-                created.Add(copy.Index);
+                created.Add(copy.Element.Id);
+                texts = texts || dash.FirstText(copy) != null;
             }
             if (created.Count == 0)
             {
                 return;
             }
-            foreach (int index in created)
+            foreach (uint id in created)
             {
-                dash.Nudge(dash.Nodes[index], 20, -20);        // beside the original; stays on it when the position is not editable
+                dash.Nudge(ById(dash, id), 20, -20);        // beside the original; stays on it when the position is not editable
             }
             this.FillDashTree(dash);
             this.dashCanvas.Selection.Clear();
-            foreach (int index in created)
+            foreach (uint id in created)
             {
-                this.dashCanvas.Selection.Add(dash.Nodes[index]);
+                this.dashCanvas.Selection.Add(ById(dash, id));
             }
             this.dashCanvas.Invalidate();
             this.SelectDashNode(this.dashCanvas.Selected);
-            this.DashEdited(true, (created.Count == 1) ? "duplicate" : created.Count + " duplicates", false);
+            // the game feeds a value (gear, clock...) to one text only, and a text it does not feed is not shown in game
+            this.DashEdited(true, ((created.Count == 1) ? "duplicate" : created.Count + " duplicates")
+                + (texts ? " (its texts are not fed by the game, so they will not show in game: a value can be moved to a new text with Add > Gauge)" : ""), false);
+        }
+
+        private static AnarkDash.Node ById(AnarkDash dash, uint id)
+        {
+            foreach (AnarkDash.Node n in dash.Nodes)
+            {
+                if (n.Element.Id == id)
+                {
+                    return n;
+                }
+            }
+            return null;
         }
 
         private bool AskDashCopy(List<AnarkDash.Node> nodes, out string name, out bool sameNames)
@@ -443,7 +481,7 @@ namespace ForzaStudio
                 ForzaZip other;
                 try
                 {
-                    other = ForzaZip.OpenFile(open.FileName);
+                    other = IsArchive(open.FileName) ? new ForzaZip(open.FileName) : ForzaZip.OpenFile(open.FileName);
                 }
                 catch (Exception ex)
                 {

@@ -14,6 +14,21 @@ A car zip holds `digitalgauge/dash_<car>.fbf`, `.bgf`, `.bsg` (all big-endian) a
 - A property in the .bgf **wins** over the .bsg value; without the property the .bsg value is used.
 - Elements are listed **depth first** (every file). The .bgf tail counts elements by index: behaviours, animation tracks, events, slides. That is why nothing is inserted in the middle (only appended, under the backdrop or layer), and why only the last elements can be deleted for real.
 - .fbf record order: children first, a group after its children. Text record: default text is empty in FM4, the real text is the `textstring` property of the .bgf.
+- **Models, meshes, materials (431/431, 2026-11-07)**: a model's body u32 0 = its mesh, one mesh per model, mesh k = the k-th
+  model record, never shared; a material's body u32 at **0x44 = the id of its model** (its parent element); a model has as many
+  materials as its mesh has index buffers; the mesh data is vertices then each index buffer, mesh after mesh, at 4-byte steps.
+  The game sizes a model's material list from the mesh and reads that many (function 822C4758): a copied model whose materials
+  still named the original crashed FM4 loading the Brera. `AnarkFbf.CloneMesh` / `RepackMeshes` keep these rules on every copy
+  and removal (11856 copies with models on the 431 files; repack of an unchanged file and removal of a copy give the bytes back).
+  `AnarkDash.LinkProblems` / `RepairLinks`: the Dash view repairs a dash saved by an older build when it opens it (status line
+  says how many links, written on Save); 0 problems on the 431 game files, the crashed Brera zip repaired = the fixed build's
+  file byte for byte.
+- **Slide owner (3684/3684 game slides, 2026-11-07)**: slide header bytes 16-19 (inside our 25-byte "Name") = the element index
+  of the owning component = the slide's first entry. Copied gauges kept the original's and removals did not renumber it: FM4
+  crashed in the slide builder (PC 82CF04E8; Brera with Gauge_Gear_2 + a new clock + deleted elements: 8 of 16 slides wrong).
+  `AnarkBgf.Write` now sets it from the first entry; `SlideOwnerProblems` is part of `AnarkDash.LinkProblems` / `RepairLinks`
+  (Dash view on open, DLC validator). Checked: 278 gauge copies + 431 removals on the corpus, links OK, .bgf of the game files
+  written back byte for byte.
 
 ## Data kinds
 
@@ -42,6 +57,22 @@ Names below are deductions from the targets the dashes use (e.g. `TEXT_TACH_DATA
 | water temp | 02D9FCD9, 032BCA7C | 053A43C8, 013DA2F2 | 038A9D94 min, 04DAA5A6 max |
 | outside temp | 07F5FDF2 | 06CD5CEA | |
 | G meter | 0455E536, 076FA337, 061C739A | 000912F3 horizontal, 000A1332 vertical, 042B33C2 number | |
+
+**Game names (2026-11-07, default.xex).** The real parameter names are strings of the FM4 xex (table at 820317EC), read by the dash setup
+function 824F43F8 (it starts with `CAR_EVENT`, ends with `CAR_PRES_GAUGE_ANIM` / `PRE GAME`): every one of the 96 hashes above but three
+matches `H(name) & 0x07FFFFFF`. The pattern is `BOOLEAN_ANALOG_<X>_EXISTS` + `CONTROL_PROGRESS_BAR_<X>` (needle / bar gauge),
+`BOOLEAN_TEXT_<X>_EXISTS` + `TEXT_<X>` (number), `BOOLEAN_<X>_EXISTS` + `CONTROL_COCKPIT_LIGHT_<X>` (ABS / STM / TCS lights),
+`LONG_/FLOAT_MIN_/MAX_<X>`, `LIST_<X>_UNIT(S)`. Corrections to the old deductions: 03F59520/03FFB820 = `BOOLEAN_ANALOG_GEARED_RPM_TACH_EXISTS` /
+`CONTROL_GEARED_RPM_PROGRESS_BAR` (not a gear gauge), 0523363B/0263A72E = tach **memory** (peak needle), 01946C81 = `LONG_MIN_GEAR`,
+04447E03 = `LIST_SPEED_UNIT`, 06B664B0 = `LIST_TACH_UNIT`, 077022BF = `LIST_BOOST_UNIT`, 064CB58A = `AKCustomObjType`, 04A9EC63 = `_AKContractClass`,
+02C190DD = `GROUP_OVERLAYS`. Unnamed: 073F25FB (always 1), 0775A5DF / 01E4B312 (always off).
+
+What FM4 does with them (824F43F8): an "on" flag is read first; only then the target is resolved and the min/max sent to that control.
+`LIST_SPEED_UNIT` 0 -> internal unit 0x14, 1 -> 0x15, other values keep the default; in the dashes 0 goes with `LONG_MAX_SPEED` ~200 and
+1 with 300-450, so **0 = mph, 1 = km/h**. `LIST_BOOST_UNIT` 0 -> 0x25, 1 -> 0x24; `LIST_EXTERNAL_TEMP_UNITS` 0 -> 0x2B, 1 -> 0x2D (which is which
+not checked). **Not in the FM4 xex** (named only by hash, from the pattern): `BOOLEAN_TEXT_OIL_PRESSURE/OIL_TEMP/WATER_TEMP_EXISTS`, their `TEXT_*`,
+`FLOAT_MIN/MAX_OIL_PRESSURE/OIL_TEMP/WATER_TEMP`, `LIST_OIL_TEMP_UNITS`, `LIST_WATER_TEMP_UNITS`: FM4 never reads them, so an oil / water
+**number** stays as the dash draws it (only the bars are driven). Harness: `E:\DEV\fm4dev\XexCars\anark` (hashmatch, guess, units).
 
 Gauges with a bar (oil / water temp, fuel) also have their own behaviour (contract `PROGRESS_BAR`, target `parent` = the gauge) and opacity animation tracks on their Fill1..Fill8 elements.
 
@@ -120,3 +151,83 @@ original; `Remove` takes away any element with its behaviours, tracks, events an
 files: 7365 duplicates (2442 with tracks) keep every rule above, and removing the copy gives the three files back byte for byte; 15399
 removals anywhere keep every rule; an import of a text group into all 210 too. The Structure report prints blocks 1-3 with names.
 Harness: `DashTest.cs` (see TODO 12.8). **Nothing of this is tested in the game yet.**
+
+## The game's deserializer (default.xex, 2026-11-07)
+
+FM4 links **Anark Gameface 4.0.7** (source paths `AKBGFDeserializer.cpp`, `AKBSGDeserializer.cpp`, `AKSlideBuilder.cpp`... in the xex).
+One reader function per section, each checks its own `u32 size` ("<name> section size mismatch" is only logged). Image `fm4_base.exe`,
+disassembly in `E:\DEV\fm4dev\XexCars\anark\*.txt`, harnesses there (slides, s6c, dup6c, eflag, cpre, bsgn).
+
+| file | section (game name) | reader | our name |
+|---|---|---|---|
+| .bgf | Header | 82AA6680 | header 0x00-0x1F |
+| .bgf | Memory | 82AA6900 | header counts 0x20-0x87 |
+| .bgf | String | 82AA8C28 | strings |
+| .bgf | Element | 82AA6B18 | graph |
+| .bgf | Contract | 82AA6EF0 | tail block 1 (declared events) |
+| .bgf | Animation | 82AA7078 | tail block 2 |
+| .bgf | Logic | 82AA7348 | tail block 3 (events / actions) |
+| .bgf | Params table | 82AA7630 | tail block 4 (always empty) |
+| .bgf | Slide | 82AA8830 | slides |
+| .bsg | Header / Memory / Scene Graph / Asset | 82AA77C8 / 82AA79B0 / 82AA7A70 / 82AA7F80 | header / nodes / tail table |
+
+**BGF header**: u8 endianness (1 = big), u8 (4), u32 size of the rest of the header (0x1A), `AnarkBGF`, u32 version (must be 3,
+"Incorrect version specified on the presentation"), u32 (0), **u16 width, u16 height of the presentation (1280 x 720)**, u8 (1),
+**u32 highest element id at 0x1B** (what we write as "0x1C = id << 8": same bytes while ids are below 2^24), u8 (0).
+
+**BGF Memory section** (0x20): u32 size (0x64), 19 counts handed to the runtime builders, then 6 more words (0x70-0x84) that the
+game reads and **ignores** (they repeat 0x24-0x34). Builders: Element (0x24 non-component elements, 0x28 components, 0x2C properties),
+Contract (0x30, 0x34), String (0x3C; 0x38 unused), Animation (0x44, 0x48; 0x40 unused), Logic (0x4C, 0x50, 0x54), Params (0x58),
+Slide (0x5C slides, 0x60 entries, 0x64 items, 0x68 references, **0x6C**).
+
+**0x6C = slide entries with an odd number of references** (431/431). The slide builder (82CF0408) allocates
+`2 * (4 * (4 * slides + entries + items) + references + 0x6C)` bytes ("Mgr:Slides"): references are u16 and each entry's list is padded
+to 4 bytes. A wrong (too small) value makes the game write past that block. `AnarkBgf.UpdateHeader` now recomputes it; before, 952 of
+3072 test duplicates left it wrong (fixed 2026-11-07, not seen in game yet).
+
+**Element record**: u32 hash, u32 parent index, u32 id, u8 type, u8 flags. Flags: `0x04` = component (then u8 + u32 follow), `0x01`
+always set (every element of 431 files). Component prefix: **u8 = number of slides of the component** (1602/1602; read and not used by FM4),
+u32 passed to the component (duration).
+
+**Slide header**: 16-byte name, **u32 owner component element index** (always a component, 431/431), u8 play flags (bits 0x01 0x04 0x08
+0x10 become separate flags: seen 00, 08, 09, 0D), u32 start time (always 0), u32 end time (our "Duration"), u32 entry count.
+Our parser's 25-byte "name" = name + component + flags + start time. Entry: u32 element, u8 flag, u32 A + A x (hash, value; a string
+value is a string index), u32 N + N x (u8 kind 0 track / 1 action, u8 flag, u16 index).
+
+**BSG node (96 bytes) as the game reads it**: u32 parent, u32 id, u8 kind, 3 bytes ignored (always 0), 12 floats (position, rotation,
+scale, pivot), 6 floats (bounds min, max), float opacity, u8 / u8 / u8, u32, u8 bool. Seen: the three bytes are `0 4 0` except the root
+group (`255 4 1`) and the layer (`0 4 1`); the u32 is always 0; the last bool is 1 on every text and on half of the models (meaning not
+checked; the runtime has Opaque / Transparent draw lists).
+
+**In-game test (2026-11-07), resume here.** Brera (`ALF_BreraTi_09`, FM4_Extracted_DEV): (1) clock group duplicated -> no crash, but
+nothing visible: the Brera's clock is switched off in the contract (`BOOLEAN_CLOCK_EXISTS` 0), the original does not show either, and the
+default texts of texts the game does not drive do not show (outside temp number empty too). (2) INSTALLED, NOT YET SEEN: oil temp bar
+(`Gauge_Oil_Temp > TEXT`, Fill1-8 + Dash1-8 with their tracks) duplicated as `TEXT_OilBar2`, moved y +60; 0x6C 4 -> 6 (the old code kept 4).
+Check: second bar visible, fills with the original, no crash. Files and harnesses (dup, dupoil, scan, clk) in `E:\DEV\fm4dev\anark\brera2clock`,
+original DEV zip = `ALF_BreraTi_09_DEV_backup.zip` there (put it back after the test).
+**Result 2026-11-07: crash on load** (also on a stock track). Xenia crash dump: PC 822C48A8 in 822C4758, reading the material
+list of a model: the copied materials still named the original models (body 0x44) and the copied models reused the original
+meshes. Fixed (see "Models, meshes, materials" at the top); new test zip `brera2clock\ALF_BreraTi_09_oilbar2.zip` (copies =
+meshes 16-31, materials -> 249, 251...), the crashed one kept in `brera2clock\crash`, harnesses there (recs, matown, meshes,
+meshtest, why). **In game 2026-11-07: OK** - no crash, the second bar shows (y +60 = up on screen) and fills with the original
+(same segments lit). First in-game proof of an in-place duplicate with models, materials and animation tracks. DEV Brera put
+back to the original after the test.
+
+**Editor test by the user (2026-11-07 afternoon), RESUME HERE.**
+- Done in the UI on the Brera: Duplicate of `Gauge_Gear` (-> `Gauge_Gear_2`), a new clock (`Gauge_Clock_2`), some elements
+  deleted. Crashed (slide owner, see "Slide owner" at the top) -> fixed; the user's file repaired = 8 slides, loads in game.
+  Files: `E:\DEV\fm4dev\anark\brera_gear2\ALF_BreraTi_09_gear2_clock_CRASHED.zip` / `_REPAIRED.zip`. **DEV Brera is now the
+  REPAIRED user edit**; the original DEV zip is `E:\DEV\fm4dev\anark\brera2clock\ALF_BreraTi_09_DEV_backup.zip`.
+- Repair on open checked in the UI: the CRASHED zip shows "8 ... link(s) ... repaired" (OK). DLC validator dash check passed.
+- `_2` copies do not show in game: expected. The contract feeds each value to ONE target (`TEXT_GEAR` -> the original
+  `TEXT_GEAR_DATA`), the Brera clock is off (`BOOLEAN_CLOCK_EXISTS` 0, `TEXT_CLOCK` -> `Scene.UIContract`), and a text the game
+  does not feed is not shown. Duplicate now says so in the status line. Feeding a text = only Add > Gauge ("Fed by").
+- `Gauge_Oil_Temp` cannot be duplicated (has a behaviour, by design): duplicate its `TEXT` group instead (that is the copy seen OK).
+- Fixed the same day: Import from another car and Copy Dash opened the chosen `.zip` with `ForzaZip.OpenFile` (single loose
+  file) and always said "no digital dash" (C6R) -> `new ForzaZip` for a `.zip`; Duplicate of several elements now goes by
+  element id (in-place insertion moved the indexes of the next originals). Built in bin\Debug, not yet tried by the user.
+- Next tests: (1) Add > Gauge, copy of `Gauge_Clock`, Fed by "Clock" -> the clock should show in game; (2) Import from the C6R
+  again (if "no group or text to take": everything there is inside gauges, Import does not take gauges); (3) optional
+  experiment: a copy of `TEXT_GEAR_DATA` inside the same group with the same name/path, to see whether the game feeds both;
+  (4) at the end put the DEV backup back. Nothing committed (AnarkFbf, AnarkBgf, AnarkDash, ArchiveEditorForm.Dash,
+  ArchiveEditorForm.DashCopy, DlcValidator, this file).

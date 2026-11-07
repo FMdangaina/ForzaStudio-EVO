@@ -748,6 +748,74 @@ namespace ForzaStudio
         // element hash is built from it); sameNames keeps every name as it is, so whatever the game does by name may
         // act on the copy too. Returns the new node, or null (Blocked says why). The node tree is rebuilt: older Node
         // objects are stale.
+        // Model / material / mesh links the game needs (see AnarkFbf.MaterialModelOffset): every material names its model
+        // (its parent element), every model has its own mesh in record order. Copies made before 2026-11-07 broke them
+        // (copied materials named the original model, copied models shared its mesh) and FM4 crashed loading the car.
+        // Also the owner written in each slide header (AnarkBgf.Slide.OwnerMatchesEntries). Returns how many links are
+        // wrong; 0 on every game file (431/431).
+        public int LinkProblems()
+        {
+            return this.ModelLinkProblems() + this.Bgf.SlideOwnerProblems();
+        }
+
+        private int ModelLinkProblems()
+        {
+            int wrong = 0;
+            int mesh = 0;
+            foreach (AnarkFbf.Record r in this.Fbf.Records)
+            {
+                if (r.Type == AnarkFbf.RecordType.Model && AnarkFbf.MeshOf(r) != mesh++)
+                {
+                    wrong++;
+                }
+            }
+            if (mesh != this.Fbf.Meshes.Count)
+            {
+                wrong++;
+            }
+            foreach (AnarkBgf.Element e in this.Bgf.Elements)
+            {
+                AnarkFbf.Record r = (e.Type == AnarkBgf.ElementType.Material && e.Parent >= 0) ? this.Fbf.Find(e.Id) : null;
+                if (r != null && r.Type == AnarkFbf.RecordType.Material && AnarkFbf.ModelOf(r) != this.Bgf.Elements[e.Parent].Id)
+                {
+                    wrong++;
+                }
+            }
+            return wrong;
+        }
+
+        // Puts the links back: each material names its parent element, each model gets its own mesh in record order
+        // (a shared mesh is copied), each slide names its owner. Returns the number of wrong links found (0 = nothing changed).
+        public int RepairLinks()
+        {
+            int slides = this.Bgf.SlideOwnerProblems();
+            if (slides > 0)
+            {
+                foreach (AnarkBgf.Slide slide in this.Bgf.Slides)
+                {
+                    slide.SetOwnerFromEntries();
+                }
+                this.BgfChanged = true;
+            }
+            int wrong = this.ModelLinkProblems();
+            if (wrong == 0)
+            {
+                return slides;
+            }
+            foreach (AnarkBgf.Element e in this.Bgf.Elements)
+            {
+                AnarkFbf.Record r = (e.Type == AnarkBgf.ElementType.Material && e.Parent >= 0) ? this.Fbf.Find(e.Id) : null;
+                if (r != null && r.Type == AnarkFbf.RecordType.Material)
+                {
+                    AnarkFbf.SetModelOf(r, this.Bgf.Elements[e.Parent].Id);
+                }
+            }
+            this.Fbf.RepackMeshes();
+            this.FbfChanged = true;
+            this.Build();
+            return wrong + slides;
+        }
+
         public Node Duplicate(Node root, string name, bool sameNames)
         {
             return this.Import(this, root, name, sameNames);
@@ -905,6 +973,7 @@ namespace ForzaStudio
             int at = inPlace ? root.Index + this.Subtree(root).Count : elements.Count;
             List<AnarkBgf.Element> added = new List<AnarkBgf.Element>();
             List<string> used = new List<string>();
+            bool meshesChanged = false;
             for (int i = 0; i < originalCount; i++)
             {
                 if (!inside[i])
@@ -938,6 +1007,17 @@ namespace ForzaStudio
                     if (recCopy.Type == AnarkFbf.RecordType.Image && newId.TryGetValue(recCopy.Owner, out owned))
                     {
                         recCopy.Owner = owned;
+                    }
+                    // a copied model gets its own mesh and its copied materials name it (the game reads a model's
+                    // materials through them: left on the original, FM4 crashed loading the Brera, 2026-11-07)
+                    if (recCopy.Type == AnarkFbf.RecordType.Material && newId.TryGetValue(AnarkFbf.ModelOf(recCopy), out owned))
+                    {
+                        AnarkFbf.SetModelOf(recCopy, owned);
+                    }
+                    if (recCopy.Type == AnarkFbf.RecordType.Model)
+                    {
+                        AnarkFbf.WriteU32(recCopy.Body, 0, (uint) this.Fbf.CloneMesh(src.Fbf, AnarkFbf.MeshOf(rec)));
+                        meshesChanged = true;
                     }
                     // An element's hash is the full sdbm hash of its name for 80% of the elements of the FM4 dashes (12368 of
                     // 15609; images, some groups and models have a hash from another name, the editor's): such a copy gets the
@@ -1017,6 +1097,10 @@ namespace ForzaStudio
                 int recordAt = inPlace ? this.Fbf.Records.IndexOf(root.Record) + 1
                     : this.Fbf.Records.IndexOf((parent.Record.Type == AnarkFbf.RecordType.Group) ? parent.Record : this.Root.Record);
                 this.Fbf.Records.InsertRange((recordAt >= 0) ? recordAt : this.Fbf.Records.Count, ordered);
+                if (meshesChanged)
+                {
+                    this.Fbf.RepackMeshes();
+                }
             }
 
             if (this.Bsg != null)
@@ -1229,7 +1313,12 @@ namespace ForzaStudio
                     }
                 }
             }
+            bool modelGone = this.Fbf.Records.Exists(delegate(AnarkFbf.Record r) { return ids.ContainsKey(r.Id) && r.Type == AnarkFbf.RecordType.Model; });
             this.Fbf.Records.RemoveAll(delegate(AnarkFbf.Record r) { return ids.ContainsKey(r.Id); });
+            if (modelGone)
+            {
+                this.Fbf.RepackMeshes();    // its mesh goes too, the next models' meshes move up (one mesh per model, in order)
+            }
             if (this.Bsg != null)
             {
                 List<AnarkBsg.Node> old = new List<AnarkBsg.Node>(this.Bsg.Nodes);

@@ -255,6 +255,147 @@ namespace ForzaStudio
             return s.ToArray();
         }
 
+        // Links checked on all 431 dashes (FM4 234, FH1 94, FH2 103, 2026-11-07): a model's body u32 0 is its mesh, one
+        // mesh per model in the order of the model records; a material's body u32 at 0x44 is the id of its model; a
+        // model has as many materials as its mesh has index buffers (the game sizes the model's material list from the
+        // mesh and reads that many: a copied model whose materials still named the original crashed FM4 on load).
+        public const int MaterialModelOffset = 0x44;
+
+        public static int MeshOf(Record model)
+        {
+            return (int) ReadU32(model.Body, 0);
+        }
+
+        public static uint ModelOf(Record material)
+        {
+            return ReadU32(material.Body, MaterialModelOffset);
+        }
+
+        public static void SetModelOf(Record material, uint modelId)
+        {
+            WriteU32(material.Body, MaterialModelOffset, modelId);
+        }
+
+        // A new mesh at the end of the table with the vertices and indices of mesh 'index' of 'src' (this file or
+        // another), its data appended; returns its index. RepackMeshes puts it in its place.
+        public int CloneMesh(AnarkFbf src, int index)
+        {
+            Mesh from = src.Meshes[index];
+            Mesh copy = new Mesh();
+            copy.VertexDesc = (byte[]) from.VertexDesc.Clone();
+            // the bytes after the last piece stay at the end (RepackMeshes keeps them there)
+            int used = this.UsedEnd();
+            MemoryStream data = new MemoryStream();
+            data.Write(this.MeshData, 0, used);
+            int at = Align4(data);
+            data.Write(src.MeshData, from.VertexOffset, from.VertexBytes);
+            WriteU32(copy.VertexDesc, 18 * 4, (uint) at | (ReadU32(from.VertexDesc, 18 * 4) & 3u));
+            foreach (byte[] desc in from.IndexDescs)
+            {
+                byte[] d = (byte[]) desc.Clone();
+                at = Align4(data);
+                data.Write(src.MeshData, Mesh.IndexOffset(desc), Mesh.IndexBytes(desc));
+                WriteU32(d, 7 * 4, (uint) at);
+                copy.IndexDescs.Add(d);
+            }
+            data.Write(this.MeshData, used, this.MeshData.Length - used);
+            this.MeshData = data.ToArray();
+            this.Meshes.Add(copy);
+            return this.Meshes.Count - 1;
+        }
+
+        // The mesh table the way the game's files have it (431/431): mesh k belongs to the k-th model record, the data
+        // of the meshes in that order (vertices, then each index buffer), each piece at the next 4-byte step. Meshes no
+        // model uses are dropped; a mesh two models share is given to each. Bytes after the last piece are kept (one
+        // FM4 file has 2). An unchanged file comes back byte for byte.
+        public void RepackMeshes()
+        {
+            int oldEnd = this.UsedEnd();
+            List<Mesh> meshes = new List<Mesh>();
+            MemoryStream data = new MemoryStream();
+            int descOffset = 0;
+            int lastEnd = -1;   // old end of the piece written last: the padding after it is copied from there
+            foreach (Record rec in this.Records)
+            {
+                if (rec.Type != RecordType.Model)
+                {
+                    continue;
+                }
+                int index = MeshOf(rec);
+                if (index < 0 || index >= this.Meshes.Count)
+                {
+                    throw new InvalidDataException(string.Format("model {0} ({1}) uses mesh {2} of {3}", rec.Id, rec.Name, index, this.Meshes.Count));
+                }
+                Mesh from = this.Meshes[index];
+                Mesh m = new Mesh();
+                m.VertexDesc = (byte[]) from.VertexDesc.Clone();
+                int at = this.Piece(data, from.VertexOffset, from.VertexBytes, ref lastEnd);
+                WriteU32(m.VertexDesc, 18 * 4, (uint) at | (ReadU32(from.VertexDesc, 18 * 4) & 3u));
+                WriteU32(m.VertexDesc, 20 * 4, (uint) descOffset);
+                foreach (byte[] desc in from.IndexDescs)
+                {
+                    byte[] d = (byte[]) desc.Clone();
+                    at = this.Piece(data, Mesh.IndexOffset(desc), Mesh.IndexBytes(desc), ref lastEnd);
+                    WriteU32(d, 7 * 4, (uint) at);
+                    m.IndexDescs.Add(d);
+                    descOffset += IndexDescSize;
+                }
+                WriteU32(rec.Body, 0, (uint) meshes.Count);
+                meshes.Add(m);
+            }
+            int trailing = Math.Max(0, this.MeshData.Length - oldEnd);
+            data.Write(this.MeshData, this.MeshData.Length - trailing, trailing);
+            this.Meshes = meshes;
+            this.MeshData = data.ToArray();
+        }
+
+        // End of the last vertex or index piece in the data.
+        private int UsedEnd()
+        {
+            int end = 0;
+            foreach (Mesh m in this.Meshes)
+            {
+                end = Math.Max(end, m.VertexOffset + m.VertexBytes);
+                foreach (byte[] d in m.IndexDescs)
+                {
+                    end = Math.Max(end, Mesh.IndexOffset(d) + Mesh.IndexBytes(d));
+                }
+            }
+            return end;
+        }
+
+        // Pads to the next 4-byte step with the bytes that followed the previous piece in the old data (not always 0:
+        // three Ferrari 458 scenes have other bytes there), then writes the piece; returns where it starts.
+        private int Piece(MemoryStream s, int offset, int bytes, ref int lastEnd)
+        {
+            for (int n = 0; (s.Length & 3) != 0; n++)
+            {
+                int old = lastEnd + n;
+                s.WriteByte((lastEnd >= 0 && old < this.MeshData.Length) ? this.MeshData[old] : (byte) 0);
+            }
+            int at = (int) s.Length;
+            s.Write(this.MeshData, offset, bytes);
+            lastEnd = offset + bytes;
+            return at;
+        }
+
+        private static int Align4(MemoryStream s)
+        {
+            while ((s.Length & 3) != 0)
+            {
+                s.WriteByte(0);
+            }
+            return (int) s.Length;
+        }
+
+        internal static void WriteU32(byte[] data, int offset, uint v)
+        {
+            data[offset] = (byte) (v >> 24);
+            data[offset + 1] = (byte) (v >> 16);
+            data[offset + 2] = (byte) (v >> 8);
+            data[offset + 3] = (byte) v;
+        }
+
         public Record Find(uint id)
         {
             foreach (Record rec in this.Records)
