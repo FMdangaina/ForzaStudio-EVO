@@ -112,7 +112,13 @@ Trailer (24 bytes): `00000001 00000000` three times in every file: three empty c
   rpm; the marks are a vector with no limit. FM4 files have 0 marks (the reading used as it is: fuel, boost) or at
   least 2, never 1. **One mark = a needle that spins or vanishes** (FH2: BMW M6 13, Viper GTS ACR 99, Ferrari F142,
   Delta S4, McLaren F1 93; FH1 also DS3 Racing): the port now writes `NumTicks="0"` for those (`CarPort.ConvertCarAttributes`).
-- Code: `CarGauges.cs` (read / write, tick marks, Fit From Poses), `ArchiveEditorForm.Gauges.cs` (viewport tab).
+- **Source data can be off**: the ACU_NSX_97 speed axis is 19.6 degrees off the plane of its three needles (T10 swapped
+  its X and Y; tach 2.3, fuel 4.1). Turned about it in the viewport the needle sweeps a cone into the dial; in game,
+  seen from the cockpit, it looks right (whether the game draws needles over the dial or corrects the axis is not
+  traced). `CarGauges.AxisTilt` measures it; above 5 degrees the GAUGES tab and `CarbinValidator` (Check Model Format,
+  deep DLC check, port report) give a warning pointing at Fit From Poses + "Fit also the axis". Of 8 FM4 cars
+  (88 files) only the NSX is flagged.
+- Code: `CarGauges.cs` (read / write, tick marks, Fit From Poses, axis tilt), `ArchiveEditorForm.Gauges.cs` (viewport tab).
 
 ## 7. Done on 2026-11-07 (second pass) and still open
 
@@ -135,7 +141,9 @@ Trailer (24 bytes): `00000001 00000000` three times in every file: three empty c
   (edge median 5-7 cm); the windscreen glassF never has any (FM3, FH, FM4 alike); FM3, FH1, FH2 and FM4 share the
   same pattern for the same car, so ports carry them. Replacing a glass part's geometry used to clear them (no
   shards any more); now they are rebuilt from the new LOD1 triangles (grid of about 6 cm, fewer triangles than T10's
-  overlapping meshes). Needs a check in game: break the rear glass of a car whose glass was imported.
+  overlapping meshes). In-game check (2026-11-07, ACU_NSX_97 glassRF round trip): the file is right (354 vertices /
+  1659 indices rebuilt, the other glasses unchanged, no validator finding), but on Xenia no glass breaks on any car,
+  original ones included, so the shards cannot be seen there (emulation); to see on real hardware if ever possible.
 - DRIVER tab and EXHAUST tab use the game names.
 - Still unknown: the meaning of the 4 matrices + 5 vec4 (described in section 2), of the 2 floats (empty field
   names), the owner of the last 8 header bytes and of the trailer, the shader's morph scaling, wheels (type 3) and

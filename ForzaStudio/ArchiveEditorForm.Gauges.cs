@@ -434,6 +434,14 @@ namespace ForzaStudio
                     problems.Add(string.Format(CultureInfo.InvariantCulture, "at 1 the needle is {0:0.0} mm from _max (FM4 cars: under 2 mm): pivot, axis or max rotation off - try Fit From Poses", error));
                 }
             }
+            if (g != null && g.HasNeedle)
+            {
+                string tilt = CarGauges.AxisTiltProblem(g.Value, g.Min, g.Mid, g.Max);
+                if (tilt != null)
+                {
+                    problems.Add(tilt);
+                }
+            }
             if (g != null && !g.HasNeedle)
             {
                 problems.Add("no " + g.Value.SectionPrefix + "min part in this model: nothing turns");

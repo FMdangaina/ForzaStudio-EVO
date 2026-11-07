@@ -38,6 +38,7 @@ namespace ForzaStudio
             if (model.Type == 2)
             {
                 CheckHeader(model, lod0 || cockpit, found);
+                CheckGauges(model, found);
             }
             if (model.Trailer.Length != 24 || ReadU32(model.Trailer, 0) != 1 || ReadU32(model.Trailer, 8) != 1 || ReadU32(model.Trailer, 16) != 1)
             {
@@ -74,6 +75,31 @@ namespace ForzaStudio
             for (int i = 0; i < layout.EmitterCount; i++)
             {
                 Expect(found, "header", "emitter " + i + " version", ReadU32(head, CarbinModel.HeaderLayout.Emitters + (i * CarbinModel.HeaderLayout.EmitterSize)), 2);
+            }
+        }
+
+        // Analogue gauges: the header axis against the plane of each needle's three poses (a warning only: the
+        // game draws the source data as it is, e.g. ACU_NSX_97's tilted speed axis).
+        private static void CheckGauges(CarbinModel model, List<Finding> found)
+        {
+            CarGauges.Gauge[] gauges = CarGauges.Read(model.Head);
+            if (gauges == null)
+            {
+                return;
+            }
+            foreach (CarGauges.Gauge gauge in gauges)
+            {
+                if (gauge.IsDefault)
+                {
+                    continue;
+                }
+                double[] min, mid, max;
+                CarGauges.ReadPoses(model, gauge, out min, out mid, out max);
+                string problem = CarGauges.AxisTiltProblem(gauge, min, mid, max);
+                if (problem != null)
+                {
+                    Add(found, false, "gauge " + gauge.XmlName, problem);
+                }
             }
         }
 

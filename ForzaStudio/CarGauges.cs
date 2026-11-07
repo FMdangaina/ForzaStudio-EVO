@@ -393,6 +393,77 @@ namespace ForzaStudio
             }
         }
 
+        // ---- header axis against the needles' plane ----
+
+        // FM4 header axes are the needles' plane normal within about 4 degrees; the ACU_NSX_97 speed axis is 19.6
+        // degrees off (T10 swapped its X and Y): turned about it the needle sweeps a cone into the dial.
+        public const double AxisTiltWarning = 5.0;
+
+        // Degrees between the header axis and the normal of the plane through the _min, _mid and _max needles,
+        // NaN when it cannot be measured (pose missing, vertex counts differ, zero axis).
+        public static double AxisTilt(Gauge gauge, double[] min, double[] mid, double[] max)
+        {
+            if (gauge == null || min == null || mid == null || max == null || min.Length == 0 || mid.Length != min.Length || max.Length != min.Length || gauge.Axis.LengthSquared() < 1e-12f)
+            {
+                return double.NaN;
+            }
+            double[] all = new double[min.Length * 3];
+            Array.Copy(min, 0, all, 0, min.Length);
+            Array.Copy(mid, 0, all, min.Length, min.Length);
+            Array.Copy(max, 0, all, min.Length * 2, min.Length);
+            Vector3 normal;
+            if (!PlaneNormal(all, out normal))
+            {
+                return double.NaN;
+            }
+            double cos = Math.Abs(Vector3.Dot(Vector3.Normalize(gauge.Axis), Vector3.Normalize(normal)));
+            return MathHelper.ToDegrees((float) Math.Acos(Math.Min(1.0, cos)));
+        }
+
+        // The tab / validator text for a tilted axis, or null when it is within AxisTiltWarning.
+        public static string AxisTiltProblem(Gauge gauge, double[] min, double[] mid, double[] max)
+        {
+            double tilt = AxisTilt(gauge, min, mid, max);
+            if (double.IsNaN(tilt) || tilt <= AxisTiltWarning)
+            {
+                return null;
+            }
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "header axis {0:0.0} degrees off the plane of the {1}min/mid/max needles (FM4 cars: under {2:0}): the needle turns on a cone into the dial - Fit From Poses with \"Fit also the axis\" fixes it",
+                tilt, gauge.SectionPrefix, AxisTiltWarning);
+        }
+
+        // The _min, _mid, _max needle positions (model axes) of a gauge in a model, null where a pose is missing
+        // (same reading as the GAUGES tab: LOD0 buffer, else the LOD one).
+        public static void ReadPoses(CarbinModel model, Gauge gauge, out double[] min, out double[] mid, out double[] max)
+        {
+            min = null;
+            mid = null;
+            max = null;
+            foreach (CarbinModel.Section section in model.Sections)
+            {
+                string lower = section.Name.ToLowerInvariant();
+                if (!lower.StartsWith(gauge.SectionPrefix))
+                {
+                    continue;
+                }
+                CarbinModel.VertexBuffer buffer = (section.Lod0.Count > 0) ? section.Lod0 : section.Lod;
+                string pose = lower.Substring(gauge.SectionPrefix.Length);
+                if (pose.StartsWith("min") && min == null)
+                {
+                    min = CarbinModel.Positions(section, buffer);
+                }
+                else if (pose.StartsWith("mid") && mid == null)
+                {
+                    mid = CarbinModel.Positions(section, buffer);
+                }
+                else if (pose.StartsWith("max") && max == null)
+                {
+                    max = CarbinModel.Positions(section, buffer);
+                }
+            }
+        }
+
         // Mean distance (m) between the _min needle turned by angle about the axis and the _max needle.
         public static double PoseError(double[] min, double[] max, Vector3 pivot, Vector3 axis, float angle)
         {
