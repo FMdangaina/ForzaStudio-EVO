@@ -605,6 +605,17 @@ namespace ForzaStudio
                     }
                     string t = SqliteDatabase.Quote(table.Key);
                     string c = SqliteDatabase.Quote(column);
+                    // Combo_Colors.ID is FM4's INTEGER PRIMARY KEY: SQLite already gave the rows max(ID) + 1
+                    // (1473002 after car 1473's colours, 2026-11-07), never NULL. FM4 numbers 2961 of its 2962
+                    // rows car * 1000 + Sequence, as DbIds.CheckCar expects.
+                    if (table.Key == "Combo_Colors" && column == "ID" && Has(sourceColumns, "Sequence"))
+                    {
+                        if (this.target.Execute("UPDATE Combo_Colors SET ID = Ordinal * 1000 + Sequence WHERE (" + where + ") AND ID <> Ordinal * 1000 + Sequence") > 0)
+                        {
+                            filled.Add("Combo_Colors.ID = car * 1000 + Sequence");
+                        }
+                        continue;
+                    }
                     string missing = " WHERE (" + where + ") AND " + c + " IS NULL";
                     if (Convert.ToInt64(this.target.Scalar("SELECT count(*) FROM " + t + missing)) == 0)
                     {
