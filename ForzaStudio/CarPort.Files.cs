@@ -142,7 +142,7 @@ namespace ForzaStudio
                 this.Backup(path);
             }
             string temp = path + ".tmp";
-            File.WriteAllBytes(temp, data);
+            File.WriteAllBytes(temp, CarbinModel.ForGame(path, data));
             File.Delete(path);
             File.Move(temp, path);
             this.Line("saved {0}", this.Relative(path));

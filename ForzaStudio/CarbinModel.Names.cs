@@ -62,6 +62,137 @@ namespace ForzaStudio
             }
         }
 
+        // The FM4 materials that are only ever in parts with PartFlag 1 (E:\DEV\fm4dev\Mat595 flagscan: 24319
+        // sections of every FM4 car model + 447 wheel sections, 0 exceptions): the see-through ones.
+        public static readonly string[] TransparentMaterials = new string[]
+        {
+            "window", "glass", "red_glass", "lights_glass", "lights_amber",
+            "detail_glass_clear", "detail_glass_red", "detail_glass_amber",
+            "blur_rim", "blur_lip", "chrome_blur_rim", "chrome_blur_lip",
+        };
+
+        public static bool IsTransparentMaterial(string material)
+        {
+            return material != null && Array.IndexOf(TransparentMaterials, material.ToLowerInvariant()) >= 0;
+        }
+
+        // Draw lists = 2 passes x LODs: the first half is the see-through pass, the second the opaque one.
+        // E:\DEV\fm4dev\Mat595 passscan, every FM4 car + wheel model: these materials are ALWAYS in the
+        // first half and never in the second, every other material the opposite (0 exceptions). A mesh
+        // left in the wrong pass after a material change is not drawn (FIA_595_68 2026-11-08).
+        public static readonly string[] TransparentPassMaterials = new string[]
+        {
+            "window", "glass", "red_glass", "lights_glass",
+            "detail_glass_clear", "detail_glass_red", "detail_glass_amber",
+            "blur_rim", "chrome_blur_rim",
+        };
+
+        public static bool IsTransparentPassMaterial(string material)
+        {
+            return material != null && Array.IndexOf(TransparentPassMaterials, material.ToLowerInvariant()) >= 0;
+        }
+
+        // The bytes of a file about to be written (ForzaZip.Replace / Add, so every save, port, import and
+        // DLC build): an FM4 .carbin with glass in the wrong draw pass or in a part with flag 0 comes back
+        // fixed; anything else (other files, FM3/FH models, files that do not parse) comes back as it is.
+        public static byte[] ForGame(string name, byte[] data)
+        {
+            if (data == null || name == null || !name.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
+            {
+                return data;
+            }
+            try
+            {
+                CarbinModel model = new CarbinModel(data);
+                if (model.IsHorizon || model.motorsport3)
+                {
+                    return data;
+                }
+                int changed = model.FixTransparentPartFlags().Count + model.FixDrawListPasses().Count;
+                return (changed > 0) ? model.ToBytes() : data;
+            }
+            catch (Exception)
+            {
+                return data;
+            }
+        }
+
+        // Moves every draw-list entry to the pass its material belongs to (same LOD list, appended at the
+        // end; entries already right keep their order, so game files are unchanged). FM4 car and wheel
+        // models only. Returns "part.material" for each entry moved.
+        public List<string> FixDrawListPasses()
+        {
+            List<string> moved = new List<string>();
+            int perPass = this.DrawLists.Count / 2;
+            if (this.motorsport3 || this.IsHorizon || (this.Type != 2 && this.Type != 3) || perPass < 1 || this.DrawLists.Count % 2 != 0)
+            {
+                return moved;
+            }
+            List<List<uint>> lists = new List<List<uint>>();
+            foreach (uint[] list in this.DrawLists)
+            {
+                lists.Add(new List<uint>());
+            }
+            List<KeyValuePair<int, uint>> late = new List<KeyValuePair<int, uint>>();
+            for (int l = 0; l < this.DrawLists.Count; l++)
+            {
+                bool transparentList = l < perPass;
+                foreach (uint entry in this.DrawLists[l])
+                {
+                    int s = (int) (entry >> 16);
+                    int k = (int) (entry & 0xFFFF);
+                    if (s >= this.Sections.Count || k >= this.Sections[s].SubSections.Count)
+                    {
+                        lists[l].Add(entry);
+                        continue;
+                    }
+                    string material = this.Sections[s].SubSections[k].Name;
+                    if (IsTransparentPassMaterial(material) == transparentList)
+                    {
+                        lists[l].Add(entry);
+                    }
+                    else
+                    {
+                        late.Add(new KeyValuePair<int, uint>(transparentList ? l + perPass : l - perPass, entry));
+                        moved.Add(this.Sections[s].Name + "." + material);
+                    }
+                }
+            }
+            if (moved.Count == 0)
+            {
+                return moved;
+            }
+            foreach (KeyValuePair<int, uint> pair in late)
+            {
+                lists[pair.Key].Add(pair.Value);
+            }
+            for (int l = 0; l < lists.Count; l++)
+            {
+                this.DrawLists[l] = lists[l].ToArray();
+            }
+            return moved;
+        }
+
+        // Sets PartFlag on every FM4 part that holds a see-through material (never clears it). Returns the
+        // parts changed. ToBytes calls it, so a rename, port or import cannot write invisible glass.
+        public List<string> FixTransparentPartFlags()
+        {
+            List<string> changed = new List<string>();
+            if (this.motorsport3 || this.IsHorizon)
+            {
+                return changed;
+            }
+            foreach (Section section in this.Sections)
+            {
+                if (!section.PartFlag && section.Pre != null && section.Pre.Length == 4 && section.HasTransparentMaterial)
+                {
+                    section.PartFlag = true;
+                    changed.Add(section.Name);
+                }
+            }
+            return changed;
+        }
+
         private static uint WordAt(byte[] data, int offset)
         {
             return (data != null && data.Length >= offset + 4) ? ReadU32(data, offset) : 0;
@@ -244,10 +375,34 @@ namespace ForzaStudio
                 this.BCount = (uint) n;
             }
 
-            // Pre[0]: 1 on all glass / lexan, most headlights, some body parts (hypothesis: "has glass").
+            // Pre[0]: 1 on all glass / lexan, most headlights, some body parts, every rim. A part with a see-through
+            // material (TransparentMaterials) MUST have it: with 0 the game does not draw those meshes at all
+            // (FIA_595_68 2026-11-08: detail_glass_amber/red invisible on body and glassLTL/RTL, every LOD).
             public bool PartFlag
             {
                 get { return this.Pre != null && this.Pre.Length == 4 && this.Pre[0] != 0; }
+                set
+                {
+                    if (this.Pre != null && this.Pre.Length == 4)
+                    {
+                        this.Pre[0] = (byte) (value ? 1 : 0);
+                    }
+                }
+            }
+
+            public bool HasTransparentMaterial
+            {
+                get
+                {
+                    foreach (SubSection sub in this.SubSections)
+                    {
+                        if (IsTransparentMaterial(sub.Name))
+                        {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
             }
 
             public uint SubModelVersion

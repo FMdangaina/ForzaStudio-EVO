@@ -213,7 +213,7 @@ namespace ForzaStudio
             {
                 string file = Path.Combine(layer.Path, key.Replace('/', '\\'));
                 Directory.CreateDirectory(Path.GetDirectoryName(file));
-                File.WriteAllBytes(file, data);
+                File.WriteAllBytes(file, CarbinModel.ForGame(file, data));
                 return;
             }
             ForzaZip.Entry entry = layer.Zip.Find(key);

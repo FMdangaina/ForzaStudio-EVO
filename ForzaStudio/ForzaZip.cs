@@ -280,6 +280,7 @@ namespace ForzaStudio
 
         public void Replace(Entry entry, byte[] data)
         {
+            data = CarbinModel.ForGame(entry.Name, data);   // every carbin written: glass draw pass + part flag right
             entry.deleted = false;
             entry.Replacement = data;
         }
@@ -369,6 +370,7 @@ namespace ForzaStudio
             {
                 throw new ArgumentException("The archive already has " + name + ".");
             }
+            data = CarbinModel.ForGame(name, data);   // every carbin written: glass draw pass + part flag right
             Entry entry = new Entry();
             entry.Name = name;
             entry.IsNew = true;

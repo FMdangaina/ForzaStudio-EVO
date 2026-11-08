@@ -48,6 +48,27 @@ namespace ForzaStudio
             {
                 CheckSection(model, section, main, found);
             }
+            int perPass = model.DrawLists.Count / 2;
+            if ((model.Type == 2 || model.Type == 3) && perPass > 0 && model.DrawLists.Count % 2 == 0)
+            {
+                for (int l = 0; l < model.DrawLists.Count; l++)
+                {
+                    foreach (uint entry in model.DrawLists[l])
+                    {
+                        int s = (int) (entry >> 16);
+                        int k = (int) (entry & 0xFFFF);
+                        if (s >= model.Sections.Count || k >= model.Sections[s].SubSections.Count)
+                        {
+                            continue;
+                        }
+                        string material = model.Sections[s].SubSections[k].Name;
+                        if (CarbinModel.IsTransparentPassMaterial(material) != (l < perPass))
+                        {
+                            Add(found, true, model.Sections[s].Name, string.Format("{0} is in the {1} draw pass: the game does not draw it (Save fixes it)", material, (l < perPass) ? "see-through" : "opaque"));
+                        }
+                    }
+                }
+            }
             return found;
         }
 
@@ -134,6 +155,10 @@ namespace ForzaStudio
             if (section.GlassVertexCount > 0 && !main)
             {
                 Add(found, false, where, "glass particles outside the main file (FM4 has them only in the main carbin)");
+            }
+            if (section.Pre != null && section.Pre.Length == 4 && !section.PartFlag && section.HasTransparentMaterial)
+            {
+                Add(found, true, where, "see-through material in a part with flag 0: the game does not draw it (Save fixes it)");
             }
             Expect(found, where, "TSubModel version", section.SubModelVersion, 1);
             Expect(found, where, "VertexBuffer version", section.VertexBufferVersion, 2);

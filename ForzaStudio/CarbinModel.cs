@@ -765,6 +765,8 @@ namespace ForzaStudio
 
         public byte[] ToBytes()
         {
+            this.FixTransparentPartFlags();   // see-through material in a part with flag 0 = not drawn in game
+            this.FixDrawListPasses();         // glass in the opaque pass (or the reverse) = not drawn in game
             using (MemoryStream output = new MemoryStream())
             {
                 Write(output, this.Head);
