@@ -1,4 +1,4 @@
-ForzaStudio EVO 0.0.4 - BETA
+ForzaStudio EVO 0.0.5 - BETA
 ============================
 
 ForzaStudio EVO is a modding tool for the Xbox 360 Forza games (FM4, FH1, FH2;
