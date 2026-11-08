@@ -148,6 +148,18 @@ namespace ForzaStudio
             return this.FindData(carMedia + "_CMT.xml", "", "CarModelTuning.zip", "CarModelTuning");
         }
 
+        // The engine tuning <engineMedia>_ET.xml (pack first, then the game), or null.
+        public byte[] FindTuning(string engineMedia)
+        {
+            return this.FindData(engineMedia + "_ET.xml", "enginetuning.zip", "enginetuning");
+        }
+
+        // A harmonic tuning by its file name (<name>_HT.xml), or null.
+        public byte[] FindHarmonic(string fileName)
+        {
+            return this.FindData(fileName, "harmonictuning.zip", "harmonictuning");
+        }
+
         // What is missing of the engine's sound (the files of its tuning, harmonic tunings and banks), one text each; empty when complete.
         public List<string> Diagnose(string engineMedia)
         {

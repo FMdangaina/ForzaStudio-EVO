@@ -59,6 +59,7 @@ Put them exactly here (paths from the folder of `ForzaStudioEVO.exe`):
 | `xds.dll` (Forza Studio 4.6 release) | next to the exe | textures (`.xds`): view, import, export, thumbnails |
 | `xma2encode.exe` (Xbox 360 SDK, `bin\win32`) | `xma2encode\` | Add Song ([section 12](#12-music)) |
 | `TireAOffroad.zip`, `TireBOffroad.zip`, `TireCOffroad.zip` | `Service\OffroadTires\` | the *Offroad* tire choice of the car port |
+| `TireASmall.zip`, `TireBSmall.zip`, `TireCSmall.zip` (FM4's `TireA/B/CCIT_C1_11.zip` renamed) | `Service\SmallTires\` | the *Small* tire choice of the car port |
 
 Without one of them, the features in its row do not work.
 
@@ -593,8 +594,9 @@ the middle or right mouse button.
 
 ## 11. Porting cars from Forza Horizon or Forza Motorsport 3 to FM4
 
-**Tools > Import Car From Another Forza...** (into the game's files) and **Tools > Create DLC Package...** (into a
-package) open the same window. It converts a Forza Horizon 1, Forza Horizon 2, Forza Motorsport 3 or Forza
+**Tools > Import Car From Another Forza > For FM4...** (into the game's files) and **Tools > Create DLC Package > For
+FM4...** (into a package) open the same window. Only the target game is chosen in the menu: the source game is read
+from the folder you choose in the window. It converts a Forza Horizon 1, Forza Horizon 2, Forza Motorsport 3 or Forza
 Motorsport 2 car into FM4. A port includes:
 
 - the model, wheels and brakes;
@@ -609,27 +611,39 @@ zip with its textures, as FM4 keeps it. The Porsches need a make FM4 lacks: the 
 decals).
 
 The port window knows FM4's own cars, including the 176 cars of the official DLC, from a list inside the program: those are
-listed as "an FM4 car" / "an FM4 DLC car" and left out unless you tick **Also show cars FM4 already has**.
+listed as "an FM4 car" / "an FM4 DLC car" and left out unless you tick **Also show cars already in target**. The same
+box also hides the cars already ported into the FM4 folder and the cars of a DLC pack of yours installed in Xenia, so
+nothing is ported twice.
 
 ### Setting up
 
-1. Set the **source** folder (FH, FH2, FM3 or FM2) and the **Forza Motorsport 4** folder: the folders
-   with `default.xex` and `Media`. Press **Load Cars**.
+Set the folders once in **Tools > Settings > Folders**: Forza Motorsport 4, the source games you have (FH, FH2, FM3,
+FM2) and **Xenia**. The Xenia line there tells how many DLC packages it found per game. The port window reads Xenia
+from there only (its **Settings...** button opens that tab).
+
+1. Choose the **Source game** in its list (the games set in Settings) and check the **Forza Motorsport 4** folder.
+   The line under the source says what was found: the game and its DLC installed in Xenia, or what is missing and
+   where to set it. Press **Load Cars**.
+   - The DLC of the source game come from Xenia (`content\0000000000000000\<title id>\00000002`), FM3's second disc
+     included (Xenia installs it as DLC). The official packages are known to the program (`docs/DLC_CATALOG.md`):
+     their cars are listed without opening the packages, and a package is read only when one of its cars is chosen.
+   - FM2 DLC and FM3's second disc have no database of their own: they use the source game chosen here.
    - The source can also be **car DLC packages** of Forza Horizon, without the game itself.
      **Folder…** takes extracted packages (a folder holding `Media\<offer>.puboffer`, or a folder of them);
      **Package…** takes the Xbox 360 package files themselves (one or more, as the console stores
      them in `Content\...\4D5309C9\00000002`).
    - An FM4 package (title `4D530910`), such as one you built, is not a port source.
 2. The list shows every car with its PI and class in both games.
-   - **Only cars FM4 lacks** hides the cars FM4 already has.
-   - Dimmed rows cannot be ported. The **In FM4** column says why.
+   - By default only the cars FM4 lacks are listed; **Also show cars already in target** shows the others, dimmed.
+   - The **In target** column says why a car is dimmed. FM2 cars are blue: they have no close-up models, which the
+     port builds as for the Horizon traffic cars (yellow).
 3. Select a car and choose its **FM4 template car** (the donor): the FM4 car used as a template for the data FM4
    needs. The ★ cars are the closest matches. Cars of DLC packs installed in Xenia can be donors too (marked
    `[DLC: pack]`), except with Forza Motorsport 2 as source.
 4. Choose the **Tires**: *Normal* keeps the tire models the source car has (the Raptor and the Wrangler of
    Horizon have their own), else FM4's generic tires; *Offroad* gives the car the program's own deep-tread
-   offroad tires (`Service\OffroadTires`, same size as the normal ones; you bring these files yourself, see
-   [Install](#2-install)).
+   offroad tires (`Service\OffroadTires`, same size as the normal ones); *Small* gives it the small tires of
+   FM4's C1 (`Service\SmallTires`). You bring these files yourself, see [Install](#2-install).
 
 Everything the port needs from the source stays the source's (names, sound, values), and the donor only
 supplies what the source lacks. The window also lists the problems it found, with a choice for each, in the

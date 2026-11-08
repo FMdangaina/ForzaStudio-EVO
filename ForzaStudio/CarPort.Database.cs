@@ -1665,9 +1665,27 @@ namespace ForzaStudio
                     ForzaZip.Entry x = a.Find("buildnumber.txt");
                     sourceBuild = (x == null) ? "" : Encoding.ASCII.GetString(a.Read(x)).Trim();
                 }
+                return IsPortedBuild(targetRoot, mediaName, sourceBuild);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // The same with the source car's build number already known (DlcCatalog: the package is not opened).
+        public static bool IsPortedBuild(string targetRoot, string mediaName, string sourceBuild)
+        {
+            try
+            {
+                string to = Path.Combine(Path.Combine(Path.Combine(targetRoot, "Media"), "cars"), mediaName + ".zip");
+                if (!File.Exists(to))
+                {
+                    return false;
+                }
                 ForzaZip b = new ForzaZip(to);
                 ForzaZip.Entry y = b.Find("buildnumber.txt");
-                if (sourceBuild.Length == 0)
+                if ((sourceBuild ?? "").Length == 0)
                 {
                     // FM3 car zips have no build number: a ported car carries the port's log.
                     return b.Find("port_log.txt") != null;

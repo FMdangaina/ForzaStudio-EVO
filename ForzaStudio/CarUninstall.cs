@@ -85,6 +85,7 @@ namespace ForzaStudio
                 List<long> engines = Longs(db, "SELECT DISTINCT EngineID FROM List_UpgradeEngine WHERE Ordinal = ?", carId);
                 List<long> drivetrains = Longs(db, "SELECT DISTINCT DrivetrainID FROM List_UpgradeDrivetrain WHERE Ordinal = ?", carId);
                 object wheel = db.Scalar("SELECT StockWheelID FROM Data_Car WHERE Id = ?", carId);
+                string wheelMedia = (wheel == null || wheel == DBNull.Value) ? null : db.Scalar("SELECT MediaName FROM List_Wheels WHERE ID = ?", Convert.ToInt64(wheel)) as string;
                 object make = db.Scalar("SELECT MakeID FROM Data_Car WHERE Id = ?", carId);
                 string thumbnail = db.Scalar("SELECT Thumbnail FROM Data_Car WHERE Id = ?", carId) as string;
                 List<string> carStrings = new List<string>();
@@ -193,6 +194,35 @@ namespace ForzaStudio
                         {
                             plan.Add(string.Format(CultureInfo.InvariantCulture, "  kept Data_Engine EngineID = {0}: {1}", engine, user));
                         }
+                    }
+                    // The own stock wheel of a copy (List_Wheels above FM4's ids, no car left on it); its zip goes below.
+                    if (wheel != null && wheel != DBNull.Value)
+                    {
+                        long wheelId = Convert.ToInt64(wheel);
+                        string user = StillUsed(db, "WheelID", wheelId);
+                        if (wheelId > GameIdLimits.Max(ForzaGame.Motorsport4, "List_Wheels", "ID") && user == null)
+                        {
+                            shared += this.Delete(db, "List_Wheels", "ID = " + wheelId, apply, plan);
+                            foreach (string[] t in new string[][] { new string[] { "WheelExceptions", "WheelID" }, new string[] { "WheelNormOffsets", "Id" } })
+                            {
+                                if (Tables(db).Contains(t[0]))
+                                {
+                                    shared += this.Delete(db, t[0], t[1] + " = " + wheelId, apply, plan);
+                                }
+                            }
+                            if (wheelMedia != null)
+                            {
+                                log += "\nwheel zip: Media\\wheels\\" + wheelMedia + ".zip\n";
+                            }
+                        }
+                        else if (user != null)
+                        {
+                            plan.Add(string.Format(CultureInfo.InvariantCulture, "  kept List_Wheels ID = {0}: {1}", wheelId, user));
+                        }
+                    }
+                    foreach (string kind in new string[] { "A", "B", "C" })
+                    {
+                        log += "\ntire zip: Media\\wheels\\Tire" + kind + this.MediaName + ".zip\n";
                     }
                 }
                 // Engine part rows the log does not list (the aspiration conversions CarUpgrades adds to

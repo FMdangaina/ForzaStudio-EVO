@@ -28,6 +28,13 @@ namespace ForzaStudio
             return Supported.TryGetValue(target, out sources) && Array.IndexOf(sources, source) >= 0;
         }
 
+        // The import menu names the target only: on when the target takes cars from at least one game.
+        public static bool CanImportInto(string target)
+        {
+            string[] sources;
+            return Supported.TryGetValue(target, out sources) && sources.Length > 0;
+        }
+
         public static bool CanCreateDlc(string target)
         {
             return Array.IndexOf(DlcTargets, target) >= 0;

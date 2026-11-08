@@ -42,9 +42,10 @@ namespace ForzaStudio
             {
                 if (chosenTuning != null)
                 {
-                    // The user's choice: that FM4 car's whole sound setup (its banks are FM4's).
-                    this.Put(engineTuning, media + "_ET.xml", engineTuning.Read(chosenTuning));
+                    // The user's choice: that FM4 car's whole sound setup (its banks are FM4's), turned into the car's
+                    // cylinder count when the two engines differ.
                     this.Line("engine sound {0}: {1}'s FM4 setup {2}_ET.xml, the user's choice", media, this.SoundFrom, chosenEngine);
+                    this.Put(engineTuning, media + "_ET.xml", this.ConvertCylinders(media, engineTuning.Read(chosenTuning), chosenEngine, this.EngineCylinders(this.target, chosenEngine), harmonicPath, harmonic, sourceHarmonic));
                     continue;
                 }
                 ForzaZip.Entry entry = sourceTuning.Find(media + "_ET.xml");
@@ -122,6 +123,12 @@ namespace ForzaStudio
                         this.Issues.Add(issue);
                         this.Line("  REVIEW {0}", issue.Problem);
                     }
+                    int setupCylinders = this.EngineCylinders(this.target, setup);
+                    if (setupCylinders == 0 && !picked)
+                    {
+                        setupCylinders = this.EngineCylinders(null, setup);
+                    }
+                    data = this.ConvertCylinders(media, data, setup, setupCylinders, harmonicPath, harmonic, sourceHarmonic);
                 }
                 else
                 {
@@ -162,6 +169,220 @@ namespace ForzaStudio
                 {
                     this.Line("  WARNING car model tuning: {0} has none and the donor's {1}_CMT.xml is not in the target: the car may be silent", this.game, this.DonorMediaName);
                 }
+            }
+            this.PlaceEngineSound(carModels);
+        }
+
+        // The cylinders of an engine (Data_Engine.MediaName -> List_Cylinders.Number) in db (null = the donor's database), 0 if unknown.
+        private int EngineCylinders(SqliteDatabase db, string engineMedia)
+        {
+            if (string.IsNullOrEmpty(engineMedia))
+            {
+                return 0;
+            }
+            // The CylinderID read from the engine's database, its meaning from the target's List_Cylinders (the same table
+            // in FH1 and FM4; a pack's merge database has none). -1 = a rotary (Rotors = 1): no cylinder rule for those.
+            const string Sql = "SELECT CylinderID FROM Data_Engine WHERE MediaName = ? COLLATE NOCASE";
+            try
+            {
+                object id = (db != null) ? db.Scalar(Sql, engineMedia) : this.DonorScalar(Sql, engineMedia);
+                if (id == null || id is DBNull)
+                {
+                    return 0;
+                }
+                SqliteDatabase.Result row = this.target.Query("SELECT Number, Rotors FROM List_Cylinders WHERE CylinderID = ?", id);
+                if (row.Rows.Count == 0 || row.Rows[0][0] == null || row.Rows[0][0] is DBNull)
+                {
+                    return 0;
+                }
+                object rotors = row.Rows[0][1];
+                if (rotors != null && !(rotors is DBNull) && Convert.ToInt64(rotors, CultureInfo.InvariantCulture) != 0)
+                {
+                    return -1;
+                }
+                return Convert.ToInt32(row.Rows[0][0], CultureInfo.InvariantCulture);
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
+        }
+
+        // Another car's FM4 engine tuning used for this car's engine 'media' (the user's pick, or the stand-in for an
+        // incomplete source sound): when the two engines' cylinders differ, the tuning's harmonic tunings are turned into
+        // the car's count (SoundConvert.Cylinders, rule checked in game on the FH1 Fiat 595 2026-11-08: rpm x M / N, new
+        // <name>_<N>cyl_HT.xml on the same banks, num_cylinders scaled). Returns the tuning to write.
+        // The review shows what the rule does from the engine's data (Fixes "soundcyl:<engine>" = Data_Engine.CylinderID):
+        // a different pick changes the engine's data (the source's can be wrong: FH1 has the 2-cylinder Fiat 595 at 3),
+        // and the sound follows it (user 2026-11-08: "proponi da db, se devo fare override io cambio i dati").
+        private byte[] ConvertCylinders(string media, byte[] tuning, string from, int fromCylinders, string harmonicPath, ForzaZip harmonic, ForzaZip sourceHarmonic)
+        {
+            string key = "soundcyl:" + media;
+            object fix;
+            object cylinderId = this.target.Scalar("SELECT CylinderID FROM Data_Engine WHERE MediaName = ? COLLATE NOCASE", media);
+            if (this.Fixes.TryGetValue(key, out fix) && fix != null && cylinderId != null
+                && Convert.ToString(fix, CultureInfo.InvariantCulture) != Convert.ToString(cylinderId, CultureInfo.InvariantCulture))
+            {
+                this.target.Execute("UPDATE Data_Engine SET CylinderID = ? WHERE MediaName = ? COLLATE NOCASE", fix, media);
+                this.Line("  review fix: Data_Engine.CylinderID of {0} {1} -> {2}", media, cylinderId, fix);
+                cylinderId = fix;
+            }
+            int cylinders = this.EngineCylinders(this.target, media);
+            if (cylinderId != null && !(cylinderId is DBNull))
+            {
+                Issue issue = new Issue();
+                issue.Key = key;
+                issue.Kind = "sound";
+                issue.Where = "Data_Engine.CylinderID (" + media + ")";
+                issue.Value = Convert.ToString(cylinderId, CultureInfo.InvariantCulture);
+                issue.Problem = (cylinders < 0 || fromCylinders < 0)
+                    ? string.Format(CultureInfo.InvariantCulture, "engine sound of {0}: a rotary engine, not converted; pick the cylinders if the engine's data is wrong", from)
+                    : (cylinders > 0 && fromCylinders > 0 && cylinders != fromCylinders)
+                        ? string.Format(CultureInfo.InvariantCulture, "engine sound of {0} ({1} cylinders) converted to {2} cylinders, the engine's data; pick another count to change the data", from, fromCylinders, cylinders)
+                        : string.Format(CultureInfo.InvariantCulture, "engine sound of {0} ({1} cylinders) used as it is: the engine has {2}; pick another count to change the data (the sound follows)", from, fromCylinders, cylinders);
+                foreach (object[] row in this.target.Query("SELECT CylinderID, Number, Rotors FROM List_Cylinders ORDER BY CylinderID").Rows)
+                {
+                    Choice choice = new Choice();
+                    choice.Value = row[0];
+                    bool rotary = row[2] != null && !(row[2] is DBNull) && Convert.ToInt64(row[2], CultureInfo.InvariantCulture) != 0;
+                    choice.Label = string.Format(CultureInfo.InvariantCulture, "{0}  {1} {2}", row[0], row[1], rotary ? "rotors" : "cylinders");
+                    issue.Choices.Add(choice);
+                    if (Convert.ToString(row[0], CultureInfo.InvariantCulture) == issue.Value)
+                    {
+                        issue.Suggested = row[0];
+                    }
+                }
+                this.Issues.Add(issue);
+                this.Line("  REVIEW {0}", issue.Problem);
+            }
+            if (cylinders < 0 || fromCylinders < 0)
+            {
+                this.Line("  engine sound {0}: {1} is a rotary engine, sound not converted (the cylinder rule is for piston engines)", media, (cylinders < 0) ? "the car's" : from);
+                return tuning;
+            }
+            if (cylinders <= 0 || fromCylinders <= 0 || cylinders == fromCylinders)
+            {
+                if (cylinders > 0 && fromCylinders <= 0)
+                {
+                    this.Line("  WARNING engine sound {0}: the cylinders of {1} are not known, sound not converted to {2} cylinders", media, from, cylinders);
+                }
+                return tuning;
+            }
+            ForzaZip changed = this.OpenChanged(harmonicPath);
+            string packHarmonic = this.DonorAudio("HarmonicTuning.zip");
+            ForzaZip donorHarmonic = (packHarmonic != null) ? new ForzaZip(packHarmonic) : null;
+            Func<string, byte[]> read = delegate(string name)
+            {
+                foreach (ForzaZip zip in new ForzaZip[] { changed, harmonic, sourceHarmonic, donorHarmonic })
+                {
+                    ForzaZip.Entry entry = (zip != null) ? zip.Find(name) : null;
+                    if (entry != null)
+                    {
+                        return zip.Read(entry);
+                    }
+                }
+                return null;
+            };
+            SoundConvert.Result result;
+            try
+            {
+                result = SoundConvert.Cylinders(tuning, read, fromCylinders, cylinders);
+            }
+            catch (InvalidOperationException exception)
+            {
+                this.Line("  WARNING engine sound {0}: not converted to {1} cylinders: {2}", media, cylinders, exception.Message);
+                return tuning;
+            }
+            Encoding latin = Encoding.GetEncoding(28591);
+            foreach (KeyValuePair<string, string> file in result.Harmonics)
+            {
+                this.Put(changed, file.Key, latin.GetBytes(file.Value));
+            }
+            this.Line("  engine sound {0}: {1}'s {2}-cylinder sound turned into a {3}-cylinder one (same banks, rpm x {2} / {3})", media, from, fromCylinders, cylinders);
+            foreach (string line in result.Log)
+            {
+                this.Line("    " + line);
+            }
+            if (result.Harmonics.Count > 0)
+            {
+                this.donorFormat.Add(string.Format(CultureInfo.InvariantCulture, "engine sound {0}: {1} converted from {2} to {3} cylinders", media, from, fromCylinders, cylinders));
+            }
+            return latin.GetBytes(result.Tuning);
+        }
+
+        // The car's engine sound position: when its model tuning puts the engine on the other side of the cabin than
+        // Data_Car.EnginePlacementID (1 front, 2 mid, 3 rear; FH1 Fiat 595: rear in the DB, front in the CMT), the CMT
+        // gets FM4's positions and listener pans / volumes for that placement (SoundConvert.Place, checked in game
+        // 2026-11-08). A CMT that agrees with the placement stays the source's.
+        private void PlaceEngineSound(ForzaZip carModels)
+        {
+            ForzaZip.Entry entry = carModels.Find(this.CarName + "_CMT.xml");
+            object value = this.target.Scalar("SELECT EnginePlacementID FROM Data_Car WHERE Id = ?", this.carId);
+            if (entry == null || value == null || value is DBNull)
+            {
+                return;
+            }
+            // Fixes "placement:<car>" = Data_Car.EnginePlacementID picked in the review: the car's data changes, the rule follows.
+            string key = "placement:" + this.CarName;
+            object fix;
+            if (this.Fixes.TryGetValue(key, out fix) && fix != null && Convert.ToString(fix, CultureInfo.InvariantCulture) != Convert.ToString(value, CultureInfo.InvariantCulture))
+            {
+                this.target.Execute("UPDATE Data_Car SET EnginePlacementID = ? WHERE Id = ?", fix, this.carId);
+                this.Line("  review fix: Data_Car.EnginePlacementID {0} -> {1}", value, fix);
+                value = fix;
+            }
+            long placement = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+            if (placement < 1 || placement > 3)
+            {
+                return;
+            }
+            Encoding latin = Encoding.GetEncoding(28591);
+            string cmt = latin.GetString(carModels.Read(entry));
+            bool cmtFront = SoundConvert.EngineInFront(cmt);
+            if (cmtFront == (placement == 1) && fix == null)
+            {
+                return;
+            }
+            {
+                Issue issue = new Issue();
+                issue.Key = key;
+                issue.Kind = "sound";
+                issue.Where = "Data_Car.EnginePlacementID (" + this.CarName + ")";
+                issue.Value = placement.ToString(CultureInfo.InvariantCulture);
+                issue.Problem = (cmtFront == (placement == 1))
+                    ? "engine sound position: the car model tuning agrees with the engine placement picked, kept"
+                    : string.Format(CultureInfo.InvariantCulture, "engine sound position: the car model tuning has the engine {0} the cabin, the car's data says {1}: moved to {1}; pick another placement to change the data", cmtFront ? "in front of" : "behind", (placement == 1) ? "front" : (placement == 2) ? "mid" : "rear");
+                string[] names = { "", "front", "mid", "rear" };
+                for (int p = 1; p <= 3; p++)
+                {
+                    Choice choice = new Choice();
+                    choice.Value = (long) p;
+                    choice.Label = p.ToString(CultureInfo.InvariantCulture) + "  " + names[p];
+                    issue.Choices.Add(choice);
+                }
+                issue.Suggested = placement;
+                this.Issues.Add(issue);
+                this.Line("  REVIEW {0}", issue.Problem);
+            }
+            if (cmtFront == (placement == 1))
+            {
+                return;
+            }
+            List<string> log = new List<string>();
+            try
+            {
+                cmt = SoundConvert.Place(cmt, placement >= 2, log);
+            }
+            catch (InvalidOperationException exception)
+            {
+                this.Line("  WARNING car model tuning {0}_CMT.xml: engine placement {1} but the engine sound sits on the other side, not moved: {2}", this.CarName, placement, exception.Message);
+                return;
+            }
+            this.Put(carModels, this.CarName + "_CMT.xml", latin.GetBytes(cmt));
+            this.Line("  car model tuning {0}_CMT.xml: engine {1} in Data_Car but on the other side of the cabin in the CMT: moved", this.CarName, (placement == 1) ? "front" : (placement == 2) ? "mid" : "rear");
+            foreach (string line in log)
+            {
+                this.Line("    " + line);
             }
         }
 

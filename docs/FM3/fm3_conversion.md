@@ -8,8 +8,8 @@ this file is the map of the whole FM3 side: the two port directions, the DLC pac
 
 | Direction | Code | Window | State |
 |---|---|---|---|
-| FM3 → FM4 | `CarPort`, `CarbinModelMotorsport3`, `Fm3Textures` | Tools > Import Car From Another Forza > Into FM4 > From FM3 (`CarPortForm`) | checked in game (X5, Boxster, Supra...), 74/74 trial runs |
-| FM4 → FM3 | `CarPortToFm3`, `CarbinModelToMotorsport3` | Tools > Import Car From Another Forza > Into FM3 > From FM4 (`CarPortFm3Form`) | six cars checked in game 2026-11-02 (exterior, interior, wheels, cockpit camera, sound) |
+| FM3 → FM4 | `CarPort`, `CarbinModelMotorsport3`, `Fm3Textures` | Tools > Import Car From Another Forza > For FM4 (source folder = FM3) (`CarPortForm`) | checked in game (X5, Boxster, Supra...), 74/74 trial runs |
+| FM4 → FM3 | `CarPortToFm3`, `CarbinModelToMotorsport3` | Tools > Import Car From Another Forza > For FM3 (source folder = FM4) (`CarPortFm3Form`) | six cars checked in game 2026-11-02 (exterior, interior, wheels, cockpit camera, sound) |
 | FM4 → FM3 DLC | `DlcPackage.Fm3` | Tools > Create DLC Package > For FM3 (`CarPortFm3Form`, Dlc mode) | folder pack and STFS pack of one car checked in Xenia; the window itself is new |
 | FM3 DLC install / validate | `DlcValidator`, `DlcFixer.Fm3`, `DlcWorld`, `DlcRelocate` | Tools > Check and Validate DLC, Tools > Validate DLC for Installation | run from harnesses on real packs, not clicked in the UI |
 

@@ -682,6 +682,66 @@ namespace ForzaStudio
         // (rule 11.2, ROADMAP). Returns the morph target's radius, the value of header floats 8 and 10.
         public double MakeWheelMorph(double reference)
         {
+            return this.FitWheelLod0(reference, (reference + 0.1301) / reference);
+        }
+
+        // The other way round: LOD 0 drawn at a fixed size whatever the car's rim size, its largest YZ radius
+        // 'radius' and a morph target equal to the vertices (scale 1). For rims smaller than FM4's smallest
+        // stock rim (13"), which the 15" reference morph may not reach (test 2026-11-07, FIA_595_68 12").
+        // Returns the radius, the value of header floats 8 and 10.
+        public double MakeWheelTrueSize(double radius)
+        {
+            return this.FitWheelLod0(radius, 1);
+        }
+
+        // A tire model (Media\wheels\Tire*.zip, LOD 0 only) at a fixed size: FM4's tires are modelled round the
+        // 15" reference rim (inner radius 0.194, the rim's), the morph only stretching the sidewall (outer
+        // 0.287 -> 0.414). For a rim under FM4's smallest (13") the tire stays at 15": here every LOD 0 vertex
+        // is remapped radially so the inner radius becomes 'inner' and the outer 'outer' (tread profile kept,
+        // X untouched), and a morph table becomes the identity. Header float 10 = 'outer'.
+        public void MakeTireFixed(double inner, double outer)
+        {
+            foreach (Section section in this.Sections)
+            {
+                double[] lod = Positions(section, section.Lod);
+                double[] lod0 = Positions(section, section.Lod0);
+                double r0 = double.MaxValue;
+                double r1 = 0;
+                for (int i = 0; i < lod0.Length; i += 3)
+                {
+                    double r = Math.Sqrt((lod0[i + 1] * lod0[i + 1]) + (lod0[i + 2] * lod0[i + 2]));
+                    r0 = Math.Min(r0, r);
+                    r1 = Math.Max(r1, r);
+                }
+                if (r1 - r0 < 1e-6)
+                {
+                    continue;
+                }
+                double k = (outer - inner) / (r1 - r0);
+                for (int i = 0; i < lod0.Length; i += 3)
+                {
+                    double y = lod0[i + 1];
+                    double z = lod0[i + 2];
+                    double r = Math.Sqrt((y * y) + (z * z));
+                    double fit = (r < 1e-9) ? 1 : (inner + ((r - r0) * k)) / r;
+                    lod0[i + 1] = y * fit;
+                    lod0[i + 2] = z * fit;
+                }
+                if (section.DamageLod0.Stride == 16 && section.DamageLod0.Count == section.Lod0.Count)
+                {
+                    section.DamageLod0 = WheelMorphTable(lod0, 1);
+                }
+                Reencode(section, lod, lod0);
+            }
+            byte[] bytes = BitConverter.GetBytes((float) outer);
+            for (int b = 0; b < 4; b++)
+            {
+                this.Head[0x18 + (10 * 4) + b] = bytes[3 - b];
+            }
+        }
+
+        private double FitWheelLod0(double reference, double morph)
+        {
             double target = 0;
             foreach (Section section in this.Sections)
             {
@@ -713,7 +773,6 @@ namespace ForzaStudio
                     lod0[i + 1] *= fit;
                     lod0[i + 2] *= fit;
                 }
-                double morph = (reference + 0.1301) / reference;
                 section.DamageLod = WheelMorphTable(lod, 1);
                 section.DamageLod0 = WheelMorphTable(lod0, morph);
                 section.Post9[4] = 1;

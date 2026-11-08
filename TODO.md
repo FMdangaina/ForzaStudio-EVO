@@ -328,6 +328,111 @@ Background C3 (research). Paused by the user 2026-10-19.
         rim looks small up close
 - [x] 10.4 (CLOSED 2026-10-27, checked by the user) Tyre width on ported cars whose wheel mesh is wider than usual (ex topic 1 + 11.6): check in game whether D 10.5 / 10.6 already fixed it;
       maybe tied to 10.1 and to 3.1
+- [ ] 10.7 (2026-11-07) Rims under 15". FM4 does not scale a wheel or tire below the 15" reference: the morph only grows them
+      (FM4 has no stock rim under 13"). FH1 Fiat 595 '68 (145/70 R12), pack 71A89A81..., in game 2026-11-07:
+      - stock rim: LOD 0 fixed at 12" (`WheelScale.MakeTrueSize` / `CarbinModel.MakeWheelTrueSize`: radius 0.194 x D / 15,
+        morph target = vertices) -> OK in game;
+      - tire: custom tire at a fixed size (`CarbinModel.MakeTireFixed(inner, outer)`: the Small / C1 tires remapped radially,
+        inner = rim radius, outer = inner + width x aspect, morph identity) -> OK in game ("ottimo lavoro sui 12"");
+      - **to remember (user)**: aftermarket (custom) rims do not scale under 15" either, so on a 12" car they are drawn at 15"
+        and do not match the fixed 12" tire;
+      - WIRED INTO THE PORT 2026-11-08 (`CarPort.Zips.cs`: `SmallRimInches`, `FixSmallRim`, `ProgramTire`), uncommitted:
+        source Data_Car FrontWheelDiameterIN < 15 AND Tires = Small -> stock wheel LOD 0 fixed (0.194 x D / 15) + the
+        Small tires fixed (inner = rim radius, outer = inner + FrontTireWidthMM x FrontTireAspect); other wheels stay
+        scalable; Tires Normal/Offroad = unchanged + WARNING in the log. Trial ports (`E:\DEV\fm4dev\Fm1_595\porttrial.cs`,
+        env TIRES): 595 Small = wheel + 3 tires byte-identical to test 2 (OK in game); 595 Normal = only the warning;
+        NIS_SkylineGTRVSpecII_02 Normal / Small = no change. 18 FH1 cars are under 15" (Mini 10", 595 12", Elan and
+        2002 Turbo 13", 14 at 14"); only the 12" one checked in game. In-game check of a fresh port pending.
+      - **Sound, OPEN (to resume later, user 2026-11-07: "c'è qualcosa di strano")**: idle not heard. ET / HT / fsb
+        (2N1_Ducati998 banks) byte-identical to FH1; `audio_rpm_idle` 1250 (FM4 median 800) lowered to 869 in the test
+        pack: still sound problems. In FH1 itself the car sounds fine (user 2026-11-08): the fault is in FM4 / the port.
+        Checked offline 2026-11-07 (`E:\DEV\fm4dev\Fm1_595\audscan.cs`, `sqlq.cs`), all normal in FM4: no
+        `VolumeModifier` in 425 of 501 FM4 ETs; Int HT first loop volume 0 in 96 of 267; Exh HT ExhaustL only in 75 of 277;
+        idle / first Exh rpm_sample 1250/1625 = 0.77 (FM4 p10 0.62, median 0.93; 869 gives 0.53, below p10: 869 is the
+        FM4 Abarth 500's value); CMT has the usual sections; pack engine 1706 = FH1 1012 apart from the id (torque
+        curves 1706000-1706004). FM4 has no 2-cylinder piston bank (2N1_Ducati998 is the first).
+        **Lead**: `GlobalCarVolume` = PhysicsCoeff RPM 1 / Throttle 0, curve (0.5,1.0)(0.5,0.85)(1,0.7): x0 > 0 in
+        0 of 501 FM4 ETs (2 of 808 in FH1, both Fiats: FIA_595_68, FIA_500Abarth595SS_64); the volume under half
+        the rpm range may be undefined in FM4. Test 3 INSTALLED in Xenia 2026-11-08 (test 2 kept in `bak\71A89A81_test2`), in-game check pending: `test3_pack` = test 2 + idle back to 1250
+        + GCV x0 0 (curve (0,1.0)(0.5,0.85)(1,0.7)) -> in game 2026-11-08: TOTAL SILENCE at every rpm (zip checked:
+        only the ET changed, CRC OK). Split: `test3a_pack` = test 2 + GCV x0 0 only (INSTALLED, check pending),
+        `test3b_pack` = test 2 + idle 1250 only (ET = FH1 byte for byte). 3a in game: silent too (the GCV x0 0
+        change alone silences the car; why not known). User 2026-11-08: use the FM4 Beetle sound instead.
+        Test 4 INSTALLED, check pending: `test4_pack` = test 2 + VW_Beetle_66 ET (Meguiar's Car Pack, in
+        Xenia's `xxx` folder = not mounted) as FIA_595_68_ET.xml + 4N0_VWBug HT x3 + fsb x3 in the 595 pack; CMT and
+        DB unchanged. Note: 4N0 = flat 4, FM4 has no 2-cylinder piston engine sound.
+        FH1 vs FM4 sound files (`etcmp.cs`, 2026-11-08): FH1 has all 501 FM4 ET names, 0 identical text (values
+        retuned), 396 same structure; FH1-only attributes ShiftVolume (105), opencockpit (12), num_cylinders/blowoff (4)
+        are all names the FM4 exe reads (`fm4_base.exe` strings); HT 744 of 835 identical. Same format, different
+        values. How the curves are evaluated (test 3a) only from code: ThreePointCurve / GlobalCarVolume in the xex.
+        2026-11-08 fresh port (pack 595_mini, 810C1F8B..., with the Mini '65 = perfect): 595 sounds only above ~2500 rpm
+        in gear, not at idle (tach 800), on and off, not when looking back. Loop 0 of the Ducati HTs = 500-2542 rpm;
+        its sample is out of series (names x 0.735 = HT rpm_sample for samples 1-8; sample 0 "1105" sits at 1625, twice).
+        Tools > Change Car Sound -> FIA_131AbarthStradale_80: PERFECT (user). Test 5 INSTALLED (check pending):
+        `test5_pack` = that pack + 595 ET = the 131's ET with the 3 HTs -> 2N1_Ducati998 + engine 1642 MediaName back
+        to FIA_595_68 (backup `bak\595_mini_131sound`). Sounds right -> FH1 ET at fault; gap again -> Ducati HT/fsb.
+        Test 5 in game: SILENT -> the 2N1_Ducati998 HT/fsb do not play in FM4 (the ET is not the cause).
+        Idea (user 2026-11-08): N-cylinder sound from an M-cylinder bank. Same firing rate: rpm(N) = rpm(M) x M / N
+        (4 cyl at 1000 = 2 cyl at 2000). Test 6 INSTALLED (check pending): `test6_pack` = 131 ET + its 3 HTs as new
+        `<name>_2cyl_HT.xml` (every Loop rpm_sample/min/max x 2, first rpm_min 500 and last rpm_max 20000 kept) on the
+        same FM4 fsb (Miata EngAmb/Int, 2ZZ Exh), MediaName FIA_595_68. If OK: a port / Change Car Sound option.
+        Test 6 in game: WORKS, user likes the rule (2026-11-08) -> to implement (cylinder-count conversion of HTs).
+        Engine sound position (user 2026-11-08: the 595 sounds front-engined): set only by the CMT <Chassis>
+        OriginPosition (z + = front); Data_Car.EnginePlacementID (1 front / 2 mid / 3 rear) is not used by the audio.
+        FH1 595 = placement 3 but CMT engine at z +1.48/+1.53 (FH1 mistake; also 6 mid + 2 rear FH1 cars, 8 mid FM4
+        cars e.g. LAN_Stratos_74). Engines behind the cabin (112 FM4 mid cars): ambient z = ExhL z x 0.76, intake x 0.72
+        (`cmtpos.cs`). Test 7 BUILT, NOT installed (Xenia was running): `test7_pack` = test 6 + 595 CMT intake -1.134,
+        ambient -1.197 (exhaust -1.575). Rule if OK: port, placement 2/3 with CMT engine in front -> moved.
+        Test 8 INSTALLED instead (user: boxer 4 -> 2 cylinders + engine behind, then make the rules): `test8.cs`
+        (generic: sound car, target cylinders; bank cylinders = leading number of each HT name) = SUB_Impreza22b_98 ET +
+        4N2_SVTF EngAmb x2, 4T1_EJ25 Exh (boxer) x2, 8N2_SC430 Int x4 as *_2cyl_HT.xml + test 7's CMT move.
+        Test 8 in game: "on the right track" but still sounds like a 4-cylinder boxer (timbre kept). FM4 has no bank
+        under 4 cylinders (3-cyl cars use 4-cyl banks; only rotaries 2RN). LEAD (`fsbfmt.cs`): FM4 engine banks are
+        36000 Hz (258 mono + 93 stereo; mono 48000 only 6n0_nsx_pops); FH1 has 27 mono 48000 banks incl. the Ducati
+        ones -> FM4 may not play mono 48 kHz engine loops. Test 9 INSTALLED 2026-11-08 (in-game check pending): `test9_pack` =
+        test 5 (131 ET + Ducati HT/fsb) + Ducati fsb header rate 48000 -> 36000 (XMA data untouched, 18 bytes) + Ducati
+        HT loop rpm x 0.75 (pitch back) + CMT engine behind. In game 2026-11-08: SILENT -> the 48 kHz rate (header
+        field) is not the cause. RESUME HERE: the Ducati banks still do not play in FM4 (cause unknown; next ideas:
+        how FM4 builds a voice from the fsb record / XMA stream = xex code, or compare the Ducati XMA streams with a
+        working FM4 bank). Meanwhile test 6 / 8 (cylinder rule on FM4 banks) work; CMT engine move not judged alone.
+        Pack in Xenia = test 9.
+        **2026-11-08 user: Ducati banks PARKED** (cause unknown) -> use Change Car Sound with the rules instead. BUILT
+        (uncommitted, bin\Debug): `SoundConvert.cs` (cylinder rule + engine-behind CMT rule) + 2 options in Tools > Change
+        Car Sound, only with the pack opened in that window (DLC package... / DLC folder...): "Convert to [n] cylinders"
+        (proposed when the donor's cylinders differ: new `<car>_ET.xml` + `<bank>_<n>cyl_HT.xml` in the pack zip, MediaName
+        = the car's) and "Engine sound behind the cabin" (proposed for placement 2/3 with the CMT engine in front; also
+        usable alone, no donor). Offline (`E:\DEV\fm4dev\Fm1_595\convcheck.cs`): ET + HTs of test 6 and test 8 and the
+        test 8 CMT byte-identical. In-game check of the window pending. Not in the port yet (the port could later
+        propose them: 2-cylinder car -> no FM4 bank).
+        User 2026-11-08 after trying it: still too similar to the 4-cylinder; intake heard only from the front. Found:
+        (a) FM4 ETs DO have EngineSettings num_cylinders (491 of 501; = DB cylinders in 307, half in many: 4 -> 2 in 59,
+        8 -> 4 in 33, 12 -> 6 in 21; rotaries 2; never 1) (`etcyl.cs`): the conversion kept the donor's 2 -> now scaled
+        too (round(x N / M), 131 / Impreza 2 -> 1; 1 never appears in FM4 = to check in game). (b) CMT: FM4 rear/mid
+        cars pan EngineIntake / EngineAmbient to the rear speakers (Listener SurroundPan LeftRear/RightRear 1, Center
+        0.6) and change volumes; only the z had been moved (`cmtlisten.cs`, `cmtplace.cs`). User: ASK where the engine
+        is -> the checkbox is now "Engine: keep the car's CMT / front / mid / rear" (proposed = Data_Car placement when the
+        CMT disagrees): z ratios + 61 Listener values = FM4 medians (372 front, 112 mid; only 1 consistent rear car, so
+        rear = mid), `SoundConvert.Place`. 595 CMT: 48 values changed (15 lines), only Listener. Not changed: the 595's
+        Follow EngineIntake 0.3 (FH1's own; FM4 0.8 front and mid). If still too similar: control test with an
+        exaggerated factor to see whether the game honours the HT rpm labels at all.
+        In game 2026-11-08 (131 sound, Convert to 2, Engine rear, num_cylinders 1): user "potrebbe andare bene così"
+        -> accepted for now. Follow intake 0.3 left as is.
+        IN THE PORT 2026-11-08 (`CarPort.Sound.cs`, uncommitted, built): (1) another car's FM4 sound (the port window's
+        sound pick, or the stand-in for an incomplete source sound) with other cylinders than the car's engine ->
+        `ConvertCylinders` (SoundConvert.Cylinders, HTs into harmonictuning.zip); rotaries (List_Cylinders.Rotors 1,
+        either engine) never converted. (2) `PlaceEngineSound`: CMT engine on the other side of the cabin than
+        Data_Car.EnginePlacementID -> SoundConvert.Place; a CMT that agrees stays the source's. Trial ports
+        (`porttrial.cs`, env SOUND / FE_EXE): 595 + 131 sound = converted 4 -> 3 cylinders (!) + CMT moved (48 listener
+        values); RX-7 '97 + 131 sound = "rotary, not converted"; Skyline V-Spec II (own sound) = unchanged.
+        NOTE: FH1's DB has the 595 at 3 cylinders (Data_Engine 1012 CylinderID 11 = 3; the real car is a 2-cylinder):
+        the port keeps the source value; the Change Car Sound window also proposes 3.
+        User 2026-11-08: "proponi da db, se devo fare override io cambio i dati" -> two review rows (Kind "sound"):
+        `soundcyl:<engine>` = Data_Engine.CylinderID (shown whenever another car's sound is used, says what the rule does;
+        another pick UPDATEs the engine's CylinderID and the conversion follows) and `placement:<car>` =
+        Data_Car.EnginePlacementID (shown when the CMT disagrees; another pick UPDATEs Data_Car, the move follows).
+        Trials: no picks = both rows + 4 -> 3 + moved; picks CylinderID 1 + placement 1 = "used as it is" + CMT kept.
+        PROBLEM: List_Cylinders (FH1 = FM4) has NO 2-cylinder piston row (0, 3, 4, 5, 6, 8, 10, 12, 16 + 2/3/4
+        rotors): the 595 cannot be 2 cylinders through the data -> user to decide.
 
 ### 11. Model editing and automatic LODs ✅ (closed 2026-10-31 by the user; 11.1-11.4 closed with it, 11.5 automatic LODs and 11.6 gr2 editor not done, left as ideas)
 

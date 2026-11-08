@@ -185,7 +185,7 @@ namespace ForzaStudio
             this.fillingUpgrades = true;
             this.swapList.Items.Clear();
             this.driveChoice.Items.Clear();
-            bool usable = car != null && (car.State == Status.New || car.State == Status.Ported);
+            bool usable = car != null && (car.State == Status.New || car.State == Status.Ported || car.State == Status.InPack);
             // The list stays enabled (empty when not usable): Windows draws a disabled list light grey.
             this.driveChoice.Enabled = usable;
             this.addSwap.Enabled = usable;
@@ -204,7 +204,8 @@ namespace ForzaStudio
             SqliteDatabase target = null;
             try
             {
-                source = this.GameDb(car.Root ?? this.sourceBox.Text.Trim());
+                // A catalog DLC car: its package is opened and staged now, the first time one of its cars is chosen.
+                source = this.GameDb(this.RootOf(car, null) ?? this.sourceBox.Text.Trim());
                 target = Directory.Exists(this.targetBox.Text.Trim()) ? this.GameDb(this.targetBox.Text.Trim()) : null;
             }
             catch (Exception ex)

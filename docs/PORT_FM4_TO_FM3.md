@@ -195,7 +195,7 @@ text, other language)? And what does "stringhe errate" refer to besides MG (car 
   Livery_DecalsSortOrder / Rewards_CarPartDiscounts rows are not needed. (Test the six cars WITHOUT other DLC installed.)
 
 ### UI (2026-11-02, compiled, not yet seen)
-- Tools > Import Car From Another Forza > Into FM3 > From FM4 opens `CarPortFm3Form.cs` (own window, game banner "FORZA MOTORSPORT 3 / from
+- Tools > Import Car From Another Forza > For FM3 (source folder = FM4) opens `CarPortFm3Form.cs` (own window, game banner "FORZA MOTORSPORT 3 / from
   FORZA MOTORSPORT 4"): FM4 folder + optional FM4 DLC packages, FM3 folder, car list, FM3 donor (default TOY_SupraRZ_98), Trial Run
   (temp folder + report) and Install in FM3 (refuses while Xenia runs, replaced files go to bak\). Menu routes live in `PortPairs.cs`.
 - Create DLC Package for FM3: NOT done (menu entry greyed). Needs the FM3 DLC package format studied first.

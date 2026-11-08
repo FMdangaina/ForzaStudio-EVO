@@ -562,6 +562,13 @@ namespace ForzaStudio
             }
         }
 
+        // FM2 packs and FM3 second-disc packs: the stage's database is the base game's (with the pack's rows), so
+        // only the cars whose files are in the pack belong to it (DlcCatalog).
+        public bool UsesBaseDatabase
+        {
+            get { return this.Game == ForzaGame.Motorsport2 || this.baseDatabase; }
+        }
+
         // The cars of the pack (Data_Car.MediaName of the merge database).
         public List<string> Cars()
         {
@@ -743,6 +750,11 @@ namespace ForzaStudio
                 throw new InvalidOperationException(this.Problem);
             }
             string root = StageFolder(Path.GetFileName(this.Folder));
+            if (this.UsesBaseDatabase && this.stamp.Length > 0 && this.stamp.IndexOf("|base=", StringComparison.Ordinal) < 0)
+            {
+                // the stage holds the base game's database: made again when the base game folder changes
+                this.stamp += "|base=" + (GameInfo.ConfiguredFolder(this.Game) ?? "");
+            }
             if (IsStage(root) && this.StampMatches(root))
             {
                 return root;

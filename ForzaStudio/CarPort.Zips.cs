@@ -2617,6 +2617,7 @@ namespace ForzaStudio
                     wheel.Add(name, data);
                 }
                 this.RebuildWheelLod0(wheel, media);
+                this.FixSmallRim(wheel, media, id);
                 ForzaZip.Entry version = donor.Find("versiondata.xml");
                 if (version != null && wheel.Find("versiondata.xml") == null)
                 {
@@ -2629,20 +2630,96 @@ namespace ForzaStudio
             }
         }
 
-        // The "offroad" choice: the program's own offroad tire models (Service\OffroadTires\TireA/B/C Offroad.zip, the FM4 tires made
-        // for the Raptor: same size as the normal tires) as they are, under this car's name, so the car gets the deep tread of an
-        // off-road tire whatever its source has. Only the .carbin entry takes the car's name.
-        private void OffroadTire(string kind, string wheels)
+        // Rims under 15" (TODO 10.7, in game 2026-11-07 on FIA_595_68, 145/70 R12): FM4's wheel and tire morphs only grow
+        // from the 15" reference (rim radius 0.194), so a smaller rim is drawn at 15". The car's stock wheel gets LOD 0 at
+        // its true size (0.194 x D / 15, morph target = vertices) and the "small" tires a fixed size round it
+        // (inner = rim radius, outer = inner + width x aspect), both only with Tires = small. Sizes = the source's
+        // Data_Car (front). 0 = not a small rim.
+        private double SmallRimInches()
         {
-            string sourcePath = Path.Combine(Path.Combine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Service"), "OffroadTires"), "Tire" + kind + "Offroad.zip");
+            if (this.smallRim >= 0)
+            {
+                return this.smallRim;
+            }
+            this.smallRim = 0;
+            try
+            {
+                double front = Convert.ToDouble(this.source.Scalar("SELECT FrontWheelDiameterIN FROM Data_Car WHERE Id = ?", this.carId), CultureInfo.InvariantCulture);
+                double rear = Convert.ToDouble(this.source.Scalar("SELECT RearWheelDiameterIN FROM Data_Car WHERE Id = ?", this.carId), CultureInfo.InvariantCulture);
+                this.smallTireWidth = Convert.ToDouble(this.source.Scalar("SELECT FrontTireWidthMM FROM Data_Car WHERE Id = ?", this.carId), CultureInfo.InvariantCulture);
+                this.smallTireAspect = Convert.ToDouble(this.source.Scalar("SELECT FrontTireAspect FROM Data_Car WHERE Id = ?", this.carId), CultureInfo.InvariantCulture);
+                if (front > 0 && front < SmallRimLimit)
+                {
+                    this.smallRim = front;
+                    if (rear != front)
+                    {
+                        this.Line("WARNING small rim: front {0}\" and rear {1}\" differ, the wheel and tires are fixed at the front size", front, rear);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                this.Line("small rim check: rim size not read from the source's Data_Car ({0})", e.Message);
+            }
+            return this.smallRim;
+        }
+
+        private const double SmallRimLimit = 15;
+        private double smallRim = -1;
+        private double smallTireWidth;
+        private double smallTireAspect;
+
+        private double SmallRimRadius()
+        {
+            return WheelScale.Reference * this.SmallRimInches() / 15;
+        }
+
+        private void FixSmallRim(ForzaZip wheel, string media, long id)
+        {
+            // Only with the fixed-size small tires (the pair tested in game): with the other tires (15" size) the rim stays
+            // scalable so that rim and tire still match; BuildTireZips warns.
+            if (this.SmallRimInches() <= 0 || !string.Equals(this.Tires, "small", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            object stock = this.source.Scalar("SELECT StockWheelID FROM Data_Car WHERE Id = ?", this.carId);
+            if (stock == null || Convert.ToInt64(stock, CultureInfo.InvariantCulture) != id)
+            {
+                this.Line("    wheel {0}: not the stock wheel, left scalable from 15\" (small rim {1}\")", media, this.smallRim);
+                return;
+            }
+            foreach (ForzaZip.Entry entry in new List<ForzaZip.Entry>(wheel.Entries))
+            {
+                if (!entry.Name.ToLowerInvariant().EndsWith(".carbin"))
+                {
+                    continue;
+                }
+                CarbinModel model = new CarbinModel(wheel.Read(entry));
+                string line = WheelScale.MakeTrueSize(model, this.SmallRimRadius());
+                wheel.Replace(entry, model.ToBytes());
+                this.Line("    wheel {0} {1}: small rim {2}\" (FM4 does not scale under 15\"): {3}", media, entry.Name, this.smallRim, line);
+            }
+        }
+
+        // The "offroad" and "small" choices: the program's own tire models as they are, under this car's name, whatever its source
+        // has. Offroad = Service\OffroadTires\TireA/B/COffroad.zip (the FM4 tires made for the Raptor: same size as the normal
+        // tires, deep tread); small = Service\SmallTires\TireA/B/CSmall.zip (FM4's TireA/B/CCIT_C1_11.zip: generic textures, the
+        // small tire .carbin; its A has the morph table, B and C do not). Only the .carbin entry takes the car's name.
+        private void ProgramTire(string kind, string wheels, string set)
+        {
+            string folder = set + "Tires";   // "Offroad" / "Small"
+            string sourcePath = Path.Combine(Path.Combine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Service"), folder), "Tire" + kind + set + ".zip");
             if (!File.Exists(sourcePath))
             {
-                this.Line("WARNING tire Tire{0}{1}: the offroad tire {2} is missing, the generic tire stays", kind, this.CarName, sourcePath);
+                this.Line("WARNING tire Tire{0}{1}: the {2} tire {3} is missing, the generic tire stays", kind, this.CarName, set.ToLowerInvariant(), sourcePath);
                 return;
             }
             string path = Path.Combine(wheels, "Tire" + kind + this.CarName + ".zip");
             ForzaZip from = new ForzaZip(sourcePath);
             ForzaZip tire = ForzaZip.CreateLike(from);
+            bool small = set == "Small" && this.SmallRimInches() > 0 && this.smallTireWidth > 0 && this.smallTireAspect > 0;
+            double inner = this.SmallRimRadius();
+            double outer = inner + (this.smallTireWidth / 1000 * this.smallTireAspect / 100);
             foreach (ForzaZip.Entry entry in from.Entries)
             {
                 if (entry.IsDirectory)
@@ -2650,14 +2727,31 @@ namespace ForzaStudio
                     continue;
                 }
                 string name = entry.Name.ToLowerInvariant();
+                if (name.EndsWith("_build_report.html"))
+                {
+                    continue;
+                }
+                byte[] data = from.Read(entry);
                 if (name.EndsWith(".carbin"))
                 {
                     name = ("tire" + kind + this.CarName).ToLowerInvariant() + ".carbin";
+                    if (small)
+                    {
+                        CarbinModel model = new CarbinModel(data);
+                        model.MakeTireFixed(inner, outer);
+                        data = model.ToBytes();
+                    }
                 }
-                tire.Add(name, from.Read(entry));
+                tire.Add(name, data);
             }
             this.SaveNew(tire, path);
-            this.Line("tire zip: {0} ({1} entries, the program's offroad tire as it is)", this.Relative(path), tire.Entries.Count);
+            if (small)
+            {
+                this.Line(string.Format(CultureInfo.InvariantCulture, "tire zip: {0} ({1} entries, the program's small tire at a fixed size for {2}/{3} R{4}: inner {5:0.000}, outer {6:0.000})",
+                    this.Relative(path), tire.Entries.Count, this.smallTireWidth, this.smallTireAspect, this.smallRim, inner, outer));
+                return;
+            }
+            this.Line("tire zip: {0} ({1} entries, the program's {2} tire as it is)", this.Relative(path), tire.Entries.Count, set.ToLowerInvariant());
         }
 
         // A car with its own tire model (the games ship Media\wheels\TireA/B/C<wheel>.zip beside the generic TireA/B/C.zip: the
@@ -2670,11 +2764,20 @@ namespace ForzaStudio
             string wheels = Path.Combine(Path.Combine(this.TargetRoot, "Media"), "wheels");
             // the source's tire zips are named after its car (its stock wheel has the same name in every case seen)
             string stockWheel = this.source.Scalar("SELECT w.MediaName FROM List_Wheels w JOIN Data_Car c ON c.StockWheelID = w.ID WHERE c.Id = ?", this.carId) as string;
+            if (this.SmallRimInches() > 0 && !string.Equals(this.Tires, "small", StringComparison.OrdinalIgnoreCase))
+            {
+                this.Line("WARNING small rim {0}\": with tires \"{1}\" rim and tires stay at FM4's 15\" size (drawn too big); choose Tires = Small for rim and tires at the car's size", this.smallRim, this.Tires);
+            }
             foreach (string kind in new string[] { "A", "B", "C" })
             {
                 if (string.Equals(this.Tires, "offroad", StringComparison.OrdinalIgnoreCase))
                 {
-                    this.OffroadTire(kind, wheels);
+                    this.ProgramTire(kind, wheels, "Offroad");
+                    continue;
+                }
+                if (string.Equals(this.Tires, "small", StringComparison.OrdinalIgnoreCase))
+                {
+                    this.ProgramTire(kind, wheels, "Small");
                     continue;
                 }
                 string sourceName = this.MediaName;

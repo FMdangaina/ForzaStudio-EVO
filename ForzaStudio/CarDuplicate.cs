@@ -17,8 +17,10 @@ namespace ForzaStudio
     //   strings   DisplayName / ModelShort get a key of their own in Data_Car.str of every language, a key no
     //             FM4 package uses (GameStringKeys), named IDS_DisplayName_<Id> / IDS_ModelShort_<Id>;
     //   files     the car zip under the new name (every entry name and the text files, case kept), the
-    //             thumbnail Thumbnail_<Id>.xds in the folder of the source's, zipmanifest.xml lines.
-    // The engine, drivetrain, wheel and the other shared rows stay shared with the source car; a wizard
+    //             thumbnail Thumbnail_<Id>.xds in the folder of the source's, zipmanifest.xml lines;
+    //   wheel     a stock wheel of its own: List_Wheels row (next free ID, MediaName = the new car's), its
+    //             WheelExceptions / WheelNormOffsets rows, Media\wheels\<new>.zip and the car's TireA/B/C<new>.zip.
+    // The engine, drivetrain and the other shared rows stay shared with the source car; a wizard
     // step gives the copy its own engine. Plan() reports without writing, Run() does it, every file
     // backed up first.
     public class CarDuplicate
@@ -201,6 +203,25 @@ namespace ForzaStudio
             }
             using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(files[0])))
             {
+                // the stock wheel's zip and the car's own tire zips, copied under the new name
+                string wheels = Path.Combine(this.Media, "wheels");
+                string wheel = db.Scalar("SELECT w.MediaName FROM List_Wheels w JOIN Data_Car c ON c.StockWheelID = w.ID WHERE c.MediaName = ? COLLATE NOCASE", this.SourceMediaName) as string;
+                List<string> wheelNames = new List<string>();
+                if (wheel != null)
+                {
+                    wheelNames.Add(wheel);
+                }
+                wheelNames.Add("TireA" + this.SourceMediaName);
+                wheelNames.Add("TireB" + this.SourceMediaName);
+                wheelNames.Add("TireC" + this.SourceMediaName);
+                foreach (string name in wheelNames)
+                {
+                    string zip = Path.Combine(wheels, name + ".zip");
+                    if (File.Exists(zip))
+                    {
+                        files.Add(zip);
+                    }
+                }
                 string thumbnail = db.Scalar("SELECT Thumbnail FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.SourceMediaName) as string;
                 if (!string.IsNullOrEmpty(thumbnail))
                 {
@@ -442,6 +463,33 @@ namespace ForzaStudio
                     CarPerformance.Update(db, original, sourceId, this.NewId, this.Data.Keys, plan);
                 }
 
+                // The copy's own stock wheel: a List_Wheels row of its own under the copy's name (FM4's stock wheels are
+                // named after their car, 454 of 503, IconPath = MediaName 466 of 469), its WheelExceptions and
+                // WheelNormOffsets rows; the wheel zip is written below. Never the source's wheel (user 2026-11-07).
+                string sourceWheelMedia = null, newWheelMedia = null;
+                object sourceWheel = db.Scalar("SELECT StockWheelID FROM Data_Car WHERE Id = ?", sourceId);
+                if (sourceWheel != null && sourceWheel != DBNull.Value)
+                {
+                    long oldWheel = Convert.ToInt64(sourceWheel, CultureInfo.InvariantCulture);
+                    sourceWheelMedia = db.Scalar("SELECT MediaName FROM List_Wheels WHERE ID = ?", oldWheel) as string;
+                    if (sourceWheelMedia == null)
+                    {
+                        throw new InvalidOperationException("The source's stock wheel " + oldWheel + " has no List_Wheels row.");
+                    }
+                    newWheelMedia = this.NewMediaName;
+                    if (db.Scalar("SELECT ID FROM List_Wheels WHERE MediaName = ? COLLATE NOCASE", newWheelMedia) != null || File.Exists(Path.Combine(Path.Combine(this.Media, "wheels"), newWheelMedia + ".zip")))
+                    {
+                        throw new InvalidOperationException("A wheel " + newWheelMedia + " already exists.");
+                    }
+                    long newWheel = DbIds.Next(db, "List_Wheels", "ID");
+                    CopyRow(db, "List_Wheels", "ID", oldWheel, newWheel);
+                    db.Execute("UPDATE List_Wheels SET MediaName = ? WHERE ID = ?", newWheelMedia, newWheel);
+                    db.Execute("UPDATE List_Wheels SET IconPath = ? WHERE ID = ? AND IconPath = ? COLLATE NOCASE", newWheelMedia, newWheel, sourceWheelMedia);
+                    int extra = CopyRow(db, "WheelExceptions", "WheelID", oldWheel, newWheel) + CopyRow(db, "WheelNormOffsets", "Id", oldWheel, newWheel);
+                    db.Execute("UPDATE Data_Car SET StockWheelID = ? WHERE Id = ?", newWheel, this.NewId);
+                    plan.Add(string.Format(CultureInfo.InvariantCulture, "wheel: {0} (List_Wheels {1}), a copy of {2} (id {3}){4}", newWheelMedia, newWheel, sourceWheelMedia, oldWheel, (extra > 0) ? ", with its WheelExceptions / WheelNormOffsets rows" : string.Empty));
+                }
+
                 // The integrity rules (DbIntegrity, DbIds.CheckCar): nothing is written when one breaks.
                 List<string> errors = DbIds.CheckCar(db, this.NewId, sourceId, this.NewMediaName);
                 DbIntegrity.Result check = DbIntegrity.Compare(original, db, ForzaGame.Motorsport4, null);
@@ -558,6 +606,34 @@ namespace ForzaStudio
                 }
                 plan.Add(string.Format(CultureInfo.InvariantCulture, "car zip: {0} files, {1} renamed, {2} text files with the name replaced", newZip.Entries.Count, renamed, edited));
 
+                // Wheel zip and the car's own tire zips (Media\wheels\TireA/B/C<car>.zip, found by the car's name, D-16)
+                // under the new names, the same renaming as the car zip.
+                string wheelsFolder = Path.Combine(this.Media, "wheels");
+                List<KeyValuePair<string, ForzaZip>> wheelZips = new List<KeyValuePair<string, ForzaZip>>();
+                List<string> wheelLikes = new List<string>();
+                if (sourceWheelMedia != null)
+                {
+                    string from = Path.Combine(wheelsFolder, sourceWheelMedia + ".zip");
+                    if (!File.Exists(from))
+                    {
+                        throw new InvalidOperationException("The FM4 folder has no Media\\wheels\\" + sourceWheelMedia + ".zip (the source's stock wheel).");
+                    }
+                    wheelZips.Add(new KeyValuePair<string, ForzaZip>(Path.Combine(wheelsFolder, newWheelMedia + ".zip"), RenamedZip(from, sourceWheelMedia, newWheelMedia)));
+                    wheelLikes.Add(sourceWheelMedia);
+                    plan.Add("wheel zip: Media\\wheels\\" + newWheelMedia + ".zip (copy of " + sourceWheelMedia + ".zip)");
+                }
+                foreach (string kind in new string[] { "A", "B", "C" })
+                {
+                    string from = Path.Combine(wheelsFolder, "Tire" + kind + this.SourceMediaName + ".zip");
+                    string to = Path.Combine(wheelsFolder, "Tire" + kind + this.NewMediaName + ".zip");
+                    if (File.Exists(from) && !File.Exists(to))
+                    {
+                        wheelZips.Add(new KeyValuePair<string, ForzaZip>(to, RenamedZip(from, "Tire" + kind + this.SourceMediaName, "Tire" + kind + this.NewMediaName)));
+                        wheelLikes.Add("Tire" + kind + this.SourceMediaName);
+                        plan.Add("tire zip: Media\\wheels\\" + Path.GetFileName(to) + " (copy of " + Path.GetFileName(from) + ")");
+                    }
+                }
+
                 // Thumbnail: the source's file under the new name, in the same zip and folder.
                 ForzaZip thumbnailZip = null;
                 string thumbnailZipPath = null;
@@ -650,6 +726,10 @@ namespace ForzaStudio
 
                     // New files first, the database last: an error before it leaves the game as it was.
                     newZip.Save(newZipPath);
+                    foreach (KeyValuePair<string, ForzaZip> wheelZip in wheelZips)
+                    {
+                        wheelZip.Value.Save(wheelZip.Key);
+                    }
                     List<string> changed = new List<string>();
                     foreach (KeyValuePair<string, StrFile> file in files)
                     {
@@ -692,7 +772,15 @@ namespace ForzaStudio
                     {
                         throw new InvalidOperationException("zipmanifest.xml has no line like " + like + ".");
                     }
-                    plan.Add(string.Format(CultureInfo.InvariantCulture, "zipmanifest.xml: {0} lines updated, 1 added", changed.Count));
+                    for (int i = 0; i < wheelZips.Count; i++)
+                    {
+                        string wheelLike = "game:\\media\\wheels\\" + wheelLikes[i].ToLowerInvariant() + ".zip";
+                        if (!ZipManifest.Add(manifestPath, ZipManifest.GamePath(this.TargetRoot, wheelZips[i].Key), wheelZips[i].Key, wheelLike))
+                        {
+                            throw new InvalidOperationException("zipmanifest.xml has no line like " + wheelLike + ".");
+                        }
+                    }
+                    plan.Add(string.Format(CultureInfo.InvariantCulture, "zipmanifest.xml: {0} lines updated, {1} added", changed.Count, 1 + wheelZips.Count));
                 }
             }
             finally
@@ -790,6 +878,52 @@ namespace ForzaStudio
             zip.Add(to, (edit != null) ? edit(bytes, plan) : bytes);
             plan.Add(what + ": " + to + " added to " + Path.GetFileName(zipPath) + " (copy of " + from + ")");
             return zip;
+        }
+
+        // The rows of 'table' whose 'key' is oldId, inserted again with newId. Returns how many.
+        private static int CopyRow(SqliteDatabase db, string table, string key, long oldId, long newId)
+        {
+            if (!DbIds.HasTable(db, table))
+            {
+                return 0;
+            }
+            SqliteDatabase.Result rows = db.Query("SELECT * FROM " + SqliteDatabase.Quote(table) + " WHERE " + SqliteDatabase.Quote(key) + " = ?", oldId);
+            List<string> columns = new List<string>(rows.Columns);
+            int keyAt = columns.FindIndex(delegate(string c) { return string.Equals(c, key, StringComparison.OrdinalIgnoreCase); });
+            List<string> quoted = columns.ConvertAll<string>(delegate(string c) { return SqliteDatabase.Quote(c); });
+            string sql = "INSERT INTO " + SqliteDatabase.Quote(table) + " (" + string.Join(",", quoted.ToArray()) + ") VALUES (" + string.Join(",", columns.ConvertAll<string>(delegate(string c) { return "?"; }).ToArray()) + ")";
+            foreach (object[] row in rows.Rows)
+            {
+                row[keyAt] = newId;
+                db.Execute(sql, row);
+            }
+            return rows.Rows.Count;
+        }
+
+        // A zip of the game copied with 'from' replaced by 'to' (case kept) in the entry names and the text files.
+        private static ForzaZip RenamedZip(string path, string from, string to)
+        {
+            ForzaZip source = new ForzaZip(path);
+            ForzaZip copy = ForzaZip.CreateLike(source);
+            Regex name = new Regex(Regex.Escape(from), RegexOptions.IgnoreCase);
+            string lower = to.ToLowerInvariant();
+            MatchEvaluator keepCase = delegate(Match m) { return (m.Value == m.Value.ToLowerInvariant()) ? lower : to; };
+            Encoding bytes = Encoding.GetEncoding(28591);
+            foreach (ForzaZip.Entry entry in source.Entries)
+            {
+                if (entry.IsDirectory)
+                {
+                    continue;
+                }
+                byte[] data = source.Read(entry);
+                string ext = Path.GetExtension(entry.Name).ToLowerInvariant();
+                if (ext == ".xml" || ext == ".txt" || ext == ".html")
+                {
+                    data = bytes.GetBytes(name.Replace(bytes.GetString(data), keepCase));
+                }
+                copy.Add(name.Replace(entry.Name, keepCase), data);
+            }
+            return copy;
         }
 
         // A row as text, to tell the rows a copy added from the ones it had.

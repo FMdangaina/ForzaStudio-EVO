@@ -230,6 +230,20 @@ namespace ForzaStudio
                         }
                     }
                 }
+                // The car's own stock wheel in the pack (a copy's, which the log does not list): no car of the pack left on it.
+                if (wheel != null && wheel != DBNull.Value && DbIds.HasTable(db, "List_Wheels") && db.Scalar("SELECT ID FROM List_Wheels WHERE ID = ?", Convert.ToInt64(wheel)) != null
+                    && CarUninstall.StillUsed(db, "WheelID", Convert.ToInt64(wheel)) == null)
+                {
+                    long wheelId = Convert.ToInt64(wheel);
+                    shared += this.Delete(db, "List_Wheels", "ID = " + wheelId, apply, plan);
+                    foreach (string[] t in new string[][] { new string[] { "WheelExceptions", "WheelID" }, new string[] { "WheelNormOffsets", "Id" } })
+                    {
+                        if (DbIds.HasTable(db, t[0]))
+                        {
+                            shared += this.Delete(db, t[0], t[1] + " = " + wheelId, apply, plan);
+                        }
+                    }
+                }
                 foreach (long curve in curves)
                 {
                     if (CarUninstall.StillUsed(db, "TorqueCurveID", curve) == null)
@@ -289,6 +303,14 @@ namespace ForzaStudio
                 if (wheelMedia != null && !wheelFolders.Contains(wheelMedia))
                 {
                     wheelFolders.Add(wheelMedia);
+                }
+                foreach (string kind in new string[] { "A", "B", "C" })
+                {
+                    // the car's own tire models are named after the car (D-16)
+                    if (!wheelFolders.Contains("Tire" + kind + this.MediaName))
+                    {
+                        wheelFolders.Add("Tire" + kind + this.MediaName);
+                    }
                 }
                 if (wheel != null && Convert.ToInt64(db.Scalar("SELECT count(*) FROM List_Wheels WHERE ID = ?", Convert.ToInt64(wheel))) == 0)
                 {

@@ -37,6 +37,9 @@ The full manual is MANUAL.md (open it with any text editor or a Markdown viewer)
   bin\win32)
   TireAOffroad.zip, TireBOffroad.zip,    Service\OffroadTires\       the "Offroad" tire choice of the
   TireCOffroad.zip                                                   car port
+  TireASmall.zip, TireBSmall.zip,        Service\SmallTires\         the "Small" tire choice of the
+  TireCSmall.zip (FM4's TireA/B/C                                    car port
+  CIT_C1_11.zip renamed)
 
   Without one of them, the features in its row do not work.
 

@@ -150,7 +150,7 @@ namespace ForzaStudio
                 y = this.FolderRow(page, source[0], source[1], y, true);
             }
             y = this.FolderRow(page, XeniaKey, "Xenia (DLC packs):", y, false);
-            Note(page, "The port window starts from these: FM4 as its target, the source games in the list next to its source box.", y + 4);
+            Note(page, "Set them once here. The port window lists these source games; a game's DLC are read from Xenia; the DLC without a database of their own (FM2, FM3 second disc) take it from the source game chosen there.", y + 4);
             return page;
         }
 
@@ -199,6 +199,38 @@ namespace ForzaStudio
             return y + 54;
         }
 
+        // The Xenia folder: the DLC packages its content folder holds per game, or that there is no content folder.
+        private static string DescribeXenia(string folder)
+        {
+            List<string> found = new List<string>();
+            foreach (ForzaGame game in new ForzaGame[] { ForzaGame.Motorsport2, ForzaGame.Motorsport3, ForzaGame.Motorsport4, ForzaGame.Horizon1, ForzaGame.Horizon2 })
+            {
+                try
+                {
+                    string content = DlcPackage.XeniaContent(folder, InstalledDlc.TitleId(game).ToString("X8", CultureInfo.InvariantCulture));
+                    if (Directory.Exists(content))
+                    {
+                        int packages = 0;
+                        foreach (string file in Directory.GetFiles(content))
+                        {
+                            DlcCatalog.Header header = DlcCatalog.ReadHeader(file);
+                            if (header != null && header.TitleId == InstalledDlc.TitleId(game))
+                            {
+                                packages++;
+                            }
+                        }
+                        found.Add(GameInfo.Tag(game) + " " + packages);
+                    }
+                }
+                catch (IOException)
+                {
+                }
+            }
+            return (found.Count == 0)
+                ? "no DLC content found here: choose the folder of xenia_canary.exe (or its content folder)"
+                : "DLC packages found: " + string.Join(", ", found.ToArray());
+        }
+
         // What a folder box points at: the game found there, or why not.
         private static string Describe(string folder, bool game)
         {
@@ -212,7 +244,7 @@ namespace ForzaStudio
             }
             if (!game)
             {
-                return "ok";
+                return DescribeXenia(folder);
             }
             try
             {

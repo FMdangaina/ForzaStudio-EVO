@@ -29,6 +29,7 @@ namespace ForzaStudio
             public long Aspiration;
             public string AspirationName;
             public bool Own;           // the engine row is in the database that is edited (not in the reference one)
+            public long Placement;     // Data_Car.EnginePlacementID: 1 front, 2 mid, 3 rear
 
             public int Group
             {
@@ -63,6 +64,9 @@ namespace ForzaStudio
         private readonly CheckBox follow = new CheckBox();
         private readonly Label info = new Label();
         private readonly Button change = new Button();
+        private readonly CheckBox convert = new CheckBox();
+        private readonly NumericUpDown convertTo = new NumericUpDown();
+        private readonly ComboBox placement = new ComboBox();     // 0 keep the CMT, 1 front, 2 mid, 3 rear (= EnginePlacementID)
         private bool filling;
 
         public event EventHandler Changed;
@@ -137,7 +141,7 @@ namespace ForzaStudio
             this.cylinders.SelectedIndexChanged += delegate { this.OnFilterChosen(); };
             this.aspiration.SelectedIndexChanged += delegate { this.OnFilterChosen(); };
             this.follow.CheckedChanged += delegate { if (this.follow.Checked) { this.OnTargetChanged(); } };
-            this.donors.SelectedIndexChanged += delegate { this.UpdateInfo(); };
+            this.donors.SelectedIndexChanged += delegate { this.OnDonorChanged(); };
 
             Label listen = new Label();
             listen.Text = "Listen:";
@@ -169,6 +173,31 @@ namespace ForzaStudio
             this.info.SetBounds(12, 526, 976, 64);
             this.info.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
 
+            // Options that write sound files into the pack (SoundConvert): a sound with another cylinder count, the engine moved.
+            this.convert.Text = "Convert to";
+            this.convert.SetBounds(12, 600, 86, 24);
+            this.convertTo.SetBounds(100, 600, 48, 24);
+            this.convertTo.Minimum = 1;
+            this.convertTo.Maximum = 16;
+            this.convertTo.Value = 4;
+            Label cylinderWord = new Label();
+            cylinderWord.Text = "cylinders";
+            cylinderWord.SetBounds(152, 603, 70, 20);
+            Label engineWord = new Label();
+            engineWord.Text = "Engine:";
+            engineWord.SetBounds(228, 603, 52, 20);
+            this.placement.SetBounds(282, 600, 160, 24);
+            this.placement.DropDownStyle = ComboBoxStyle.DropDownList;
+            this.placement.Items.AddRange(new object[] { "keep the car's CMT", "front", "mid", "rear" });
+            this.placement.SelectedIndex = 0;
+            this.convert.CheckedChanged += delegate { this.UpdateInfo(); };
+            this.convertTo.ValueChanged += delegate { this.UpdateInfo(); };
+            this.placement.SelectedIndexChanged += delegate { this.UpdateInfo(); };
+            foreach (Control control in new Control[] { this.convert, this.convertTo, cylinderWord, engineWord, this.placement })
+            {
+                control.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+            }
+
             this.change.Text = "Change sound";
             this.change.SetBounds(792, 596, 110, 32);
             this.change.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
@@ -197,7 +226,7 @@ namespace ForzaStudio
             body.Size = new Size(1000, 640);
             body.Dock = DockStyle.Fill;
             body.Controls.AddRange(new Control[] { left, this.targetFilter, this.targets, right, this.donorFilter, this.layout, this.cylinders, this.aspiration, this.follow, this.donors,
-                listen, this.part, this.revs, this.listenCurrent, this.listenNew, stop, this.info, details, check, this.change, close });
+                listen, this.part, this.revs, this.listenCurrent, this.listenNew, stop, this.info, this.convert, this.convertTo, cylinderWord, engineWord, this.placement, details, check, this.change, close });
             this.Controls.Add(body);
             {
                 Panel bar = new Panel();
@@ -747,6 +776,44 @@ namespace ForzaStudio
             this.FixModels(fixable, preview);
         }
 
+        // The game mounts the pack's own zip: the sound files go beside the pack's database, in its Media\audio\Cars folder.
+        // Returns the zip; audioPrefix = the entry path of that folder ("...Media/audio/Cars/").
+        private string PackZip(out string audioPrefix)
+        {
+            string zipPath = (this.dbEntry != null) ? this.dbFile : null;
+            if (zipPath == null)
+            {
+                foreach (string file in Directory.GetFiles(this.packRoot, "*_pri_*.zip", SearchOption.AllDirectories))
+                {
+                    if (Path.GetFileName(file).IndexOf("StringTables", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        zipPath = file;
+                        break;
+                    }
+                }
+            }
+            if (zipPath == null)
+            {
+                throw new InvalidOperationException("The DLC has no pack zip (Media\\DLCZips\\<offer>_pri_<n>.zip) to put the files in.");
+            }
+            int media = (this.dbEntry != null) ? this.dbEntry.IndexOf("Media/", StringComparison.OrdinalIgnoreCase) : -1;
+            audioPrefix = (media > 0 ? this.dbEntry.Substring(0, media) : "") + "Media/audio/Cars/";
+            return zipPath;
+        }
+
+        private static void Put(ForzaZip zip, string entryName, byte[] data)
+        {
+            ForzaZip.Entry existing = zip.Find(entryName);
+            if (existing != null)
+            {
+                zip.Replace(existing, data);
+            }
+            else
+            {
+                zip.Add(entryName, data);
+            }
+        }
+
         private void FixModels(List<CarRow> fixable, EnginePreview preview)
         {
             if (XeniaRunning())
@@ -762,25 +829,8 @@ namespace ForzaStudio
                 string folder = "";
                 if (this.packRoot != null)
                 {
-                    // The game mounts the pack's own zip: the models go beside the pack's database, in its Media\audio\Cars folder.
-                    zipPath = (this.dbEntry != null) ? this.dbFile : null;
-                    if (zipPath == null)
-                    {
-                        foreach (string file in Directory.GetFiles(this.packRoot, "*_pri_*.zip", SearchOption.AllDirectories))
-                        {
-                            if (Path.GetFileName(file).IndexOf("StringTables", StringComparison.OrdinalIgnoreCase) < 0)
-                            {
-                                zipPath = file;
-                                break;
-                            }
-                        }
-                    }
-                    if (zipPath == null)
-                    {
-                        throw new InvalidOperationException("The DLC has no pack zip (Media\\DLCZips\\<offer>_pri_<n>.zip) to put the files in.");
-                    }
-                    int media = (this.dbEntry != null) ? this.dbEntry.IndexOf("Media/", StringComparison.OrdinalIgnoreCase) : -1;
-                    prefix = (media > 0 ? this.dbEntry.Substring(0, media) : "") + "Media/audio/Cars/CarModelTuning/";
+                    zipPath = this.PackZip(out prefix);
+                    prefix += "CarModelTuning/";
                 }
                 else
                 {
@@ -907,7 +957,7 @@ namespace ForzaStudio
                     continue;
                 }
                 SqliteDatabase.Result result = source.Sql.Query(
-                    "SELECT c.Id, c.MediaName, e.EngineID, e.MediaName, e.ConfigID, e.CylinderID, e.AspirationID_Stock FROM Data_Car c "
+                    "SELECT c.Id, c.MediaName, e.EngineID, e.MediaName, e.ConfigID, e.CylinderID, e.AspirationID_Stock, c.EnginePlacementID FROM Data_Car c "
                     + "JOIN List_UpgradeEngine u ON u.Ordinal = c.Id AND u.IsStock = 1 JOIN Data_Engine e ON e.EngineID = u.EngineID ORDER BY c.Id");
                 foreach (object[] row in result.Rows)
                 {
@@ -930,6 +980,7 @@ namespace ForzaStudio
                     car.Aspiration = Number(row[6]);
                     car.AspirationName = aspirations.ContainsKey(car.Aspiration) ? aspirations[car.Aspiration] : car.Aspiration.ToString(CultureInfo.InvariantCulture);
                     car.Own = (source == this.db);
+                    car.Placement = Number(row[7]);
                     this.cars.Add(car);
                 }
             }
@@ -1040,10 +1091,52 @@ namespace ForzaStudio
             this.UpdateInfo();
         }
 
+        // The options that write files need the pack opened in this window (the editor would overwrite its zip).
+        private bool CanWriteFiles
+        {
+            get { return this.standalone && this.packRoot != null && this.db != null; }
+        }
+
+        // Proposed: convert when the picked sound has another cylinder count than the car's engine.
+        private void OnDonorChanged()
+        {
+            CarRow target = this.SelectedTarget();
+            CarRow donor = this.SelectedDonor();
+            if (target != null && donor != null && target.Cylinders > 0)
+            {
+                this.convertTo.Value = Math.Min(this.convertTo.Maximum, Math.Max(this.convertTo.Minimum, target.Cylinders));
+                this.convert.Checked = this.CanWriteFiles && donor.Cylinders != target.Cylinders;
+            }
+            this.UpdateInfo();
+        }
+
+        // Proposed engine position: the car's Data_Car.EnginePlacementID when its CMT puts the engine on the other side of
+        // the cabin (FH1 595: rear in the DB, front in the CMT); else the CMT is kept. The user can pick any.
+        private void ProposePlacement(CarRow target)
+        {
+            int propose = 0;
+            if (target != null && this.CanWriteFiles && target.Placement >= 1 && target.Placement <= 3)
+            {
+                try
+                {
+                    byte[] cmt = this.Preview().FindModel(target.Media);
+                    if (cmt != null && SoundConvert.EngineInFront(Encoding.GetEncoding(28591).GetString(cmt)) != (target.Placement == 1))
+                    {
+                        propose = (int) target.Placement;
+                    }
+                }
+                catch (Exception)
+                {
+                }
+            }
+            this.placement.SelectedIndex = propose;
+        }
+
         // The filters take the engine of the selected car (Same engine as the car).
         private void OnTargetChanged()
         {
             CarRow target = this.SelectedTarget();
+            this.ProposePlacement(target);
             if (target != null && this.follow.Checked)
             {
                 this.filling = true;
@@ -1070,7 +1163,11 @@ namespace ForzaStudio
         {
             CarRow target = this.SelectedTarget();
             CarRow donor = this.SelectedDonor();
-            this.change.Enabled = target != null && donor != null;
+            bool files = this.CanWriteFiles;
+            this.convert.Enabled = files;
+            this.convertTo.Enabled = files && this.convert.Checked;
+            this.placement.Enabled = files;
+            this.change.Enabled = target != null && (donor != null || (files && this.placement.SelectedIndex > 0));
             this.listenCurrent.Enabled = target != null;
             this.listenNew.Enabled = donor != null;
             if (this.db == null)
@@ -1091,6 +1188,21 @@ namespace ForzaStudio
             else if (donor != null)
             {
                 text += string.Format(CultureInfo.InvariantCulture, "\nIt will play the sound {0} of {1}. {2}", donor.Sound, donor.Name, string.Equals(donor.Sound, target.Sound, StringComparison.OrdinalIgnoreCase) ? "(it is the same sound already)" : "");
+                if (files && this.convert.Checked)
+                {
+                    text += string.Format(CultureInfo.InvariantCulture, " Turned into a {0}-cylinder sound ({1}_ET.xml + <bank>_{0}cyl_HT.xml in the pack, same banks).", this.convertTo.Value, target.Media);
+                }
+            }
+            if (files && this.placement.SelectedIndex > 0)
+            {
+                bool back = this.placement.SelectedIndex > 1;
+                text += string.Format(CultureInfo.InvariantCulture, "\nEngine {0} (car's DB: {1}): {2}_CMT.xml intake z = exhaust z x {3}, engine z = exhaust z x {4}, listener pans / volumes = FM4 {5}-engine medians.",
+                    this.placement.SelectedItem, (target.Placement >= 1 && target.Placement <= 3) ? (string) this.placement.Items[(int) target.Placement] : "?", target.Media,
+                    back ? SoundConvert.IntakeRatio : SoundConvert.FrontIntakeRatio, back ? SoundConvert.AmbientRatio : SoundConvert.FrontAmbientRatio, back ? "mid" : "front");
+            }
+            else if (!files && this.db != null)
+            {
+                text += "\nCylinder conversion and engine position write sound files: open the pack here (DLC package... / DLC folder...).";
             }
             this.info.Text = text;
         }
@@ -1099,8 +1211,16 @@ namespace ForzaStudio
         {
             CarRow target = this.SelectedTarget();
             CarRow donor = this.SelectedDonor();
-            if (target == null || donor == null || this.filling)
+            bool files = this.CanWriteFiles;
+            bool convertOn = files && this.convert.Checked && donor != null;
+            int place = files ? this.placement.SelectedIndex : 0;
+            if (target == null || (donor == null && place == 0) || this.filling)
             {
+                return;
+            }
+            if (convertOn || place > 0)
+            {
+                this.ApplyWithFiles(target, donor, convertOn, place);
                 return;
             }
             if (this.standalone && XeniaRunning())
@@ -1179,6 +1299,145 @@ namespace ForzaStudio
                 this.Changed(this, EventArgs.Empty);
             }
             this.info.Text = target.Name + ": sound " + previous + " -> " + donor.Sound + ((saved != null) ? " (" + saved + ")." : ". Save the database afterwards (File > Save).");
+        }
+
+        // Change sound with the options that write files into the pack zip (only with the pack opened here, CanWriteFiles):
+        // a donor sound turned into the car's cylinder count (new <car>_ET.xml + <bank>_<n>cyl_HT.xml, same banks; the
+        // engine's MediaName = the car's), and / or the car's CMT for the engine position picked (1 front, 2 mid, 3 rear). See SoundConvert.
+        private void ApplyWithFiles(CarRow target, CarRow donor, bool convertOn, int place)
+        {
+            if (XeniaRunning())
+            {
+                MessageBox.Show(this, "Close Xenia first: it keeps the game and DLC files in use and reads them when it starts.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!target.Own)
+            {
+                MessageBox.Show(this, "The engine of this car is in the game's own database, not in this pack.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            Encoding latin = Encoding.GetEncoding(28591);
+            EnginePreview preview = this.Preview();
+            string newSound = (donor != null) ? donor.Sound : target.Sound;
+            List<string> log = new List<string>();
+            Dictionary<string, byte[]> put = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);   // entry under Media/audio/Cars/ -> data
+            try
+            {
+                Cursor.Current = Cursors.WaitCursor;
+                if (donor != null)
+                {
+                    List<string> soundProblems = preview.Diagnose(donor.Sound);
+                    if (soundProblems.Count > 0
+                        && MessageBox.Show(this, "The sound " + donor.Sound + " has a problem:\n\n" + string.Join("\n", soundProblems.ToArray()) + "\n\nChange it anyway?", this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                    {
+                        return;
+                    }
+                }
+                if (convertOn)
+                {
+                    byte[] tuning = preview.FindTuning(donor.Sound);
+                    if (tuning == null)
+                    {
+                        throw new FileNotFoundException("The engine tuning " + donor.Sound + "_ET.xml was not found in the game or the pack.");
+                    }
+                    SoundConvert.Result result = SoundConvert.Cylinders(tuning, preview.FindHarmonic, (int) donor.Cylinders, (int) this.convertTo.Value);
+                    log.AddRange(result.Log);
+                    if (result.Harmonics.Count > 0)
+                    {
+                        newSound = target.Media;
+                        put["Engines/enginetuning/" + target.Media + "_ET.xml"] = latin.GetBytes(result.Tuning);
+                        foreach (KeyValuePair<string, string> harmonic in result.Harmonics)
+                        {
+                            put["Engines/harmonictuning/" + harmonic.Key] = latin.GetBytes(harmonic.Value);
+                        }
+                        log.Add(target.Media + "_ET.xml = " + donor.Sound + "_ET.xml pointing to them");
+                    }
+                }
+                if (place > 0)
+                {
+                    byte[] cmt = preview.FindModel(target.Media);
+                    if (cmt == null)
+                    {
+                        throw new FileNotFoundException("The car has no model tuning " + target.Media + "_CMT.xml: add it first with Check sounds > Fix.");
+                    }
+                    put["CarModelTuning/" + target.Media + "_CMT.xml"] = latin.GetBytes(SoundConvert.Place(latin.GetString(cmt), place >= 2, log));
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, this.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+            bool dbChange = !string.Equals(newSound, target.Sound, StringComparison.OrdinalIgnoreCase);
+            if (dbChange)
+            {
+                List<string> users = this.db.EngineUsers(target.EngineId);
+                if (users.Count > 1
+                    && MessageBox.Show(this, "The engine " + target.Sound + " is also the stock engine of " + (users.Count - 1) + " other car(s): " + string.Join(", ", users.GetRange(0, Math.Min(6, users.Count)).ToArray()) + (users.Count > 6 ? ", ..." : "") + ".\nTheir sound changes too. Continue?", this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    return;
+                }
+            }
+            string saved;
+            try
+            {
+                Cursor.Current = Cursors.WaitCursor;
+                string prefix;
+                string zipPath = this.PackZip(out prefix);
+                ForzaZip zip = new ForzaZip(zipPath);
+                foreach (KeyValuePair<string, byte[]> file in put)
+                {
+                    Put(zip, prefix + file.Key, file.Value);
+                }
+                Backup(zipPath);
+                zip.Save(zipPath);
+                if (dbChange)
+                {
+                    long rowId = this.db.RowIdOf("Data_Engine", target.EngineId);
+                    if (rowId < 0)
+                    {
+                        throw new InvalidOperationException("The engine " + target.EngineId + " has no row in this database.");
+                    }
+                    Dictionary<string, object> values = new Dictionary<string, object>();
+                    values["MediaName"] = newSound;
+                    this.db.UpdateColumns("Data_Engine", rowId, values, "Change sound: " + target.Name + " " + target.Sound + " -> " + newSound + ((donor != null) ? " (" + donor.Name + ")" : ""));
+                    saved = this.SaveSource();
+                }
+                else
+                {
+                    saved = this.Repack(put.Count + " file(s) written to " + Path.GetFileName(zipPath));
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "The change is not complete:\n\n" + ex.Message, this.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+            string previous = target.Sound;
+            foreach (CarRow car in this.cars)
+            {
+                if (car.Own && car.EngineId == target.EngineId)
+                {
+                    car.Sound = newSound;
+                }
+            }
+            this.FillTargets();
+            this.FillDonors();
+            if (this.Changed != null)
+            {
+                this.Changed(this, EventArgs.Empty);
+            }
+            string done = target.Name + ": sound " + previous + " -> " + newSound + " (" + saved + ").";
+            this.info.Text = done;
+            MessageBox.Show(this, done + "\n\n" + string.Join("\n", log.ToArray()), this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 }

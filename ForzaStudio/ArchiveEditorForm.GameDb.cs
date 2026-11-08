@@ -820,45 +820,63 @@ namespace ForzaStudio
             }
         }
 
-        // A partial database (DLC patch) gets its names from the nearest full gamedb.slt above it:
-        // <folder>\gamedb.slt or <folder>\Media\db\gamedb.slt.
+        // A partial database (DLC patch) gets its names and drop-down lists from a full gamedb.slt: the nearest one
+        // above it (<folder>\gamedb.slt or <folder>\Media\db\gamedb.slt; for a .slt inside a pack zip, above the
+        // zip), else the base game's (GameRoot: the package's source game or the DLC folder's FM4), else the FM4
+        // port target (Tools > Settings) for a pack zip opened from anywhere else.
         private void LoadReferenceDb(ForzaZip.Entry entry)
         {
-            if (entry.FullPath == null || (this.gameDb.HasTable("List_CarMake") && this.gameDb.HasTable("CarClasses") && this.gameDb.HasTable("Tracks")))
+            if (this.gameDb.HasTable("List_CarMake") && this.gameDb.HasTable("CarClasses") && this.gameDb.HasTable("Tracks"))
             {
                 return;
             }
-            string self = Path.GetFullPath(entry.FullPath);
-            string folder = Path.GetDirectoryName(self);
+            string self = (entry.FullPath != null) ? Path.GetFullPath(entry.FullPath) : null;
+            List<string> candidates = new List<string>();
+            string start = (self != null) ? self : (this.zip != null && this.zip.FilePath != null ? Path.GetFullPath(this.zip.FilePath) : null);
+            string folder = (start != null) ? Path.GetDirectoryName(start) : null;
             while (!string.IsNullOrEmpty(folder))
             {
-                foreach (string candidate in new string[] { Path.Combine(folder, "gamedb.slt"), Path.Combine(Path.Combine(Path.Combine(folder, "Media"), "db"), "gamedb.slt") })
-                {
-                    if (!File.Exists(candidate) || string.Equals(Path.GetFullPath(candidate), self, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-                    try
-                    {
-                        ForzaZip.Entry open = this.EntryForFile(candidate);
-                        GameDatabase reference = new GameDatabase((open != null) ? this.zip.Read(open) : File.ReadAllBytes(candidate));
-                        if (!reference.HasTable("Data_Car"))
-                        {
-                            reference.Dispose();
-                            continue;
-                        }
-                        this.gameDb.Reference = reference;
-                        string shown = (this.GameRoot != null && candidate.StartsWith(this.GameRoot, StringComparison.OrdinalIgnoreCase)) ? candidate.Substring(this.GameRoot.Length).TrimStart('\\') : candidate;
-                        this.lblDbReference.Text = "Names from " + shown;
-                        this.lblDbReference.ToolTipText = "This database is partial (a DLC patch): names of makes, classes, tracks and other cars come from\n" + candidate;
-                        return;
-                    }
-                    catch (Exception)
-                    {
-                    }
-                }
+                candidates.Add(Path.Combine(folder, "gamedb.slt"));
+                candidates.Add(Path.Combine(Path.Combine(Path.Combine(folder, "Media"), "db"), "gamedb.slt"));
                 folder = Path.GetDirectoryName(folder);
             }
+            string root = this.GameRoot;
+            if (!string.IsNullOrEmpty(root))
+            {
+                candidates.Add(Path.Combine(Path.Combine(Path.Combine(root, "Media"), "db"), "gamedb.slt"));
+            }
+            string target = AppSettings.Get("CarPort.Target", "");
+            if (!string.IsNullOrEmpty(target))
+            {
+                candidates.Add(Path.Combine(Path.Combine(Path.Combine(target, "Media"), "db"), "gamedb.slt"));
+            }
+            foreach (string candidate in candidates)
+            {
+                if (!File.Exists(candidate) || (self != null && string.Equals(Path.GetFullPath(candidate), self, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+                try
+                {
+                    ForzaZip.Entry open = this.EntryForFile(candidate);
+                    GameDatabase reference = new GameDatabase((open != null) ? this.zip.Read(open) : File.ReadAllBytes(candidate));
+                    if (!reference.HasTable("Data_Car") || !reference.HasTable("List_CarMake"))
+                    {
+                        reference.Dispose();
+                        continue;
+                    }
+                    this.gameDb.Reference = reference;
+                    string shown = (root != null && candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase)) ? candidate.Substring(root.Length).TrimStart('\\') : candidate;
+                    this.lblDbReference.Text = "Names from " + shown;
+                    this.lblDbReference.ToolTipText = "This database is partial (a DLC patch): names and drop-down lists of makes, classes, tracks, wheels and other cars come from\n" + candidate;
+                    return;
+                }
+                catch (Exception)
+                {
+                }
+            }
+            this.lblDbReference.Text = "No base gamedb.slt";
+            this.lblDbReference.ToolTipText = "This database is partial (a DLC patch) and no full gamedb.slt was found: set the game folder in Tools > Settings > Folders to get the drop-down lists.";
         }
 
         private void CloseGameDb()

@@ -126,7 +126,7 @@ namespace ForzaStudio
                 patch.Execute("UPDATE ContentOffers SET DisplayName = ?, Description = ?",
                     "_&" + ((hi << 16) | (long) displayKey).ToString(CultureInfo.InvariantCulture),
                     "_&" + ((hi << 16) | (long) descriptionKey).ToString(CultureInfo.InvariantCulture));
-                // The merge holds only the tables that got rows: a car copy adds no wheel row.
+                // The merge holds only the tables that got rows (a pack may have no List_Wheels table).
                 string mediaNames = DbIds.HasTable(patch, "List_Wheels") ? "SELECT MediaName FROM Data_Car UNION SELECT MediaName FROM List_Wheels" : "SELECT MediaName FROM Data_Car";
                 foreach (object[] row in patch.Query(mediaNames).Rows)
                 {

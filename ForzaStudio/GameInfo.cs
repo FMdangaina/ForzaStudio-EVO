@@ -88,10 +88,31 @@ namespace ForzaStudio
             }
         }
 
+        private static readonly System.Collections.Generic.Dictionary<ForzaGame, string> sourceFolders = new System.Collections.Generic.Dictionary<ForzaGame, string>();
+
+        // The port window's source game folder (checked to be that game), used by ConfiguredFolder before Settings.
+        public static void UseSourceFolder(ForzaGame game, string folder)
+        {
+            lock (sourceFolders)
+            {
+                sourceFolders[game] = folder;
+            }
+        }
+
         // The game folder set in Tools > Settings > Folders for a source game (its gamedb, wheels and strings
         // complete the DLC packages of that game), or null when it is not set or holds another game.
         public static string ConfiguredFolder(ForzaGame game)
         {
+            // The game folder chosen as the source in the port window wins: the packages of that game take their
+            // database from the same game the user is looking at (user 2026-11-08: one place, not Settings behind it).
+            lock (sourceFolders)
+            {
+                string chosen;
+                if (sourceFolders.TryGetValue(game, out chosen) && Directory.Exists(chosen))
+                {
+                    return chosen;
+                }
+            }
             string key = null;
             switch (game)
             {

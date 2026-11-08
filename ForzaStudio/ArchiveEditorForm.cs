@@ -261,6 +261,7 @@
             model.DropDownItems.Add(new ToolStripMenuItem("Export Model to &glTF...", null, delegate { this.ExportModelFbx(true); }));
             model.DropDownItems.Add(new ToolStripMenuItem("Import Model from gl&TF...", null, delegate { this.ImportModelFbx(true); }));
             model.DropDownItems.Add(new ToolStripSeparator());
+            model.DropDownItems.Add(new ToolStripMenuItem("Make &Rim Scalable...", null, delegate { this.MakeRimScalable(true); }));
             model.DropDownItems.Add(new ToolStripMenuItem("Export &UV Map to TGA...", null, delegate { this.ExportUvMap(); }));
             model.DropDownOpening += delegate { exportChecked.Enabled = this.pnlModel.Visible && this.scene != null; };
 
@@ -279,24 +280,15 @@
             };
 
             ToolStripMenuItem tools = new ToolStripMenuItem("&Tools");
-            // Target game first, then the source (import only); routes without a conversion + window yet are greyed (PortPairs).
+            // Only the target game is chosen here; the source game is read from the folder chosen in the window
+            // (user 2026-11-08). Targets without a conversion + window yet are greyed (PortPairs).
             ToolStripMenuItem importCar = new ToolStripMenuItem("&Import Car From Another Forza");
             ToolStripMenuItem createDlc = new ToolStripMenuItem("Create &DLC Package");
             foreach (string target in PortPairs.Games)
             {
                 string t = target;
-                ToolStripMenuItem into = new ToolStripMenuItem("Into " + t);
-                foreach (string source in PortPairs.Games)
-                {
-                    if (source == t)
-                    {
-                        continue;
-                    }
-                    string s = source;
-                    ToolStripMenuItem from = new ToolStripMenuItem("From " + s + "...", null, delegate { this.ShowCarPort(PortMode.Import, t, s); });
-                    from.Enabled = PortPairs.CanImport(t, s);
-                    into.DropDownItems.Add(from);
-                }
+                ToolStripMenuItem into = new ToolStripMenuItem("For " + t + "...", null, delegate { this.ShowCarPort(PortMode.Import, t, null); });
+                into.Enabled = PortPairs.CanImportInto(t);
                 importCar.DropDownItems.Add(into);
                 ToolStripMenuItem pack = new ToolStripMenuItem("For " + t + "...", null, delegate { this.ShowCarPort(PortMode.Dlc, t, null); });
                 pack.Enabled = PortPairs.CanCreateDlc(t);
@@ -397,9 +389,9 @@
             string root = (this.zip == null) ? null : GamePaths.FindRoot(this.zip.FilePath);
             bool fm4 = root != null && GameInfo.Detect(root) == ForzaGame.Motorsport4;
             CarPortForm port = new CarPortForm(fm4 ? root : null, mode);
-            if (mode == PortMode.Import && sourceGame != null)
+            if (mode == PortMode.Import)
             {
-                port.Text = "Import Car From Another Forza: " + sourceGame + " > " + targetGame;
+                port.Text = "Import Car From Another Forza > " + targetGame;
             }
             if (fm4)
             {
@@ -599,6 +591,8 @@
                 this.zip = opened;
                 this.PopulateTree();
                 this.SetStatus(string.Format("Opened {0} ({1} files)", Path.GetFileName(path), this.zip.Entries.Count));
+                Cursor.Current = Cursors.Default;
+                this.CheckWheelScaleOnOpen();
             }
             catch (Exception exception)
             {

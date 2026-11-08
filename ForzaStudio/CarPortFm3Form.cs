@@ -10,7 +10,7 @@ namespace ForzaStudio
     using System.Threading;
     using System.Windows.Forms;
 
-    // Tools > Import Car From Another Forza > Into FM3 > From FM4, and Tools > Create DLC Package > For FM3 (CarPortToFm3, DlcPackage.Fm3).
+    // Tools > Import Car From Another Forza > For FM3 (source folder = FM4), and Tools > Create DLC Package > For FM3 (CarPortToFm3, DlcPackage.Fm3).
     // The same screen as the FM4 window (CarPortForm): brand bar and game banner, the two game folders, the cars, the selected car's
     // template, the pack on the right (Dlc), the report under both. The folders start from Tools > Settings (FM4 = the port target,
     // FM3 = Folder.FM3, Xenia) and the last ones used. Own class because CarPortForm is built around FM4 as the target.
