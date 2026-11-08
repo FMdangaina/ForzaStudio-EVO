@@ -373,6 +373,50 @@ namespace ForzaStudio
             return cars;
         }
 
+        // The cars whose files the package holds (media\cars\<name>\ with a .carbin), whatever its database:
+        // also FM4's disc 2 (offers 1-4) and FM3's second-disc packs, whose rows are the base game's.
+        public List<string> CarFolders()
+        {
+            return this.Fm2CarFolders();
+        }
+
+        // Writes one car's files (media\cars\<car>\...) to <folder>\<car>.zip, stored as the game's car zips, and
+        // returns it; null when the package does not hold the car. The package itself is only read.
+        public string ExtractCar(string car, string folder)
+        {
+            string prefix = "media/cars/" + car + "/";
+            string work = Path.Combine(folder, car);
+            if (Directory.Exists(work))
+            {
+                Directory.Delete(work, true);
+            }
+            int count = 0;
+            foreach (Layer layer in this.layers)
+            {
+                string mount = (layer.Mount.Length > 0) ? layer.Mount.Replace('\\', '/') + "/" : string.Empty;
+                foreach (LayerFile file in this.Files(layer))
+                {
+                    string name = (mount + file.Key).Replace('\\', '/');
+                    if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || name.Length == prefix.Length)
+                    {
+                        continue;
+                    }
+                    string path = Path.Combine(work, name.Substring(prefix.Length).Replace('/', '\\'));
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
+                    File.WriteAllBytes(path, file.Value());   // a higher priority layer comes later and replaces it
+                    count++;
+                }
+            }
+            if (count == 0)
+            {
+                return null;
+            }
+            string zip = work + ".zip";
+            DlcPackage.WriteStoredZip(work, zip);
+            Directory.Delete(work, true);
+            return zip;
+        }
+
         // Every package below a folder (a content folder, 00000002, or a folder of extracted packages).
         public static List<DlcSource> Find(string folder)
         {

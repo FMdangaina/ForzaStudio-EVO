@@ -432,7 +432,14 @@ Background C3 (research). Paused by the user 2026-10-19.
         Data_Car.EnginePlacementID (shown when the CMT disagrees; another pick UPDATEs Data_Car, the move follows).
         Trials: no picks = both rows + 4 -> 3 + moved; picks CylinderID 1 + placement 1 = "used as it is" + CMT kept.
         PROBLEM: List_Cylinders (FH1 = FM4) has NO 2-cylinder piston row (0, 3, 4, 5, 6, 8, 10, 12, 16 + 2/3/4
-        rotors): the 595 cannot be 2 cylinders through the data -> user to decide.
+        rotors): the 595 cannot be 2 cylinders through the data -> user 2026-11-08: "fm4 non ha motori 2 cilindri,
+        va bene così" = CLOSED, no 2-cylinder row added (Change Car Sound can still convert to 2).
+        RULE CHANGED 2026-11-08 (user: "suono molto meglio adesso che prima, teniamo questa regola"): M = the donor
+        ENGINE's cylinders for EVERY HT, not the leading number of each HT name (only the fallback when the donor's
+        cylinders are unknown). Impreza 22B -> 2: the 8N2_SC430 intake was x4, now x2 like the 4-cyl banks (the
+        mechanism of a mod video: 3-cyl from the NSX V6, the V6's 400 rpm = the 3-cyl's 800). Test 11 (`test11.cs`)
+        in game = much better. `SoundConvert.Cylinders` changed, built; offline the app gives test 11's 3 HTs + ET
+        byte-identical (`E:\DEV\fm4dev\Fm1_595\v11`). Port trials not re-run. Uncommitted.
 
 ### 11. Model editing and automatic LODs ✅ (closed 2026-10-31 by the user; 11.1-11.4 closed with it, 11.5 automatic LODs and 11.6 gr2 editor not done, left as ideas)
 

@@ -205,7 +205,10 @@
             file.DropDownItems.Add(rebuild);
             ToolStripMenuItem deletePackageCar = new ToolStripMenuItem("Delete Car from DLC Package...", null, delegate { this.DeletePackageCar(); });
             file.DropDownItems.Add(deletePackageCar);
-            file.DropDownOpening += delegate { rebuild.Enabled = this.package != null; deletePackageCar.Enabled = this.package != null; };
+            ToolStripMenuItem baseDb = new ToolStripMenuItem("Base Game Database (disc 2 packs)", null, delegate { this.ShowBaseDatabase(); });
+            baseDb.ToolTipText = "For a package with cars but no database of its own (FM4 disc 2, FM3 second disc): the base game's gamedb.slt, read-only, linked to the pack's cars.";
+            file.DropDownItems.Add(baseDb);
+            file.DropDownOpening += delegate { rebuild.Enabled = this.package != null; deletePackageCar.Enabled = this.package != null; baseDb.Enabled = this.package != null; };
             file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add(new ToolStripMenuItem("E&xit", null, delegate { this.Close(); }));
 

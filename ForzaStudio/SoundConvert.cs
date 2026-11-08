@@ -10,8 +10,10 @@ namespace ForzaStudio
     //  - Cylinders: an N-cylinder sound from an M-cylinder bank. Same firing rate, so rpm(N) = rpm(M) x M / N
     //    (4 cylinders at 1000 rpm fire as 2 at 2000). Every Loop's rpm_sample / rpm_min / rpm_max of the harmonic tuning
     //    x M / N, except the first rpm_min and the last rpm_max (the ends of the range) kept. The bank is the same fsb; the
-    //    scaled tuning is a new file <name>_<N>cyl_HT.xml. M = the leading number of the HT name (4N3_..., 8N2_...), else
-    //    the cylinders of the donor's engine.
+    //    scaled tuning is a new file <name>_<N>cyl_HT.xml. M = the cylinders of the donor's ENGINE for every HT, also
+    //    when FM4 gives that engine a bank of another count (the Impreza 22B's intake is the V8 8N2_SC430: x 4 by its
+    //    name sounded wrong, x 2 = 4 -> 2 like the other banks sounded much better, test11 in game 2026-11-08). Only
+    //    when the donor's cylinders are not known: M = the leading number of the HT name (4N3_..., 8N2_...).
     //    The ET's EngineSettings num_cylinders scales the same way (FM4 writes it as the cylinders or as half of them,
     //    e.g. 2 for most 4-cylinder ETs: the donor's own convention is kept): round(donor value x N / M), at least 1, 0 kept.
     //  - Engine position (the user picks front / mid / rear): the car model tuning (CMT) <Chassis> EngineIntake and
@@ -136,7 +138,8 @@ namespace ForzaStudio
         }
 
         // The donor's engine tuning turned into a 'target'-cylinder one. readHarmonic: HT file name -> bytes or null.
-        // donorCylinders: used when an HT name has no leading number. HTs already of 'target' cylinders are kept as they are.
+        // donorCylinders: M for every HT (see the class note); 0 = not known, then the leading number of each HT name.
+        // HTs whose M is already 'target' are kept as they are.
         public static Result Cylinders(byte[] tuning, Func<string, byte[]> readHarmonic, int donorCylinders, int target)
         {
             if (target <= 0)
@@ -156,11 +159,7 @@ namespace ForzaStudio
             }
             foreach (string name in names)
             {
-                int bank = BankCylinders(name);
-                if (bank <= 0)
-                {
-                    bank = donorCylinders;
-                }
+                int bank = (donorCylinders > 0) ? donorCylinders : BankCylinders(name);
                 if (bank <= 0)
                 {
                     throw new InvalidOperationException("The cylinders of the bank of " + name + "_HT.xml are not known (no leading number in its name, no cylinders in the donor's engine).");

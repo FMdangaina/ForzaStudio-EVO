@@ -121,6 +121,7 @@ namespace ForzaStudio
 
         // The game plus its installed DLC packages (InstalledDlc.Merge): a view, never written to the game's file.
         public bool ReadOnly;
+        public string ReadOnlyReason;   // the message of an edit refused, when not the DLC view's
         public readonly Dictionary<long, string> DlcCars = new Dictionary<long, string>();
         public readonly Dictionary<long, string> DlcTracks = new Dictionary<long, string>();
 
@@ -128,7 +129,7 @@ namespace ForzaStudio
         {
             if (this.ReadOnly)
             {
-                throw new InvalidOperationException("This view holds the game plus its installed DLC packages and is read-only. Turn the DLC button off in the toolbar to edit the game's own database.");
+                throw new InvalidOperationException(this.ReadOnlyReason ?? "This view holds the game plus its installed DLC packages and is read-only. Turn the DLC button off in the toolbar to edit the game's own database.");
             }
         }
 

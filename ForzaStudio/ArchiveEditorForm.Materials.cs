@@ -64,18 +64,21 @@ namespace ForzaStudio
             this.tabSide = new TabControl();
             FlowLayoutPanel part = this.AddSideTab("Part");
             FlowLayoutPanel textures = this.AddSideTab("Texture");
+            // SHADER next to TEXTURE (ArchiveEditorForm.ShaderTab.cs). Added in place: TabPages.Insert does
+            // nothing before the control has its handle, so the pages are only ever added in order.
+            FlowLayoutPanel shader = this.AddSideTab("Shader");
             FlowLayoutPanel camera = this.AddSideTab("Camera");
-            this.tabSideCamera = this.tabSide.TabPages[2];
+            this.tabSideCamera = (TabPage) camera.Parent;
             FlowLayoutPanel collision = this.AddSideTab("Collision");
-            this.tabSideCollision = this.tabSide.TabPages[3];
+            this.tabSideCollision = (TabPage) collision.Parent;
             FlowLayoutPanel exhaust = this.AddSideTab("Exhaust");
-            this.tabSideExhaust = this.tabSide.TabPages[4];
+            this.tabSideExhaust = (TabPage) exhaust.Parent;
             FlowLayoutPanel driver = this.AddSideTab("Driver");
-            this.tabSideDriver = this.tabSide.TabPages[5];
+            this.tabSideDriver = (TabPage) driver.Parent;
             FlowLayoutPanel meshEdit = this.AddSideTab("Mesh");
-            this.tabSideMesh = this.tabSide.TabPages[6];
+            this.tabSideMesh = (TabPage) meshEdit.Parent;
             FlowLayoutPanel gauges = this.AddSideTab("Gauges");
-            this.tabSideGauges = this.tabSide.TabPages[7];
+            this.tabSideGauges = (TabPage) gauges.Parent;
             this.tabSide.SelectedIndexChanged += delegate { this.MeshWireframeFollowTab(); this.UpdateViewOverlay(); };
             host.Controls.Add(SideRailHost(this.tabSide));
 
@@ -145,6 +148,7 @@ namespace ForzaStudio
             this.AddDriverControls(driver);
             this.AddMeshEditControls(meshEdit);
             this.AddGaugeControls(gauges);
+            this.AddShaderTabControls(shader);
 
             this.tvModel.AfterSelect += delegate { this.TreeSelected(); };
             return host;

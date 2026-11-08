@@ -30,10 +30,11 @@ namespace ForzaStudio
             public bool IsFolder;
             public string EntryName;
             public DbView Db;
+            public bool BaseDb;     // the base game's database shown over a package's zip (ShowBaseDatabase)
 
             public override string ToString()
             {
-                string name = (this.EntryName != null) ? this.EntryName.Substring(this.EntryName.LastIndexOf('/') + 1) : Path.GetFileName(this.SourcePath.TrimEnd('\\'));
+                string name = this.BaseDb ? BaseDbName : (this.EntryName != null) ? this.EntryName.Substring(this.EntryName.LastIndexOf('/') + 1) : Path.GetFileName(this.SourcePath.TrimEnd('\\'));
                 if (this.Db != null && this.Db.ItemKey != null)
                 {
                     name += string.Format(" ({0} #{1})", this.Db.Section, this.Db.ItemKey);
@@ -96,6 +97,11 @@ namespace ForzaStudio
             {
                 bookmark.Db = this.CaptureDbView();
             }
+            else if (this.gameDb != null && this.baseDbEntry != null && this.gameDbEntry == this.baseDbEntry && this.pnlGameDb.Visible)
+            {
+                bookmark.BaseDb = true;
+                bookmark.Db = this.CaptureDbView();
+            }
             return bookmark;
         }
 
@@ -139,6 +145,16 @@ namespace ForzaStudio
                     this.bookmarks.Add(bookmark);
                     return;
                 }
+            }
+            if (bookmark.BaseDb)
+            {
+                this.ShowBaseDatabase();
+                if (this.gameDb != null && this.gameDbEntry == this.baseDbEntry && bookmark.Db != null)
+                {
+                    this.RestoreDbView(bookmark.Db);
+                }
+                this.SetStatus("Back to " + bookmark);
+                return;
             }
             if (bookmark.EntryName != null && (this.currentEntry == null || this.currentEntry.Name != bookmark.EntryName))
             {

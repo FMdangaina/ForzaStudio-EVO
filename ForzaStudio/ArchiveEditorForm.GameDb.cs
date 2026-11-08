@@ -634,7 +634,7 @@ namespace ForzaStudio
         {
             this.dlcMerged = null;
             this.btnDbDlc.Text = "DLC";
-            if (!this.btnDbDlc.Checked || entry.IsModified || this.GameRoot == null)
+            if (!this.btnDbDlc.Checked || entry.IsModified || this.GameRoot == null || entry == this.baseDbEntry)
             {
                 return;
             }
@@ -1526,6 +1526,21 @@ namespace ForzaStudio
                 return;
             }
             string car = GamePaths.FindCar(root, media);
+            if (car == null)
+            {
+                // Not in the game folder: FM3/FM4 keep the cars of the second disc (and the DLC's) in installed packages.
+                bool scanning;
+                PackageCar package = this.PackageOfCar(root, media, out scanning);
+                if (package != null || scanning)
+                {
+                    this.lblCarFiles.Text = (package != null)
+                        ? string.Format("Car model: {0} (installed package {1}, opened as a read-only copy)\nGAME:\\ = {2}", media, package.Title, root)
+                        : string.Format("Car model: Media\\Cars\\{0} not in the game folder, looking in the installed packages (disc 2, DLC)...\nGAME:\\ = {1}", media, root);
+                    this.carHeaderTip.SetToolTip(this.lblCarFiles, (package != null) ? this.lblCarFiles.Text + "\n" + package.File : this.lblCarFiles.Text);
+                    this.btnCarFiles.Enabled = package != null;
+                    return;
+                }
+            }
             this.lblCarFiles.Text = string.Format("Car model: {1}\nGAME:\\ = {0}", root,
                 (car != null) ? car.Substring(root.Length).TrimStart('\\') : "Media\\Cars\\" + media + " not found (.zip or folder)");
             this.carHeaderTip.SetToolTip(this.lblCarFiles, this.lblCarFiles.Text);
@@ -1551,6 +1566,12 @@ namespace ForzaStudio
                 if (this.zip == null)
                 {
                     return null;
+                }
+                // A car zip read from an installed package (disc 2, DLC): the game it was opened from.
+                string packageRoot = PackageCarRoot(this.zip.FilePath);
+                if (packageRoot != null)
+                {
+                    return packageRoot;
                 }
                 // Inside a DLC package the work folder has only the pack's files: the shared textures, shaders and
                 // camera presets are the source game's (Tools > Settings > Folders); the pack's database is MergeEntry.
@@ -2013,6 +2034,12 @@ namespace ForzaStudio
             string car = GamePaths.FindCar(root, media);
             if (car == null)
             {
+                bool scanning;
+                PackageCar package = this.PackageOfCar(root, media, out scanning);
+                if (package != null)
+                {
+                    this.OpenPackageCar(package, media, root);
+                }
                 return;
             }
             this.NavigateFrom(delegate

@@ -355,7 +355,13 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.ShaderLook.cs">
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="ForzaStudio\ArchiveEditorForm.ShaderTab.cs">
+      <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="ForzaStudio\ArchiveEditorForm.Package.cs">
+      <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="ForzaStudio\ArchiveEditorForm.PackageCars.cs">
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
     </Compile>
     <Compile Include="ForzaStudio\ArchiveEditorForm.Xml.cs">
