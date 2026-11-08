@@ -67,7 +67,7 @@ temp/
 tmp/
 
 # Documentation is part of the source
-!/docs/*.txt
+!/docs/**/*.txt
 
 # App images and icons are part of the source
 !/Resources/*.png
