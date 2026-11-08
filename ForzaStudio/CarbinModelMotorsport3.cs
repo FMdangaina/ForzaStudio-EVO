@@ -195,7 +195,7 @@ namespace ForzaStudio
         // Fm3DLC\tools\morphstat, wheeltbl, wheelpost9): 16 bytes per vertex of each buffer, big-endian
         // halves, the morph target then the vertex itself, each as (y/L, x/L, L, z/L) with L its distance
         // from (0, 0, 0). The game blends the lod0 towards the target to draw the rim at the car's size
-        // (the "Morph_LOD0" of the source scenes; Jew on Discord); without it the rim stays at 15 inches
+        // (the "Morph_LOD0" of the source scenes; Aiden-Piercee on Discord); without it the rim stays at 15 inches
         // (Genesis Coupe HKS from the FM3 DLC, 2026-10-18). FM3 wheels carry no morph, so the target is
         // the vertex with Y and Z scaled by `scale` and X kept, as on FM4's NSX '97, DBR1, V8 Vantage, RS2
         // (most FM4 wheels scale the hub less). The lod (LOD 1-5) table holds the vertex twice, as FM4's

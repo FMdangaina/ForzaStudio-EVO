@@ -8,7 +8,7 @@ namespace ForzaStudio
 
     // An Xbox 360 STFS package (LIVE, marketplace content) of a folder, for a modded console (RGH/JTAG:
     // the RSA signature is left empty, those consoles do not check it; the hash tables and the content id
-    // are valid). A C# port of the stfs_write.py of Jew (@mr.abortion, fm4dlc toolchain); the header fields
+    // are valid). A C# port of the stfs_write.py of Aiden-Piercee (https://github.com/Aiden-Piercee, fm4dlc toolchain); the header fields
     // were read from the FH1 car package XTD (@xtd_ac) built with the Xbox 360 authoring tool, which a
     // console loads: licence 0 open to everyone (FFFFFFFFFFFFFFFF), header size 0xAD0E, one hash table
     // per level (block separation 1), transfer flags C0.

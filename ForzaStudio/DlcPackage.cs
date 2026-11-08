@@ -11,7 +11,7 @@ namespace ForzaStudio
     //
     // What a package holds was read from an official FM4 car pack (offer 31, 10 cars) and from help
     // given on Discord:
-    //   Jew (@mr.abortion)  the fm4dlc toolchain and its notes: the package layout, the merge database,
+    //   Aiden-Piercee (https://github.com/Aiden-Piercee)  the fm4dlc toolchain and its notes: the package layout, the merge database,
     //                       the string tables and the STFS writer;
     //   XTD (@xtd_ac)       the folder DLC that Xenia loads as it is, a package built with the Xbox 360
     //                       authoring tool (XLAST) and tests on the console.
@@ -162,7 +162,7 @@ namespace ForzaStudio
         // console's Hdd1:\ by FTP. Checked on a console 2026-10-16. Returns the file.
         // Names in an STFS package hold at most 40 characters and brake carbins exceed it
         // (lam_gallardolp570_11_caliperlf_lod0.carbin: 42), so the loose <offer>_pri_65 folder goes in as
-        // <offer>_pri_65.zip, as in the official packs (Jew) and XTD's: stored entries in the Forza layout;
+        // <offer>_pri_65.zip, as in the official packs (Aiden-Piercee) and XTD's: stored entries in the Forza layout;
         // the game mounts it like the folder. The *_build_report.html files stay out.
         public static string BuildConsolePackage(string packageFolder, string output, string name, byte[] thumbnail, StringBuilder report)
         {
@@ -241,7 +241,7 @@ namespace ForzaStudio
 
         // A zip of a folder's files (names relative to it, '/' separated, sorted), LZX like the game's own zips (stored only
         // when LZX does not make a file smaller), in the layout of
-        // the game's zips: version 10, date field 0x21 as Jew's fm4dlc writes them, and the
+        // the game's zips: version 10, date field 0x21 as Aiden-Piercee's fm4dlc writes them, and the
         // 0x1123 extra field of the central record holding the data offset the game reads.
         internal static int WriteStoredZip(string folder, string path)
         {

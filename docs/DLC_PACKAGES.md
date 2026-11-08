@@ -68,7 +68,7 @@ The pack, its name, its offer number and Xenia's folder are kept in `settings.tx
 ## What a package holds
 
 Built from the official FM4 car pack "offer 31" (10 cars, read as installed by Xenia), from
-XTD's FH1 package, and from Jew's notes. All of this was verified on those files.
+XTD's FH1 package, and from Aiden-Piercee's notes. All of this was verified on those files.
 
 ```
 content\0000000000000000\4D530910\00000002\<offer id>\       the package (Xenia folder form)
@@ -147,7 +147,7 @@ content\0000000000000000\4D530910\Headers\00000002\<offer id>.header
 ## The Xbox 360 package
 
 A real console reads content only from an **STFS package file**, never from a folder.
-Forza Studio writes it with `StfsPackage.cs`, a C# port of Jew's `stfs_write.py`. Its output is
+Forza Studio writes it with `StfsPackage.cs`, a C# port of Aiden-Piercee's `stfs_write.py`. Its output is
 byte-identical to that writer's on a 1-car and a 5-car pack. The header fields copy the FH1 car
 package XTD built with the Xbox 360 authoring tool, which a console loads:
 
@@ -217,7 +217,7 @@ In `fm4dev\DEV_DLC\tools`, outside the repository. They are one-file C# harnesse
 
 ## Credits
 
-- **Jew (@mr.abortion)** wrote the `fm4dlc` toolchain and notes:
+- **Aiden-Piercee (https://github.com/Aiden-Piercee)** wrote the `fm4dlc` toolchain and notes:
   - the anatomy of the official car and track packs;
   - the merge database;
   - string table writing;

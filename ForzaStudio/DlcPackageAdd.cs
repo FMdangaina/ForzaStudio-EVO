@@ -52,7 +52,7 @@ namespace ForzaStudio
                 }
                 if (packPath == null || stringsPath == null)
                 {
-                    throw new InvalidOperationException("The package has no car pack zip or no string tables zip in Media\\DLCZips (is it a Forza Studio / Jew package?).");
+                    throw new InvalidOperationException("The package has no car pack zip or no string tables zip in Media\\DLCZips (is it a Forza Studio / Aiden-Piercee package?).");
                 }
 
                 report.AppendLine(string.Format(CultureInfo.InvariantCulture, "package offer {0}; building the new cars for it:", offer));

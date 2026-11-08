@@ -136,7 +136,7 @@ Send reports to: https://github.com/FMdangaina/ForzaStudio-EVO/issues
 ----------------------
 ForzaStudio EVO by FMdangaina.
 Derived from Forza Studio 4.6 by Mike Davis, with an earlier edit by JYSB59.
-DLC package format worked out with help from Jew (@mr.abortion) and
+DLC package format worked out with help from Aiden-Piercee (https://github.com/Aiden-Piercee) and
 XTD (@xtd_ac) on Discord.
 Engine power calculation (torque needed at the power peak, as a scalar of the
 peak torque) after BlackBirdOsaka's notes on Discord.

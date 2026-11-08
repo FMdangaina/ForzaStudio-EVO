@@ -4,7 +4,7 @@ Stato: solo analisi, nessun codice cambiato. Nota anche in memoria: `benchmark-s
 
 ## Origine
 Port di Mount Panorama (Bathurst) v0.6.1 di un collega: `E:\DEV\ported_track\71DF7025...4D` (STFS).
-Spiegazione di Jew: "scrivi in una tabella diversa e punta indietro, il problema sparisce".
+Spiegazione di Aiden-Piercee: "scrivi in una tabella diversa e punta indietro, il problema sparisce".
 Estratto in `E:\DEV\fm4dev\TrackStr\x`. Strumenti (x86, compilati con csc contro `bin\Debug\ForzaStudioEVO.exe`):
 `ls`, `ex`, `ex2`, `db`, `tb`, `hi` (.cs) in `E:\DEV\fm4dev\TrackStr\`.
 

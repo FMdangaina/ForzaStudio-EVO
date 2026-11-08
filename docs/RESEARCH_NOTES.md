@@ -32,7 +32,7 @@ Moved out of ROADMAP.md on 2026-10-23 (the roadmap holds goals only). Topic numb
 ## C3. Wheels and morph targets (topics 10, 11)
 
 - **Wheel morph.** [Aiden-Piercee](https://github.com/Aiden-Piercee): *"it's dependant on the wheel having a morph target in its package"*.
-  BMW E30 rim does not scale, S60 does. @Jew: *"You need morph targets in the wheel model for Forza to scale them to size"*. Solved 2026-10-18:
+  BMW E30 rim does not scale, S60 does. Aiden-Piercee: *"You need morph targets in the wheel model for Forza to scale them to size"*. Solved 2026-10-18:
   the morph target is the 16-byte per-vertex table of the wheel (rule in D, 10.6).
 - **OBJ wheel import** (@delete.diskord): *"i used forza studio to export an fm3 wheel to obj, then opened an fm4 wheel zip in forzaeditor and
   attempted to replace the wheel with the obj i exported, resulting in the 'LOD 0 and LODs 1+ live in different files' error. however i did try the

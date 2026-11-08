@@ -794,7 +794,7 @@ ForzaStudio EVO writes only these files:
 
 - ForzaStudio EVO is maintained by **FMdangaina**.
 - It is derived from **Forza Studio 4.6** by Mike Davis, with an earlier edit by **JYSB59**.
-- The DLC package format was worked out with help from **Jew (@mr.abortion)** and
+- The DLC package format was worked out with help from **Aiden-Piercee (https://github.com/Aiden-Piercee)** and
   **XTD (@xtd_ac)** on Discord.
 - The engine power calculation (the torque a power needs at its rpm, as a scalar of the peak
   torque; Generate curve in the engine dialog) follows the notes of **BlackBirdOsaka** on
