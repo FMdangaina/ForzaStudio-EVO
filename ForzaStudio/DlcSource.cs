@@ -320,6 +320,10 @@ namespace ForzaStudio
                         layers.Add(child.Key);
                     }
                 }
+                if (IsDlcBeta(zips))
+                {
+                    return DlcBetaOffer;
+                }
                 foreach (string layer in layers)
                 {
                     string name = layer;
@@ -350,6 +354,27 @@ namespace ForzaStudio
                 }
             }
             return -1;
+        }
+
+        // FM2 "DLCBeta": an unreleased FM2 car pack (MAZ_Roadster_DLC1, MER_CL600_DLC1, build 96445 of 2007-11-27), found
+        // by The Admiester (https://www.theadmiester.co.uk/). The ONE unofficial FM2 package accepted, for FM2 -> FM4 only.
+        // Unlike the released FM2 packs (DLC<n>_pri_<P>.zip, no database) it is a loose folder DLCZips\DLCBeta_pri_65\
+        // with its own db\patch\70001_merge.slt (no ContentOffers) and Media\LicenseMasks\*.sql, which would read as FM3;
+        // its car names are in DLCBetaOverrides1_pri_999.zip (mounted at Media\StringTables). Offer 70: the merge's
+        // 70001 by the n*1000+x rule of the other packs (FM3 22005 = offer 22).
+        private const string DlcBetaLayer = "DLCBeta_pri_65";
+        private const int DlcBetaOffer = 70;
+
+        private static bool IsDlcBeta(Dictionary<string, bool> zips)
+        {
+            foreach (KeyValuePair<string, bool> child in zips)
+            {
+                if (child.Value && child.Key.Equals(DlcBetaLayer, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // The car folders an FM2 package holds (media/cars/<NAME>/ with a .carbin), by layer.
@@ -535,6 +560,21 @@ namespace ForzaStudio
         // The merge database's ContentOffers.ID starts with the title id (FH1 4D5309C9...).
         private void ReadTitle()
         {
+            if (IsDlcBeta(this.volume.Children(DlcZips)))
+            {
+                // FM2's DLCBeta (see IsDlcBeta): its merge rows go over the FM2 game's database (MergeFm2Database).
+                this.TitleId = Fm2Source.TitleId;
+                this.Game = ForzaGame.Motorsport2;
+                if (this.Fm2CarFolders().Count == 0)
+                {
+                    throw new InvalidDataException("DLCBeta has no cars.");
+                }
+                if (GameInfo.ConfiguredFolder(ForzaGame.Motorsport2) == null)
+                {
+                    throw new InvalidDataException("DLCBeta needs the Forza Motorsport 2 game for its database: set the folder in Tools > Settings > Folders.");
+                }
+                return;
+            }
             byte[] merge = this.MergeDatabase();
             if (merge == null && (this.TitleId == Fm2Source.TitleId || this.TitleId == 0))
             {
