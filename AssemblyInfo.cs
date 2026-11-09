@@ -1,9 +1,9 @@
 // Assembly ForzaStudioEVO (shown as ForzaStudio EVO), derived from Forza Studio 4.6
 
 [assembly: System.Runtime.InteropServices.ComVisible(false)]
-[assembly: System.Reflection.AssemblyFileVersion("0.0.5.0")]
-[assembly: System.Reflection.AssemblyVersion("0.0.5.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("0.0.5")]
+[assembly: System.Reflection.AssemblyFileVersion("0.0.6.0")]
+[assembly: System.Reflection.AssemblyVersion("0.0.6.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("0.0.6")]
 [assembly: System.Diagnostics.Debuggable(System.Diagnostics.DebuggableAttribute.DebuggingModes.IgnoreSymbolStoreSequencePoints)]
 [assembly: System.Reflection.AssemblyCopyright("Copyright \x00a9 2012 Mike Davis, \x00a9 2026 FMdangaina")]
 [assembly: System.Runtime.InteropServices.Guid("fbc34a75-634b-49a7-85b8-f5344e1b1647")]

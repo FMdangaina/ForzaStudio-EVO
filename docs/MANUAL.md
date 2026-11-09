@@ -3,7 +3,7 @@
 ForzaStudio EVO is a modding tool for the Xbox 360 Forza games. It works directly on the game's
 files: you open a game folder or one of its `.zip` archives, change what you need, and save.
 
-> **Version 0.0.5 (beta).** Some features are experimental or not fully tested in game (see
+> **Version 0.0.6 (beta).** Some features are experimental or not fully tested in game (see
 > [Known limitations](#13-known-limitations)). Always work on a copy of your game folder.
 
 ## Contents
