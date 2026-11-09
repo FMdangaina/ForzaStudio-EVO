@@ -411,6 +411,7 @@ namespace ForzaStudio
                     if (source.Length > 0 && this.SourceExists(source))
                     {
                         this.meshTextures[mesh] = source;
+                        mesh.ForceTexture = true;   // picked by hand (AssignTexture), remembered per material
                     }
                 }
                 else if (this.SetAutoTexture(mesh, lods))
@@ -463,6 +464,11 @@ namespace ForzaStudio
         // LOD 0), or LODs 1-5 of the main file.
         private ShaderTextures.Kind TextureKind(ForzaMesh mesh, Dictionary<ForzaMesh, int> lods)
         {
+            ShaderTextures.Kind other;
+            if (this.gameLodKinds.TryGetValue(mesh, out other))
+            {
+                return other;   // a mesh of another model file in the game LOD preview
+            }
             string name = (this.currentEntry != null) ? this.currentEntry.Name.ToLowerInvariant() : "";
             if (name.EndsWith("_cockpit.carbin"))
             {
@@ -717,6 +723,8 @@ namespace ForzaStudio
             {
                 this.meshTextures.Remove(mesh);
                 this.autoTextureSampler.Remove(mesh);
+                // A texture picked by hand is drawn whatever the material's look (paint, chrome, glass...) says.
+                mesh.ForceTexture = !string.IsNullOrEmpty(source);
                 if (source == null)
                 {
                     this.SetAutoTexture(mesh, lods);

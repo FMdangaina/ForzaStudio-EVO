@@ -270,7 +270,6 @@ namespace ForzaStudio
                 }
             }
             Panel content = new Panel();
-            content.Size = new Size(440, 192);
             Label label = new Label();
             label.Text = string.Format("Rename the material {0} of {1} to:", material, section);
             label.AutoSize = true;
@@ -298,33 +297,44 @@ namespace ForzaStudio
             {
                 name.SelectedIndex = 0;
             }
-            CheckBox everyPart = new CheckBox();
-            everyPart.Text = "In every part with this material";
-            everyPart.Checked = false;   // nothing preset: the user picks the scope
+            // One scope, picked with a radio button. The default is the mesh selected in the tree and nothing else
+            // (user, 2026-11-09: with nothing ticked the old dialog renamed every mesh of the part in every LOD).
+            RadioButton onlyThis = new RadioButton();
+            onlyThis.Text = "Only this mesh (the one selected in the tree)";
+            onlyThis.AutoSize = true;
+            onlyThis.Location = new Point(0, 60);
+            onlyThis.Enabled = selected != null && selected.SubIndex >= 0;
+            RadioButton wholePart = new RadioButton();
+            wholePart.Text = string.Format("Every mesh of {0} with {1}, all LODs ({2})", section, material, sharing);
+            wholePart.AutoSize = true;
+            wholePart.Location = new Point(0, 84);
+            RadioButton everyPart = new RadioButton();
+            everyPart.Text = string.Format("Every part with {0}", material);
             everyPart.AutoSize = true;
-            everyPart.Location = new Point(0, 60);
+            everyPart.Location = new Point(0, 108);
+            onlyThis.Checked = onlyThis.Enabled;
+            wholePart.Checked = !onlyThis.Enabled;
             CheckBox everyFile = new CheckBox();
-            everyFile.Text = "In every model file of the car (main, lod0, cockpit)";
+            everyFile.Text = "Also in the other model files of the car (main, lod0, cockpit)";
             everyFile.Checked = false;
             everyFile.AutoSize = true;
-            everyFile.Location = new Point(0, 84);
-            // FH traffic parts merge several pieces (both tail lights in one part): one mesh renamed alone.
-            CheckBox onlyThis = new CheckBox();
-            onlyThis.Text = string.Format("Only this mesh ({0} meshes of {1} use {2})", sharing, section, material);
-            onlyThis.AutoSize = true;
-            onlyThis.Location = new Point(0, 108);
-            onlyThis.Enabled = selected != null && selected.SubIndex >= 0;
+            everyFile.Location = new Point(18, 132);
+            everyFile.Enabled = !onlyThis.Checked;
             onlyThis.CheckedChanged += delegate
             {
-                everyPart.Enabled = !onlyThis.Checked;
                 everyFile.Enabled = !onlyThis.Checked;
+                if (onlyThis.Checked)
+                {
+                    everyFile.Checked = false;
+                }
             };
             Label note = new Label();
             note.Text = "green = recommended   ~ unusual: an FM4 shader few or no FM4 cars use\n\"shader N\": how close the FM4 shader is to the source game's (0-100).";
             note.ForeColor = SystemColors.GrayText;
             note.AutoSize = true;
-            note.Location = new Point(0, 138);
-            content.Controls.AddRange(new Control[] { label, name, everyPart, everyFile, onlyThis, note });
+            note.Location = new Point(0, 162);
+            content.Size = new Size(440, 196);
+            content.Controls.AddRange(new Control[] { label, name, onlyThis, wholePart, everyPart, everyFile, note });
             if (!this.ShowOptions("Rename Material", content))
             {
                 return;

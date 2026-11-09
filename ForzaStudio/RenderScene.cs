@@ -156,6 +156,19 @@ namespace ForzaStudio
             }
         }
 
+        // Nodes drawn with the tree but not in it: the other model files of the car in the game LOD preview
+        // (ArchiveEditorForm.GameLod). Read-only: no tool picks or edits them.
+        public readonly List<TreeNode> ExtraRoots = new List<TreeNode>();
+
+        private void DrawAllModels(FillMode fill)
+        {
+            this.DrawCheckedModels(this.Models.Nodes, fill);
+            foreach (TreeNode root in this.ExtraRoots)
+            {
+                this.DrawCheckedModels(root.Nodes, fill);
+            }
+        }
+
         private void DrawCheckedModels(TreeNodeCollection nodes, FillMode fill)
         {
             if (fill == FillMode.Solid)
@@ -207,7 +220,9 @@ namespace ForzaStudio
                     if (fill == FillMode.Solid)
                     {
                         this.Ambiance.VertexColorEnabled = false;
-                        this.Ambiance.DiffuseColor = (texture != null) ? Vector3.One : (styled && look.HasPaintColor) ? new Vector3(look.PaintColor.X, look.PaintColor.Y, look.PaintColor.Z) : ((styled && look.Kind == ShaderKind.Paint) ? this.bodyColor : new Vector3(140f / 255f, 140f / 255f, 140f / 255f));
+                        // A colour picked from the viewport menu wins over the car's shadersettings PaintColor.
+                        bool picked = styled && look.Kind == ShaderKind.Paint && this.BodyColorOverride.HasValue;
+                        this.Ambiance.DiffuseColor = (texture != null) ? Vector3.One : picked ? this.bodyColor : (styled && look.HasPaintColor) ?new Vector3(look.PaintColor.X, look.PaintColor.Y, look.PaintColor.Z) : ((styled && look.Kind == ShaderKind.Paint) ? this.bodyColor : new Vector3(140f / 255f, 140f / 255f, 140f / 255f));
                         if (styled && !(glassTexture && !look.GlassTinted))
                         {
                             this.Ambiance.DiffuseColor *= new Vector3(look.Diffuse.X, look.Diffuse.Y, look.Diffuse.Z);
@@ -417,7 +432,7 @@ namespace ForzaStudio
                         this.Graphics.Clear(new Color(75, 75, 70, 255));
                         this.DrawGrid(10, 1f);
                         this.drawGlass = false;
-                        this.DrawCheckedModels(this.Models.Nodes, FillMode.Solid);
+                        this.DrawAllModels(FillMode.Solid);
                         if (this.UseShaderLook)
                         {
                             // translucent parts last, without writing depth
@@ -426,14 +441,14 @@ namespace ForzaStudio
                             this.Graphics.RenderState.SourceBlend = Blend.SourceAlpha;
                             this.Graphics.RenderState.DestinationBlend = Blend.InverseSourceAlpha;
                             this.Graphics.RenderState.DepthBufferWriteEnable = false;
-                            this.DrawCheckedModels(this.Models.Nodes, FillMode.Solid);
+                            this.DrawAllModels(FillMode.Solid);
                             this.Graphics.RenderState.DepthBufferWriteEnable = true;
                             this.Graphics.RenderState.AlphaBlendEnable = false;
                             this.drawGlass = false;
                         }
                         if (this.ShowWireframe)
                         {
-                            this.DrawCheckedModels(this.Models.Nodes, FillMode.WireFrame);
+                            this.DrawAllModels(FillMode.WireFrame);
                         }
                         this.DrawAxes(1f);
                         if (this.OverlayFaces != null && this.OverlayFaces.Length >= 3)

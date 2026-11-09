@@ -213,7 +213,11 @@ The toolbar has these controls (**Model > Export Checked Parts to OBJ...** write
   (53°), chase (54°), cockpit (62°) or hood (66°). Next to it, the current FOV. The wheel changes it
   between 0.5° and 90°, as the game's free camera does.
 - **Go to Camera**: see [Cockpit camera](#cockpit-camera-camera-tab).
-- The vertex and face count.
+- **View / Game LOD**: *View: this file* shows the open file only. **Game LOD0 (lod0 + cockpit)** shows what the
+  game draws up close: LOD 0 of the `_lod0` file together with the `_cockpit` file. **Game LOD1** to **LOD5** show
+  that LOD of the main file. The car's other model files are drawn next to the open one but are read-only: only the
+  open file's parts can be picked and edited. It goes back to *this file* when the model is loaded again.
+- The vertex and face count (and, in a game LOD view, the faces of the other files and which files are shown).
 - A red warning, **"N material(s) not in FM4"**, when the model has any. Click it (*click to fix*) to select the
   first one.
 
@@ -229,14 +233,24 @@ The toolbar has these controls (**Model > Export Checked Parts to OBJ...** write
 | 1 - 6 (or numpad) | Front, back, right, left, top, bottom view (orthographic; the tool bar switches orthographic off again) |
 
 **Red materials.** A material that no FM4 car uses is drawn red in the tree, and it may render
-black in game. Select it and press **Rename Material...** in the Part tab (or right-click it), then pick an FM4 material from the list. You
-can rename it in every part and in every model file of the car (main, lod0, cockpit).
+black in game. Select it and press **Rename Material...** in the Part tab (or right-click it), then pick an FM4 material from the list.
+Then choose where: **Only this mesh** (the default: the one selected in the tree), every mesh of that part with the
+material in all LODs, or every part with the material; for the last two you can also tick the other model files of
+the car (main, lod0, cockpit).
 
 The list has three groups: the **recommended** materials first (green, or ★ in the port's Review: the port's
 own table, a rule on the name, or the FM4 shaders most similar to the original), then the materials FM4 cars
 commonly use, then the **unusual** ones, marked `~` (FM4 has a shader for them but few or no cars use them).
 "shader N" is a similarity score out of 100 between the original's shader and that material's (higher is
 closer). It compares what the shaders read, not how they look: take it as a hint.
+
+**Fixed on every save.** Whenever an FM4 `.carbin` is written (save, port, import, DLC build), ForzaStudio EVO
+also fixes two things that make parts vanish in game:
+
+- glass and lights materials are moved to the game's see-through draw pass (or back), so they are not invisible;
+- a material with a very long index list (more than 78,657 indices, the largest in FM4's own cars) is cut into
+  pieces of the same material. FM4 skips the end of such a list, which shows as small holes in the body
+  (seen on a Corvette C7 ported from FH2). FM4's own models are never above the limit and are not changed.
 
 ### Cockpit camera (CAMERA tab)
 
@@ -400,7 +414,8 @@ The **Texture** tab changes the texture of the selected material. It changes onl
 see: the model file is not touched.
 
 - **(auto)** is the game's texture; pick an `.xds` from the car's zip, or **Texture From
-  File...** for one on disk, to override it.
+  File...** for one on disk, to override it. A texture you pick is drawn on any material,
+  paint, chrome and glass included.
 - Choose the UV set.
 - The choices last until ForzaStudio EVO is closed.
 - The **Part** tab shows the material's shader, the textures it reads and where the shown

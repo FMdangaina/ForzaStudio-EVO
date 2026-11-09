@@ -99,6 +99,7 @@ namespace ForzaStudio
             toolbar.Items.Add(this.fovHost);
             toolbar.Items.Add(this.lblCameraFov);
             toolbar.Items.Add(this.BuildGoToCameraButton());
+            toolbar.Items.Add(this.BuildGameLodCombo());
             this.lblModelInfo = new ToolStripLabel();
             this.lblModelInfo.Alignment = ToolStripItemAlignment.Right;
             toolbar.Items.Add(this.lblModelInfo);
@@ -304,6 +305,7 @@ namespace ForzaStudio
         private void ClearModel()
         {
             this.modelTimer.Stop();
+            this.ResetGameLod();
             this.MeshEditReset();
             foreach (ForzaMesh mesh in GetMeshes(this.tvModel.Nodes, false))
             {
@@ -357,7 +359,8 @@ namespace ForzaStudio
                 vertices += mesh.VertexCount;
                 faces += mesh.FaceCount;
             }
-            this.lblModelInfo.Text = string.Format("{0:N0} vertices, {1:N0} faces", vertices, faces);
+            this.lblModelInfo.Text = string.Format("{0:N0} vertices, {1:N0} faces", vertices, faces)
+                + (this.gameLodMeshes.Count > 0 ? string.Format(" + {0:N0} faces of the other files", this.gameLodFaces) : "") + this.gameLodNote;
             this.MeshEditShownChanged();
         }
 
