@@ -97,6 +97,16 @@ namespace ForzaStudio
         // fixed; anything else (other files, FM3/FH models, files that do not parse) comes back as it is.
         public static byte[] ForGame(string name, byte[] data)
         {
+            List<string[]> renamed;
+            return ForGame(name, data, out renamed);
+        }
+
+        // Also cuts a subsection FM4 would not draw to the end (CarbinModel.LongMeshes); renamed: the material pairs
+        // the cut created (body -> body_2), for the car's shadersettings.xml (FollowSplit). Only this step needs it,
+        // so the split is done here and not in ToBytes.
+        public static byte[] ForGame(string name, byte[] data, out List<string[]> renamed)
+        {
+            renamed = new List<string[]>();
             if (data == null || name == null || !name.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
             {
                 return data;
@@ -108,11 +118,19 @@ namespace ForzaStudio
                 {
                     return data;
                 }
-                int changed = model.SplitLongSubSections().Count + model.FixTransparentPartFlags().Count + model.FixDrawListPasses().Count;
-                return (changed > 0) ? model.ToBytes() : data;
+                List<string[]> pairs;
+                int changed = model.SplitLongSubSections(out pairs).Count + model.FixTransparentPartFlags().Count + model.FixDrawListPasses().Count;
+                if (changed == 0)
+                {
+                    return data;
+                }
+                byte[] written = model.ToBytes();
+                renamed = pairs;
+                return written;
             }
             catch (Exception)
             {
+                renamed = new List<string[]>();
                 return data;
             }
         }

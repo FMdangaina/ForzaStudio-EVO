@@ -278,9 +278,49 @@ namespace ForzaStudio
             throw new NotSupportedException(string.Format("Compression method {0} is not supported.", entry.Method));
         }
 
+        // Materials renamed by a long-mesh split (CarbinModel.LongMeshes: body -> body_2), per .carbin written to this
+        // archive, so the car's shadersettings.xml gets the entries whether it is written before or after the model.
+        private readonly List<KeyValuePair<string, List<string[]>>> splitRenames = new List<KeyValuePair<string, List<string[]>>>();
+
+        private byte[] ForGame(string name, byte[] data)
+        {
+            List<string[]> renamed;
+            data = CarbinModel.ForGame(name, data, out renamed);
+            if (renamed.Count > 0)
+            {
+                this.splitRenames.Add(new KeyValuePair<string, List<string[]>>(name, renamed));
+                ForzaZip.Entry settings = this.Find(FolderOf(name) + "shadersettings.xml");
+                if (settings != null)
+                {
+                    byte[] followed = CarbinModel.FollowSplit(this.Read(settings), name, renamed);
+                    if (followed != null)
+                    {
+                        settings.deleted = false;
+                        settings.Replacement = followed;
+                    }
+                }
+            }
+            else if (name.EndsWith("shadersettings.xml", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (KeyValuePair<string, List<string[]>> split in this.splitRenames)
+                {
+                    if (string.Equals(FolderOf(split.Key), FolderOf(name), StringComparison.OrdinalIgnoreCase))
+                    {
+                        data = CarbinModel.FollowSplit(data, split.Key, split.Value) ?? data;
+                    }
+                }
+            }
+            return data;
+        }
+
+        private static string FolderOf(string name)
+        {
+            return name.Substring(0, name.LastIndexOf('/') + 1);
+        }
+
         public void Replace(Entry entry, byte[] data)
         {
-            data = CarbinModel.ForGame(entry.Name, data);   // every carbin written: glass draw pass + part flag right
+            data = this.ForGame(entry.Name, data);   // every carbin written: glass draw pass + part flag right, long meshes split
             entry.deleted = false;
             entry.Replacement = data;
         }
@@ -370,7 +410,7 @@ namespace ForzaStudio
             {
                 throw new ArgumentException("The archive already has " + name + ".");
             }
-            data = CarbinModel.ForGame(name, data);   // every carbin written: glass draw pass + part flag right
+            data = this.ForGame(name, data);   // every carbin written: glass draw pass + part flag right, long meshes split
             Entry entry = new Entry();
             entry.Name = name;
             entry.IsNew = true;

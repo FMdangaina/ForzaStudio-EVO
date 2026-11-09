@@ -248,9 +248,12 @@ closer). It compares what the shaders read, not how they look: take it as a hint
 also fixes two things that make parts vanish in game:
 
 - glass and lights materials are moved to the game's see-through draw pass (or back), so they are not invisible;
-- a material with a very long index list (more than 78,657 indices, the largest in FM4's own cars) is cut into
-  pieces of the same material. FM4 skips the end of such a list, which shows as small holes in the body
-  (seen on a Corvette C7 ported from FH2). FM4's own models are never above the limit and are not changed.
+- a material with a very long index list (more than 78,657 indices, the largest in FM4's own cars) is cut by
+  height into horizontal bands with the same number of triangles, as FM4's own 240SX splits its paint: `body`
+  keeps the top and the lower band becomes `body_2` (then `body_3`; other materials keep their name), and the
+  car's `shadersettings.xml` entry for `body` is copied to `body_2`. FM4 skips the end of such a list, which shows
+  as small holes in the body (seen on a Corvette C7 ported from FH2). FM4's own models are never above the
+  limit and are not changed.
 
 ### Cockpit camera (CAMERA tab)
 

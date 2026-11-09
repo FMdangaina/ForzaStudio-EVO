@@ -1092,7 +1092,7 @@ namespace ForzaStudio
                         if (found != null)
                         {
                             Directory.CreateDirectory(Path.GetDirectoryName(file));
-                            File.WriteAllBytes(file, CarbinModel.ForGame(file, zip.Read(found)));
+                            File.WriteAllBytes(file, CarbinModel.ForGameOnDisk(file, zip.Read(found)));
                             shipped++;
                         }
                     }
@@ -1222,7 +1222,7 @@ namespace ForzaStudio
                     }
                     string path = Path.Combine(folder, entry.Name.Replace('/', Path.DirectorySeparatorChar));
                     Directory.CreateDirectory(Path.GetDirectoryName(path));
-                    File.WriteAllBytes(path, CarbinModel.ForGame(path, trial.Read(entry)));
+                    File.WriteAllBytes(path, CarbinModel.ForGameOnDisk(path, trial.Read(entry)));
                     count++;
                 }
                 if (count > 0)
