@@ -108,7 +108,7 @@ namespace ForzaStudio
                 {
                     return data;
                 }
-                int changed = model.FixTransparentPartFlags().Count + model.FixDrawListPasses().Count;
+                int changed = model.SplitLongSubSections().Count + model.FixTransparentPartFlags().Count + model.FixDrawListPasses().Count;
                 return (changed > 0) ? model.ToBytes() : data;
             }
             catch (Exception)

@@ -181,6 +181,7 @@
     <Compile Include="ForzaStudio\Fm2Source.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Exhaust.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Driver.cs" />
+    <Compile Include="ForzaStudio\CarbinModel.LongMeshes.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Gauges.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.XeniaThumbnail.cs" />
     <Compile Include="ForzaStudio\XeniaThumbnails.cs" />

@@ -765,6 +765,7 @@ namespace ForzaStudio
 
         public byte[] ToBytes()
         {
+            this.SplitLongSubSections();      // the end of a very long index list = holes in game (CarbinModel.LongMeshes)
             this.FixTransparentPartFlags();   // see-through material in a part with flag 0 = not drawn in game
             this.FixDrawListPasses();         // glass in the opaque pass (or the reverse) = not drawn in game
             using (MemoryStream output = new MemoryStream())
