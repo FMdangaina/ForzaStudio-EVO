@@ -798,6 +798,20 @@ namespace ForzaStudio
                 {
                     continue;
                 }
+                if (string.Equals(table, "Data_Car", StringComparison.OrdinalIgnoreCase))
+                {
+                    // A car Id moves only with DbIds.RenumberCar (MoveCars): ModelId and the car * 1000 rows go with it.
+                    // Moved here alone, the car kept ModelId 1702 as Id 1703 and did not show in the game (2026-11-10).
+                    foreach (object[] row in this.db.Query("SELECT " + Q(key[0]) + ", MediaName FROM Data_Car ORDER BY 1").Rows)
+                    {
+                        List<Hit> hits;
+                        if (index.Map.TryGetValue(Text(row[0]), out hits))
+                        {
+                            this.Unresolved.Add(string.Format(CultureInfo.InvariantCulture, "Data_Car.Id = {0} ({1}) is used by {2}: the car keeps it (remove that pack, or build again)", Text(row[0]), Text(row[1]), hits[0].Other.Name));
+                        }
+                    }
+                    continue;
+                }
                 bool catalogue = this.IsCatalogue(table);
                 int moved = 0;
                 foreach (object[] row in this.db.Query("SELECT " + Q(key[0]) + " FROM " + Q(table) + " ORDER BY 1").Rows)

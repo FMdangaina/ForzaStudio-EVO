@@ -44,16 +44,11 @@ DragPrice = 10000
 [Damage]
 ; How the per-vertex damage words (crash deformation) of a ported FH car are written (ROADMAP B1, checked in game 2026-10-25).
 ; donor = the words of an FM4 car, vertex by vertex: the same car's own FM4 file when FM4 has it (nearest vertex of the same
-; section), else the chosen donor car's, matched by place in each section's box. The default: FH's own words are another
-; quantity and FM4 deforms the car only a little with them.
+; section), else the chosen donor car's, matched by place in each section's box. A part the FM4 car lacks takes the words
+; of the nearest part. FH's own words are another quantity (crushed offset in metres): FM4 barely deforms a car with them
+; as they are, and turned into FM4 directions they made the car explode in game (2026-11-10), so they are never used.
 ; donorcar = always the donor car, even when FM4 has the car itself (to try that approximation on a car both games have).
-; copy = the words as they are in the FH file (the old behaviour); normalize = unit direction in FM4's 10:11:11 format (experiment).
 Words = donor
-; with Words = normalize: both | main | lod0 (which of the car's two tables is converted)
-Tables = both
-; with Words = normalize: sections whose sign is reversed, comma separated, or * for all
-; (T3 on the Supra: bumperFi, bumperFc, bumperRc, skirtRa, skirtLa, skirtRd)
-FlipSections =
 ; Added to the `damage` of every DamageScalars point in the CarAttribs of a car ported from FH1 / FH2 (speed 5 / 35 / 98).
 ; FM4's standard is 0.5 / 1.5 / 2.5; +1 on all levels deforms a ported car much better (checked in game 2026-10-27: Bowler in
 ; a pack). FM3 and FM2 ports are fine as they are and never get it. 0 = leave the values as they are.

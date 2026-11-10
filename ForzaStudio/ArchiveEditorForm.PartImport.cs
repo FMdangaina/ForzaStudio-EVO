@@ -605,35 +605,140 @@ namespace ForzaStudio
             }
         }
 
+        // Picks one car out of several (a pack zip, a DLC package); null = cancelled.
+        private string PickSourceCar(string title, List<string> cars, string extraRow)
+        {
+            List<object[]> rows = new List<object[]>();
+            if (extraRow != null)
+            {
+                rows.Add(new object[] { extraRow });
+            }
+            cars.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (string car in cars)
+            {
+                rows.Add(new object[] { car });
+            }
+            using (PickDialog dialog = new PickDialog(title, new string[] { "Car" }, new int[] { 420 }, rows, null))
+            {
+                return (dialog.ShowDialog(this) == DialogResult.OK) ? (string) dialog.SelectedKey : null;
+            }
+        }
+
+        // The car to take a part from: another car of the pack zip being edited, a car zip, a pack zip with several cars
+        // (media/cars/<car>/, e.g. FM4 disc 2's 0002_pri_65.zip), an Xbox 360 DLC package (the car is read from it to a
+        // cached copy, the package is never written) or an uncompressed car folder. label: for the window and status.
+        private bool PickPartSource(out ForzaZip source, out string sourceFolder, out string label)
+        {
+            source = null;
+            sourceFolder = "";
+            label = null;
+            const string OtherFile = "(another file: car zip, pack zip or DLC package...)";
+            string own = this.ModelFolder.TrimEnd('/');
+            own = own.Substring(own.LastIndexOf('/') + 1);
+            List<string> packCars = PackZipCars(this.zip);
+            packCars.RemoveAll(delegate(string c) { return c.Equals(own, StringComparison.OrdinalIgnoreCase); });
+            if (packCars.Count > 0)
+            {
+                string car = this.PickSourceCar("Copy Part From: another car of this pack, or a file", packCars, OtherFile);
+                if (car == null)
+                {
+                    return false;
+                }
+                if (car != OtherFile)
+                {
+                    source = this.zip;
+                    sourceFolder = "media/cars/" + car + "/";
+                    label = car;
+                    return true;
+                }
+            }
+            string file;
+            using (OpenFileDialog open = new OpenFileDialog())
+            {
+                open.Filter = "Forza car (*.zip; *_lod0.carbin)|*.zip;*_lod0.carbin|Xbox 360 DLC package (no extension)|*.*";
+                open.Title = "Car to take a part from (car zip, pack zip, DLC package, or the _lod0.carbin in an uncompressed car folder)";
+                if (!ShowRemembering(open, this, "SourceCar"))
+                {
+                    return false;
+                }
+                file = open.FileName;
+            }
+            try
+            {
+                if (file.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
+                {
+                    source = ForzaZip.OpenFolder(Path.GetDirectoryName(file));
+                    label = Path.GetFileName(Path.GetDirectoryName(file));
+                    return true;
+                }
+                if (StfsReader.IsPackage(file))
+                {
+                    Cursor.Current = Cursors.WaitCursor;
+                    DlcSource package = DlcSource.OpenPackage(file, true);
+                    List<string> cars = (package == null) ? new List<string>() : package.CarFolders();
+                    if (cars.Count == 0)
+                    {
+                        MessageBox.Show(this, "No car in this package" + ((package != null && package.Problem != null) ? ": " + package.Problem : "."), "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return false;
+                    }
+                    string title = string.IsNullOrEmpty(package.Title) ? Path.GetFileName(file) : package.Title;
+                    string car = (cars.Count == 1) ? cars[0] : this.PickSourceCar("Copy Part From: " + title, cars, null);
+                    if (car == null)
+                    {
+                        return false;
+                    }
+                    Cursor.Current = Cursors.WaitCursor;
+                    this.SetStatus("Reading " + car + " from the package " + title + "...");
+                    string zipPath = PackageCarZip(package, file, car);
+                    if (zipPath == null)
+                    {
+                        MessageBox.Show(this, car + " was not found in the package " + title + ".", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return false;
+                    }
+                    source = new ForzaZip(zipPath);
+                    label = car + " (" + title + ")";
+                    return true;
+                }
+                source = new ForzaZip(file);
+                label = Path.GetFileName(file);
+                if (this.CarModelFiles(source, "").ContainsKey(""))
+                {
+                    return true;
+                }
+                List<string> zipCars = PackZipCars(source);
+                if (zipCars.Count == 0)
+                {
+                    return true;   // says below that the main model is missing
+                }
+                string picked = (zipCars.Count == 1) ? zipCars[0] : this.PickSourceCar("Copy Part From: " + Path.GetFileName(file), zipCars, null);
+                if (picked == null)
+                {
+                    return false;
+                }
+                sourceFolder = "media/cars/" + picked + "/";
+                label = picked + " (" + Path.GetFileName(file) + ")";
+                return true;
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return false;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+        }
+
         private void ImportPartFromCar()
         {
             string selected = this.editSection;
             ForzaZip source;
-            string sourceFolder = "";
-            using (OpenFileDialog open = new OpenFileDialog())
+            string sourceFolder;
+            string sourceLabel;
+            if (!this.PickPartSource(out source, out sourceFolder, out sourceLabel))
             {
-                open.Filter = "Forza car (*.zip; *_lod0.carbin)|*.zip;*_lod0.carbin";
-                open.Title = "Car to take a part from (its .zip, or the _lod0.carbin in an uncompressed car folder)";
-                if (!ShowRemembering(open, this, "SourceCar"))
-                {
-                    return;
-                }
-                try
-                {
-                    if (open.FileName.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
-                    {
-                        source = ForzaZip.OpenFolder(Path.GetDirectoryName(open.FileName));
-                    }
-                    else
-                    {
-                        source = new ForzaZip(open.FileName);
-                    }
-                }
-                catch (Exception exception)
-                {
-                    MessageBox.Show(this, exception.Message, "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
-                    return;
-                }
+                return;
             }
             Dictionary<string, ForzaZip.Entry> sourceFiles = this.CarModelFiles(source, sourceFolder);
             Dictionary<string, ForzaZip.Entry> targetFiles = this.CarModelFiles(this.zip, this.ModelFolder);
@@ -722,7 +827,7 @@ namespace ForzaStudio
             string replaced;
             bool alignChecked;
             bool regionsChecked;
-            using (PickDialog pick = new PickDialog("Import Part From " + Path.GetFileName(source.FilePath ?? "car"), new string[] { "Part", "Materials", "Damage" }, new int[] { 160, 260, 90 }, rows, extra))
+            using (PickDialog pick = new PickDialog("Import Part From " + sourceLabel, new string[] { "Part", "Materials", "Damage" }, new int[] { 160, 260, 90 }, rows, extra))
             {
                 if (pick.ShowDialog(this) != DialogResult.OK)
                 {
@@ -795,7 +900,7 @@ namespace ForzaStudio
             }
             this.editSection = null;
             this.ReloadModelKeepingView();
-            this.SetStatus(string.Format("{0} from {1} -> {2} in {3} (pending: Save to write the archive)", part, Path.GetFileName(source.FilePath ?? ""), newName, string.Join(", ", report.ToArray())));
+            this.SetStatus(string.Format("{0} from {1} -> {2} in {3} (pending: Save to write the archive)", part, sourceLabel, newName, string.Join(", ", report.ToArray())));
         }
     }
 }

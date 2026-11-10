@@ -165,6 +165,8 @@
     <Compile Include="ForzaStudio\CarbinModel.cs" />
     <Compile Include="ForzaStudio\CarbinModel.Names.cs" />
     <Compile Include="ForzaStudio\CarbinValidator.cs" />
+    <Compile Include="ForzaStudio\CarbinFormat.cs" />
+    <Compile Include="ForzaStudio\Fm2CarbinModel.cs" />
     <Compile Include="ForzaStudio\WheelScale.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.WheelScale.cs">
       <SubType>Form</SubType>
@@ -183,6 +185,7 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.Driver.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.GameLod.cs" />
     <Compile Include="ForzaStudio\CarbinModel.LongMeshes.cs" />
+    <Compile Include="ForzaStudio\CarbinModel.Attach.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Gauges.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.XeniaThumbnail.cs" />
     <Compile Include="ForzaStudio\XeniaThumbnails.cs" />
@@ -333,6 +336,7 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="ForzaStudio\ModelTreeView.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Model.cs">
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
     </Compile>
@@ -351,6 +355,9 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.MoveMesh.cs">
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="ForzaStudio\ArchiveEditorForm.AttachMesh.cs">
+      <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="ForzaStudio\ArchiveEditorForm.ShaderSettings.cs">
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
     </Compile>
@@ -364,6 +371,9 @@
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
     </Compile>
     <Compile Include="ForzaStudio\ArchiveEditorForm.PackageCars.cs">
+      <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="ForzaStudio\ArchiveEditorForm.ModPacks.cs">
       <DependentUpon>ArchiveEditorForm.cs</DependentUpon>
     </Compile>
     <Compile Include="ForzaStudio\ArchiveEditorForm.Xml.cs">
@@ -382,6 +392,7 @@
     <Compile Include="ForzaStudio\DlcFixer.Fm3.cs" />
     <Compile Include="ForzaStudio\DlcSource.cs" />
     <Compile Include="ForzaStudio\DlcCatalog.cs" />
+    <Compile Include="ForzaStudio\ModPack.cs" />
     <Compile Include="ForzaStudio\InstalledDlc.cs" />
     <Compile Include="ForzaStudio\SoundBankIndex.cs" />
     <Compile Include="ForzaStudio\SoundIndex.cs" />

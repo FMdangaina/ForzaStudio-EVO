@@ -344,12 +344,42 @@ namespace ForzaStudio
             {
                 return;
             }
+            this.RenameMaterial(section, material, selected, onlyThis.Checked ? this.tvModel.SelectedNode : null, newName, everyPart.Checked, everyFile.Checked);
+        }
+
+        // In-place rename of a mesh node in the tree (F2): this mesh only, as the dialog's default; the
+        // dialog (right click > Rename Material) keeps the FM4 suggestions and the wider scopes.
+        private void RenameMeshInPlace(TreeNode node, string newName)
+        {
+            ForzaMesh selected = node.Tag as ForzaMesh;
+            if (selected == null || node.Parent == null || selected.SubIndex < 0)
+            {
+                return;
+            }
+            string material = node.Text;
+            if (newName.Length == 0 || newName == material)
+            {
+                return;
+            }
+            if (newName.IndexOfAny(new char[] { ' ', '/', '\\', '<', '>' }) >= 0)
+            {
+                MessageBox.Show(this, "Give the material a name without spaces, slashes or < >.", "Rename Material", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            this.RenameMaterial(node.Parent.Text, material, selected, node, newName, false, false);
+        }
+
+        // onlyNode: rename that mesh only (its node, for the tree to keep its tick); null: every mesh with the
+        // material in the part (everyPart: in every part), in this file or (everyFile) every model file.
+        private void RenameMaterial(string section, string material, ForzaMesh selected, TreeNode onlyNode, string newName, bool everyPart, bool everyFile)
+        {
+            bool onlyThis = onlyNode != null;
             List<string> report = new List<string>();
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
                 List<string[]> renamed = new List<string[]>();   // technique from -> to, for shadersettings.xml
-                foreach (ForzaZip.Entry entry in this.PartEditTargets(everyFile.Checked && !onlyThis.Checked))
+                foreach (ForzaZip.Entry entry in this.PartEditTargets(everyFile && !onlyThis))
                 {
                     CarbinModel model;
                     try
@@ -362,7 +392,7 @@ namespace ForzaStudio
                     }
                     string to = CarPort.LodVariant(newName, entry.Name);
                     int count = 0;
-                    if (onlyThis.Checked)
+                    if (onlyThis)
                     {
                         // The tree reads the file in the same order as CarbinModel; checked by name anyway.
                         CarbinModel.SubSection sub = (selected.SectionIndex < model.Sections.Count && selected.SubIndex < model.Sections[selected.SectionIndex].SubSections.Count)
@@ -376,7 +406,7 @@ namespace ForzaStudio
                     }
                     foreach (CarbinModel.Section part in model.Sections)
                     {
-                        if (onlyThis.Checked || (!everyPart.Checked && part.Name != section))
+                        if (onlyThis || (!everyPart && part.Name != section))
                         {
                             continue;
                         }
@@ -413,6 +443,11 @@ namespace ForzaStudio
             finally
             {
                 Cursor.Current = Cursors.Default;
+            }
+            if (onlyNode != null && report.Count > 0)
+            {
+                // The tree keeps ticks and selection by path: the node takes its new name first.
+                onlyNode.Text = CarPort.LodVariant(newName, this.currentEntry.Name);
             }
             this.editSection = null;
             this.ReloadModelKeepingView();

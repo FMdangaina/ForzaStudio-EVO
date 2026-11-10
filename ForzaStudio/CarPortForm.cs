@@ -1865,7 +1865,7 @@ namespace ForzaStudio
 
         internal static bool XeniaRunning()
         {
-            foreach (string name in new string[] { "xenia_canary", "xenia" })
+            foreach (string name in new string[] { "xenia_canary", "xenia", "xenia_edge" })
             {
                 if (Process.GetProcessesByName(name).Length > 0)
                 {

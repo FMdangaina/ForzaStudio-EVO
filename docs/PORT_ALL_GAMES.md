@@ -43,7 +43,7 @@ Twenty converters are not maintainable. Each game gets a **reader** (game → ne
 
 | | FH (FH1 / FH2) | FM2 |
 |---|---|---|
-| Model | Carbin type 5. `CarbinModel` already reads and rewrites it byte for byte (648 files). Vertex bytes 0..23 equal FM4's; the tail goes from SNORM16×4 to SNORM8×4; flag + ID before each buffer; extra `IndexWord`. | Type 2, 60-byte half-float vertices, shared vertex buffers after the sections. No writer exists (old 5.5 "FM2 model writer", superseded). Write from scratch. FM2 has one more top LOD than FM1; FM1-style damage (crushed position + normal). |
+| Model | Carbin type 5. `CarbinModel` already reads and rewrites it byte for byte (648 files). Vertex bytes 0..23 equal FM4's; the tail goes from SNORM16×4 to SNORM8×4; flag + ID before each buffer; extra `IndexWord`. | 60-byte half-float vertices in two shared buffers after the parts (each part a vertex range). `Fm2CarbinModel` reads and rewrites it byte for byte (785 of 789 files, 2026-11-10; layout in `CARBIN_ALL_GAMES.md` section 4); the conversion into it is still to write. FM2 has one more top LOD than FM1; the damage word is FM4's direction, kept inside the vertex; 16 baked lighting values per vertex. |
 | Data | gamedb close to FM4 (relation map in `GameDbSchema.cs`); `IdMax.FH1/FH2.json` in `docs/HZN`. | Old schema: 40 `Data_Car` columns, per-part upgrade tables, no `CarPartPositions` / `CameraOverrides` / `Data_CarBody`. The inverse of `Fm2CarData`, `Fm2CarUpgrades`, `Fm2CarPowertrain`. |
 | Zip | Adds `stripped_*` twins (structure only, buffers empty, flag 3), `physicsdefinition.bin` (inertia, centre of mass, spheres, 38-vertex convex hull), `CarAttribs` v21. | Only main carbin + 4 xds + `CarAttribs` v4 + `ShaderSettings`: LOD0, cockpit, calipers and rotors are lost. |
 | Sound | ET / HT like FM4, events in `caranimationevents.xml` (FM4 keeps them inside the gr2). | No tuning format: the car picks an FM2 car's sound. |
@@ -51,10 +51,12 @@ Twenty converters are not maintainable. Each game gets a **reader** (game → ne
 
 ### Damage words towards FH (open)
 
-FM4 word = signed normalised 10:11:11 unit direction. FH word = 11:11:10, length about 90, pointing outward from the car centre
-on 95 % of vertices (world = (h_y, h_z, −h_x)). Two ways, try the rule first:
+Corrected 2026-11-10 (`CARBIN_ALL_GAMES.md` section 5): both games pack the word the same way (X bits 0-10,
+Y 11-21, Z 22-31). FM4 word = a direction of length 0 to 1. FH word = the crushed offset of the vertex in metres (field / 1023 x 2),
+7 cm on average, towards the middle of the car, on the line of the FM4 direction on 97 % of the vertices. (The earlier "length about
+90, world = (h_y, h_z, −h_x)" came from reading the fields one bit off.) Two ways, try the rule first:
 
-1. rule: rebuild the direction, apply the FH length and the outward sign;
+1. rule: the FM4 direction times a length (FH's mean is 7 cm), signed towards the middle of the car (towards FM4 the conversion made a car explode in game, 2026-11-10: test before relying on it);
 2. donor words: per vertex from the nearest vertex of an FH car (as `CarbinModel` does for rebuilt parts).
 
 ### gr2 animations towards FH (open)

@@ -38,7 +38,7 @@ namespace ForzaStudio
             modelSplit.FixedPanel = FixedPanel.Panel1;
             modelSplit.SplitterDistance = 260;
 
-            this.tvModel = new TreeView();
+            this.tvModel = new ModelTreeView();
             this.tvModel.Dock = DockStyle.Fill;
             this.tvModel.CheckBoxes = true;
             this.tvModel.HideSelection = false;
@@ -331,9 +331,19 @@ namespace ForzaStudio
 
         private void tvModel_AfterCheck(object sender, TreeViewEventArgs e)
         {
+            // One repaint for the whole change (a LOD can have thousands of nodes below it).
             this.tvModel.AfterCheck -= new TreeViewEventHandler(this.tvModel_AfterCheck);
-            SetChecked(e.Node.Nodes, e.Node.Checked);
-            this.tvModel.AfterCheck += new TreeViewEventHandler(this.tvModel_AfterCheck);
+            this.tvModel.BeginUpdate();
+            try
+            {
+                SetChecked(e.Node.Nodes, e.Node.Checked);
+                SyncParentChecks(this.tvModel.Nodes);
+            }
+            finally
+            {
+                this.tvModel.EndUpdate();
+                this.tvModel.AfterCheck += new TreeViewEventHandler(this.tvModel_AfterCheck);
+            }
             this.UpdateModelInfo();
             if (this.scene != null)
             {
@@ -341,11 +351,37 @@ namespace ForzaStudio
             }
         }
 
+        // A node with children is ticked when at least one of them is: hiding every mesh of a part (from the
+        // viewport menu or one by one) unticks the part and, when nothing is left, its LOD. Leaves (meshes,
+        // empty parts) keep their own tick. Call with AfterCheck unhooked. True when the node ends up ticked.
+        private static bool SyncParentChecks(TreeNodeCollection nodes)
+        {
+            bool any = false;
+            foreach (TreeNode node in nodes)
+            {
+                bool on = node.Checked;
+                if (node.Nodes.Count > 0)
+                {
+                    on = SyncParentChecks(node.Nodes);
+                    if (node.Checked != on)
+                    {
+                        node.Checked = on;
+                    }
+                }
+                any |= on;
+            }
+            return any;
+        }
+
         private static void SetChecked(TreeNodeCollection nodes, bool isChecked)
         {
             foreach (TreeNode node in nodes)
             {
-                node.Checked = isChecked;
+                // Setting an unchanged box still repaints and raises the tree's events: skip it.
+                if (node.Checked != isChecked)
+                {
+                    node.Checked = isChecked;
+                }
                 SetChecked(node.Nodes, isChecked);
             }
         }
@@ -360,7 +396,9 @@ namespace ForzaStudio
                 faces += mesh.FaceCount;
             }
             this.lblModelInfo.Text = string.Format("{0:N0} vertices, {1:N0} faces", vertices, faces)
-                + (this.gameLodMeshes.Count > 0 ? string.Format(" + {0:N0} faces of the other files", this.gameLodFaces) : "") + this.gameLodNote;
+                + (this.gameLodMeshes.Count > 0 ? string.Format(" + {0:N0} faces of the other files", this.gameLodFaces) : "") + this.gameLodNote
+                // Ticked parts stay hidden while the PART tab shows one part alone: say so.
+                + ((this.chkSoloPart != null && this.chkSoloPart.Checked && this.editSection != null) ? "   [Show only this part: on]" : "");
             this.MeshEditShownChanged();
         }
 

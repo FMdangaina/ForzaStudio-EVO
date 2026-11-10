@@ -266,7 +266,9 @@ namespace ForzaStudio
         // them in the _lod0 file, which is the one that deforms when the car is alone on the track (MP4-12C: FH
         // lod0 lacks them, FM4 lod0 has them, FM4 cockpit lacks them). So every part the donor's _lod0 file has,
         // the car's _lod0 lacks and the car's cockpit file has moves from the cockpit to the _lod0 file, with
-        // its damage words from the same FM4 reference as the other parts (Words = donor). Port.ini [Lod0]
+        // its damage words from the same FM4 reference as the other parts (Words = donor). Headlights move even
+        // when the donor's _lod0 lacks them (no FM4 car keeps headlights in its cockpit file: 0 of 313; the FM4
+        // Ford GT, donor of the FH1 GTX1, has no separate headlight parts, so they had stayed). Port.ini [Lod0]
         // MoveSections = off keeps the FH layout. Not for traffic cars (their close-up files are rebuilt).
         private void MoveSectionsToLod0(ForzaZip car, ForzaZip donor, string prefix, string donorPrefix)
         {
@@ -288,6 +290,13 @@ namespace ForzaStudio
             foreach (CarbinModel.Section section in reference.Sections)
             {
                 if (lod0.Find(section.Name) == null && cockpit.Find(section.Name) != null)
+                {
+                    moved.Add(section.Name);
+                }
+            }
+            foreach (CarbinModel.Section section in cockpit.Sections)
+            {
+                if (section.Name.StartsWith("headlight", StringComparison.OrdinalIgnoreCase) && lod0.Find(section.Name) == null && !moved.Contains(section.Name))
                 {
                     moved.Add(section.Name);
                 }
@@ -321,14 +330,12 @@ namespace ForzaStudio
         // B1 test T4 (Port.ini [Damage] Words = donor): the per-vertex damage words from an FM4 model of this file:
         // the same car's own, when FM4 has the car under the source's MediaName (matched by position); else the
         // donor car's (matched by place in each section's box, an approximation: the donor's words are FM4's own,
-        // a smooth field over the part). Null when neither exists: the words stay as the Words setting makes them.
+        // a smooth field over the part). Null when neither exists: the words stay the source's.
+        // Words = donorcar forces the donor car; any other value means donor (the conversion of FH's own words,
+        // normalize / copy, was removed 2026-11-10: it made the FH1 GTX1 explode in game).
         private CarbinModel DamageReference(string entryName)
         {
-            string words = PortSettings.Get("Damage", "Words", "donor").ToLowerInvariant();
-            if (words != "donor" && words != "donorcar")
-            {
-                return null;
-            }
+            string words = PortSettings.Get("Damage", "Words", "donor").Trim().ToLowerInvariant();
             if (!this.damageZipRead)
             {
                 this.damageZipRead = true;

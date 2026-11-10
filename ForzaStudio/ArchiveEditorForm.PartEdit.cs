@@ -27,6 +27,7 @@ namespace ForzaStudio
         private Button btnDeletePart;
         private Button btnDuplicatePart;
         private Button btnRenameMaterial;   // enabled when a material (mesh node) is selected
+        private Button btnRenamePart;
         private bool fillingPartEdit;
         private string editSection;
         private string editMaterial;   // null: the whole part
@@ -93,7 +94,7 @@ namespace ForzaStudio
             this.chkSoloPart = new CheckBox();
             this.chkSoloPart.Text = "Show only this part";
             this.chkSoloPart.Size = new Size(SideWidth, 22);
-            this.chkSoloPart.CheckedChanged += delegate { this.UpdatePartPreview(); };
+            this.chkSoloPart.CheckedChanged += delegate { this.UpdatePartPreview(); this.UpdateModelInfo(); };
             side.Controls.Add(this.chkSoloPart);
 
             side.Controls.Add(SideHeading("Part", false));
@@ -104,6 +105,8 @@ namespace ForzaStudio
             this.btnDeletePart.Text = "Delete...";
             this.btnDeletePart.Click += delegate { this.DeleteSelectedNode(); };
             side.Controls.Add(SideButtonRow(this.btnDuplicatePart, this.btnDeletePart));
+            this.btnRenamePart = SideWideButton("Rename Part (F2)", delegate { this.BeginRenamePart(); });
+            side.Controls.Add(this.btnRenamePart);
             this.btnRenameMaterial = SideWideButton("Rename Material...", delegate { this.RenameSelectedMaterial(); });
             side.Controls.Add(this.btnRenameMaterial);
 
@@ -116,6 +119,7 @@ namespace ForzaStudio
             side.Controls.Add(this.btnMergeInto);
             side.Controls.Add(SideNote("Materials with the same name are joined, the others are moved; the merged part is removed."));
             side.Controls.Add(SideNote("Drag a material in the tree onto a part to move that mesh there, onto a LOD for a new part (this file only)."));
+            side.Controls.Add(SideNote("Join two meshes (even with the same name, in one part): right-click a mesh in the tree > Attach, pick the other (this file only)."));
             this.AddPartImportControls(side);
 
             this.tvModel.AfterSelect += delegate { this.OnPartSelected(); };
@@ -132,21 +136,38 @@ namespace ForzaStudio
             ToolStripMenuItem delete = new ToolStripMenuItem("Delete...", null, delegate { this.DeleteSelectedNode(); });
             ToolStripMenuItem focus = new ToolStripMenuItem("Focus On Part", null, delegate { this.FocusPart(); });
             ToolStripMenuItem duplicate = new ToolStripMenuItem("Duplicate Part...", null, delegate { this.DuplicateSelectedPart(); });
+            ToolStripMenuItem renamePart = new ToolStripMenuItem("Rename Part", null, delegate { this.BeginRenamePart(); });
+            renamePart.ShortcutKeyDisplayString = "F2";
+            ToolStripMenuItem renameMesh = new ToolStripMenuItem("Rename", null, delegate { this.BeginRenameNode(); });
+            renameMesh.ShortcutKeyDisplayString = "F2";
             ToolStripMenuItem rename = new ToolStripMenuItem("Rename Material...", null, delegate { this.RenameSelectedMaterial(); });
             ToolStripMenuItem shader = new ToolStripMenuItem("Shader Settings...", null, delegate { this.OpenShaderSettingsOfSelection(); });
+            ToolStripMenuItem attach = new ToolStripMenuItem("Attach...", null, delegate { this.AttachToSelectedMesh(); });
+            ToolStripMenuItem duplicateMesh = new ToolStripMenuItem("Duplicate Mesh", null, delegate { this.DuplicateSelectedMesh(); });
             ToolStripSeparator partSeparator = new ToolStripSeparator();
             ToolStripMenuItem newPart = new ToolStripMenuItem("New Empty Part...", null, delegate { this.NewEmptyPart(this.tvModel.SelectedNode); });
             menu.Items.Add(newPart);
             menu.Items.Add(focus);
             menu.Items.Add(duplicate);
+            menu.Items.Add(renamePart);
+            menu.Items.Add(renameMesh);
             menu.Items.Add(rename);
             menu.Items.Add(shader);
+            menu.Items.Add(duplicateMesh);
+            menu.Items.Add(attach);
             menu.Items.Add(partSeparator);
             menu.Items.Add(delete);
             menu.Opening += delegate(object sender, System.ComponentModel.CancelEventArgs e)
             {
                 string section;
                 string material;
+                // The node under the pointer first: the tree selects a right-clicked node only after the menu
+                // has asked what is selected, so the menu used to work on the node selected before.
+                TreeNode hit = this.tvModel.GetNodeAt(this.tvModel.PointToClient(Cursor.Position));
+                if (hit != null && hit != this.tvModel.SelectedNode)
+                {
+                    this.tvModel.SelectedNode = hit;
+                }
                 // LOD node: only New Empty Part; empty part: only its removal.
                 TreeNode node = this.tvModel.SelectedNode;
                 bool lodNode = IsLodNode(node) && this.SelectedSectionName == null && this.currentEntry != null
@@ -155,6 +176,13 @@ namespace ForzaStudio
                 newPart.Visible = lodNode;
                 focus.Visible = duplicate.Visible = partSeparator.Visible = !lodNode && !empty;
                 delete.Visible = !lodNode;
+                renamePart.Visible = empty;
+                if (empty)
+                {
+                    renamePart.Text = string.Format("Rename Part \"{0}\"", node.Text);
+                }
+                renameMesh.Visible = false;
+                attach.Visible = duplicateMesh.Visible = false;
                 if (lodNode || empty)
                 {
                     rename.Visible = false;
@@ -168,8 +196,21 @@ namespace ForzaStudio
                     e.Cancel = true;
                     return;
                 }
+                // Part edits (move, focus) need the PART tab's reader; delete, duplicate and rename do not.
+                focus.Enabled = this.editSection == section;
+                renamePart.Visible = true;
+                renamePart.Text = string.Format("Rename Part \"{0}\"", section);
+                renamePart.ShortcutKeyDisplayString = (material == null) ? "F2" : "";
+                renameMesh.Visible = material != null && this.IsRenamableMesh(node);
+                renameMesh.Text = string.Format("Rename \"{0}\" (this mesh only)", material);
                 rename.Visible = material != null;
                 shader.Visible = material != null;
+                // (Visible reads false while the menu is not shown yet: set from a bool, never read back.)
+                bool meshNode = material != null && IsAttachableMesh(node);
+                attach.Visible = meshNode;
+                attach.Text = string.Format("Attach to \"{0}\" of {1}...", material, section);
+                duplicateMesh.Visible = meshNode;
+                duplicateMesh.Text = string.Format("Duplicate \"{0}\" (this mesh only)", material);
                 if (shader.Visible)
                 {
                     shader.Text = string.Format("Shader Settings of \"{0}\"...", material);
@@ -183,6 +224,7 @@ namespace ForzaStudio
                 duplicate.Text = string.Format("Duplicate Part \"{0}\"...", section);
             };
             this.tvModel.ContextMenuStrip = menu;
+            this.HookPartLabelEdit();
             this.tvModel.NodeMouseClick += delegate(object sender, TreeNodeMouseClickEventArgs e)
             {
                 if (e.Button == MouseButtons.Right)
@@ -197,15 +239,23 @@ namespace ForzaStudio
                     e.Handled = true;
                     this.DeleteSelectedNode();
                 }
+                else if (e.KeyCode == Keys.F2)
+                {
+                    // F2: the part or the mesh (material) node is renamed in place.
+                    e.Handled = true;
+                    this.BeginRenameNode();
+                }
             };
         }
 
         // A mesh node is one material of a part; a part node is the whole section.
         private bool DeletableNode(out string section, out string material)
         {
+            // Not tied to the PART tab (editSection): it can fail to read a file the edits below handle fine,
+            // and then the tree had no right-click menu and Delete did nothing.
             section = this.SelectedSectionName;
             material = null;
-            if (section == null || this.editSection != section)
+            if (section == null || IsEmptyPart(this.tvModel.SelectedNode))
             {
                 return false;
             }
@@ -296,7 +346,7 @@ namespace ForzaStudio
         private void DuplicateSelectedPart()
         {
             string section = this.SelectedSectionName;
-            if (section == null || this.editSection != section)
+            if (section == null || IsEmptyPart(this.tvModel.SelectedNode))
             {
                 return;
             }
@@ -375,6 +425,194 @@ namespace ForzaStudio
             this.SetStatus(string.Format("{0} duplicated as {1} in {2} (pending: Save to write the archive)", section, newName, string.Join(", ", report.ToArray())));
         }
 
+        // F2, the tree menu or the PART tab button: the part's name becomes editable in the tree, as in
+        // Explorer (on a material node, its part). Enter renames, Esc leaves it. The tree edits labels only
+        // when asked here, so a slow second click on a node does not start an edit by mistake.
+        private void BeginRenamePart()
+        {
+            TreeNode node = this.tvModel.SelectedNode;
+            if (node != null && node.Tag is ForzaMesh)
+            {
+                node = node.Parent;
+            }
+            if (node == null || !IsPartNode(node))
+            {
+                return;
+            }
+            this.tvModel.SelectedNode = node;
+            if (!IsEmptyPart(node) && this.SelectedSectionName != node.Text)
+            {
+                return;
+            }
+            this.tvModel.Focus();
+            this.tvModel.LabelEdit = true;
+            node.BeginEdit();
+        }
+
+        // F2 on any node: a part as above, a mesh (one material of a part) renamed in place too, this mesh
+        // only (right click > Rename Material has the FM4 suggestions and the wider scopes).
+        private void BeginRenameNode()
+        {
+            TreeNode node = this.tvModel.SelectedNode;
+            if (IsRenamableMesh(node))
+            {
+                this.tvModel.Focus();
+                this.tvModel.LabelEdit = true;
+                node.BeginEdit();
+                return;
+            }
+            this.BeginRenamePart();
+        }
+
+        // model > LOD > part (an empty part too); not a mesh, a LOD or the model.
+        private static bool IsPartNode(TreeNode node)
+        {
+            return node != null && !(node.Tag is ForzaMesh) && IsLodNode(node.Parent);
+        }
+
+        // A mesh node of a carbin's tree (not of the game LOD preview, not a track model).
+        private bool IsRenamableMesh(TreeNode node)
+        {
+            ForzaMesh mesh = (node != null) ? node.Tag as ForzaMesh : null;
+            return mesh != null && mesh.SubIndex >= 0 && IsPartNode(node.Parent) && this.currentEntry != null
+                && this.currentEntry.Name.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void HookPartLabelEdit()
+        {
+            this.tvModel.BeforeLabelEdit += delegate(object sender, NodeLabelEditEventArgs e)
+            {
+                if (!IsPartNode(e.Node) && !this.IsRenamableMesh(e.Node))
+                {
+                    e.CancelEdit = true;
+                    this.tvModel.LabelEdit = false;
+                }
+            };
+            this.tvModel.AfterLabelEdit += delegate(object sender, NodeLabelEditEventArgs e)
+            {
+                this.tvModel.LabelEdit = false;
+                // The tree is rebuilt from the file after the rename; nothing to keep from the edit box.
+                e.CancelEdit = true;
+                if (e.Label == null)
+                {
+                    return;   // Esc
+                }
+                string from = e.Node.Text;
+                string to = e.Label.Trim();
+                TreeNode edited = e.Node;
+                if (edited.Tag is ForzaMesh)
+                {
+                    this.BeginInvoke((MethodInvoker) delegate { this.RenameMeshInPlace(edited, to); });
+                    return;
+                }
+                bool empty = IsEmptyPart(e.Node);
+                // After the edit box is gone: the rename rebuilds the tree.
+                this.BeginInvoke((MethodInvoker) delegate { this.RenamePart(from, to, empty); });
+            };
+        }
+
+        // Renames a part (section name: all its materials and LODs) in every model file of the car (main,
+        // lod0, cockpit share the part names), as Duplicate adds a part to all of them. The name is a plain
+        // length-prefixed string in the carbin, nothing else in the file refers to it. An empty part (not in
+        // the file yet) is renamed in the tree only.
+        private void RenamePart(string section, string newName, bool empty)
+        {
+            if (newName == section || newName.Length == 0)
+            {
+                return;
+            }
+            bool ascii = true;
+            foreach (char c in newName)
+            {
+                ascii = ascii && c > ' ' && c < 127;
+            }
+            if (!ascii || newName.Length > 255 || newName.IndexOfAny(new char[] { '/', '\\' }) >= 0)
+            {
+                MessageBox.Show(this, "Give the part a name without spaces, slashes or accented letters (at most 255 characters).", "Rename Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (this.PartExists(newName) || (this.emptyParts.Exists(delegate(string[] p) { return p[1] == newName; })))
+            {
+                MessageBox.Show(this, string.Format("This car already has a part named {0}.\n\nTo join the two parts use Merge in the Part tab.", newName), "Rename Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (empty)
+            {
+                foreach (string[] part in this.emptyParts)
+                {
+                    if (part[1] == section)
+                    {
+                        part[1] = newName;
+                    }
+                }
+                RenamePartNodes(this.tvModel.Nodes, section, newName);
+                this.ReloadModelKeepingView();
+                this.SetStatus(string.Format("Empty part {0} renamed {1}", section, newName));
+                return;
+            }
+            List<string> report = new List<string>();
+            try
+            {
+                Cursor.Current = Cursors.WaitCursor;
+                foreach (ForzaZip.Entry entry in this.PartEditTargets(true))
+                {
+                    CarbinModel model;
+                    try
+                    {
+                        model = new CarbinModel(this.zip.Read(entry));
+                    }
+                    catch (NotSupportedException)
+                    {
+                        continue;
+                    }
+                    CarbinModel.Section part = model.Find(section);
+                    if (part == null)
+                    {
+                        continue;
+                    }
+                    part.Name = newName;
+                    this.zip.Replace(entry, model.ToBytes());
+                    this.RefreshEntryNode(entry);
+                    report.Add(entry.Name.Substring(entry.Name.LastIndexOf('/') + 1));
+                }
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Rename Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+            // The tree keeps its ticks, open nodes and selection by path: rename the nodes first.
+            RenamePartNodes(this.tvModel.Nodes, section, newName);
+            this.editSection = null;
+            this.ReloadModelKeepingView();
+            this.SetStatus((report.Count > 0)
+                ? string.Format("{0} renamed {1} in {2} (pending: Save to write the archive)", section, newName, string.Join(", ", report.ToArray()))
+                : "Nothing to rename.");
+        }
+
+        // Part nodes sit under the LOD nodes (model > LOD > part).
+        private static void RenamePartNodes(TreeNodeCollection roots, string from, string to)
+        {
+            foreach (TreeNode root in roots)
+            {
+                foreach (TreeNode lod in root.Nodes)
+                {
+                    foreach (TreeNode part in lod.Nodes)
+                    {
+                        if (part.Text == from && !(part.Tag is ForzaMesh))
+                        {
+                            part.Text = to;
+                            part.Name = to;
+                        }
+                    }
+                }
+            }
+        }
+
         private static Control AxisHeader(string text)
         {
             Label title = SideLabel(text);
@@ -450,6 +688,7 @@ namespace ForzaStudio
             this.btnFocusPart.Enabled = enabled;
             this.btnDeletePart.Enabled = enabled;
             this.btnDuplicatePart.Enabled = enabled;
+            this.btnRenamePart.Enabled = enabled;
             this.btnRenameMaterial.Enabled = enabled && this.SelectedMaterialName != null;
             this.cmbMergeTarget.Enabled = enabled;
             this.btnMergeInto.Enabled = enabled && this.cmbMergeTarget.Items.Count > 0;
@@ -514,7 +753,7 @@ namespace ForzaStudio
             }
             try
             {
-                CarbinFile carbin = new CarbinFile(this.zip.Read(this.currentEntry));
+                CarbinFile carbin = this.SelectionCarbin();
                 CarbinFile.Section found = carbin.FindSection(section);
                 if (found == null)
                 {
@@ -526,7 +765,7 @@ namespace ForzaStudio
                 if (material != null)
                 {
                     // One material of the part: its own center is the default pivot.
-                    CarbinModel model = new CarbinModel(this.zip.Read(this.currentEntry));
+                    CarbinModel model = this.SelectionModel();
                     double[] center;
                     double[] half;
                     if (CarbinModel.MaterialBounds(model.Find(section), material, out center, out half))
@@ -568,6 +807,46 @@ namespace ForzaStudio
                 this.lblEditPart.Text = "Part edits not available: " + exception.Message;
                 this.EnablePartEdit(false);
             }
+        }
+
+        // The shown file read once per version for the tree selection (read-only use): a click on a node used
+        // to unzip and parse the whole carbin twice. A pending edit (new Replacement) or another file reads again.
+        private ForzaZip.Entry selectionEntry;
+        private byte[] selectionVersion;
+        private CarbinFile selectionCarbin;
+        private CarbinModel selectionModel;
+
+        private bool SelectionCacheValid()
+        {
+            if (this.selectionEntry != this.currentEntry || this.selectionVersion != this.currentEntry.Replacement)
+            {
+                this.selectionEntry = this.currentEntry;
+                this.selectionVersion = this.currentEntry.Replacement;
+                this.selectionCarbin = null;
+                this.selectionModel = null;
+                return false;
+            }
+            return true;
+        }
+
+        private CarbinFile SelectionCarbin()
+        {
+            this.SelectionCacheValid();
+            if (this.selectionCarbin == null)
+            {
+                this.selectionCarbin = new CarbinFile(this.zip.Read(this.currentEntry));
+            }
+            return this.selectionCarbin;
+        }
+
+        private CarbinModel SelectionModel()
+        {
+            this.SelectionCacheValid();
+            if (this.selectionModel == null)
+            {
+                this.selectionModel = new CarbinModel(this.zip.Read(this.currentEntry));
+            }
+            return this.selectionModel;
         }
 
         // Points the camera at the part (with the pending edit applied), from the current direction.

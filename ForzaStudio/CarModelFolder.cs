@@ -189,7 +189,7 @@ namespace ForzaStudio
                     SortedDictionary<int, List<ForzaCarSubSection>> lods = new SortedDictionary<int, List<ForzaCarSubSection>>();
                     foreach (ForzaCarSubSection sub in section.SubSections)
                     {
-                        if (sub.Vertices == null || sub.Indices == null || sub.FaceCount == 0)
+                        if (sub.Vertices == null || sub.Indices == null || sub.FaceCount == 0 || !HasUsableTriangle(sub))
                         {
                             continue;
                         }
@@ -224,7 +224,9 @@ namespace ForzaStudio
                                 obj.WriteLine("usemtl " + sub.Name);
                                 foreach (ForzaVertex v in sub.Vertices)
                                 {
-                                    obj.WriteLine(string.Format(inv, "v {0:R} {1:R} {2:R}", v.position.X, v.position.Y, v.position.Z));
+                                    // stray vertices (no face uses them, see below) written at the origin
+                                    Vector3 p = PlausiblePosition(v.position) ? v.position : Vector3.Zero;
+                                    obj.WriteLine(string.Format(inv, "v {0:R} {1:R} {2:R}", p.X, p.Y, p.Z));
                                 }
                                 foreach (ForzaVertex v in sub.Vertices)
                                 {
@@ -240,7 +242,7 @@ namespace ForzaStudio
                                     int a = sub.Indices[i];
                                     int b = sub.Indices[i + 1];
                                     int c = sub.Indices[i + 2];
-                                    if (a == b || b == c || a == c)
+                                    if (!UsableTriangle(sub, a, b, c))
                                     {
                                         continue;
                                     }
@@ -269,6 +271,37 @@ namespace ForzaStudio
             }
             File.WriteAllText(Path.Combine(folder, ManifestName), manifest.ToString(), new UTF8Encoding(false));
             return count;
+        }
+
+        // Some game files hold placeholder geometry with vertices at about -1.7e38 (FM2 Lingenfelter "winga": one
+        // quad, 4 equal vertices; also FM2 288 GTO, FTO, Cupra GT): no real surface. Their triangles are left out,
+        // and a part left with none is not exported, so the port handles it as a part the car does not have.
+        public static bool PlausiblePosition(Vector3 p)
+        {
+            return !float.IsNaN(p.X) && !float.IsNaN(p.Y) && !float.IsNaN(p.Z)
+                && Math.Abs(p.X) < 100000f && Math.Abs(p.Y) < 100000f && Math.Abs(p.Z) < 100000f;
+        }
+
+        private static bool UsableTriangle(ForzaCarSubSection sub, int a, int b, int c)
+        {
+            int n = sub.Vertices.Length;
+            if (a == b || b == c || a == c || a < 0 || b < 0 || c < 0 || a >= n || b >= n || c >= n)
+            {
+                return false;
+            }
+            return PlausiblePosition(sub.Vertices[a].position) && PlausiblePosition(sub.Vertices[b].position) && PlausiblePosition(sub.Vertices[c].position);
+        }
+
+        private static bool HasUsableTriangle(ForzaCarSubSection sub)
+        {
+            for (int i = 0; i + 2 < sub.Indices.Length; i += 3)
+            {
+                if (UsableTriangle(sub, sub.Indices[i], sub.Indices[i + 1], sub.Indices[i + 2]))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         #endregion

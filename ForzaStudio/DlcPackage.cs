@@ -1272,6 +1272,19 @@ namespace ForzaStudio
             return BuildMerge(clean, ported, offer, report, false);
         }
 
+        // A merge holding only the offer rows (ContentOffers + one ContentOffersMapping per car) for cars the game's database
+        // already has: a car of an original pack (FM4 disc 2) made standalone in a package of its own (ModPack, 2026-11-10).
+        internal static byte[] BuildOfferMerge(byte[] game, int offer, List<long> cars, StringBuilder report)
+        {
+            using (SqliteDatabase before = SqliteDatabase.FromBytes(game))
+            using (SqliteDatabase merge = SqliteDatabase.FromBytes(new byte[0]))
+            {
+                merge.Execute("PRAGMA page_size = 1024");
+                AddOffer(before, merge, offer, cars, report);
+                return merge.ToBytes();
+            }
+        }
+
         // fm3: the pack row is a MultiDiscContentPacks one (AddFm3Offer) instead of ContentOffers + ContentOffersMapping.
         internal static byte[] BuildMerge(byte[] clean, byte[] ported, int offer, StringBuilder report, bool fm3)
         {

@@ -9,7 +9,7 @@ namespace ForzaStudio
     using System.Windows.Forms;
 
     // The MESH tab: select faces in the viewer and delete them or detach them into a part of their own.
-    // Click picks a face, Shift+click adds, Ctrl+click toggles; a drag draws a box that selects the faces
+    // Click picks a face, Ctrl (or Shift) adds, Alt removes (3ds Max); a drag draws a region that selects the faces
     // whose centre falls inside it (same modifiers); middle drag turns the view, right drag moves it.
     // Faces are the triangles of the meshes (material + LOD) checked in the tree; an edit touches only
     // the LOD of the mesh the face is in, in this model file, and stays pending until Save.
@@ -63,7 +63,7 @@ namespace ForzaStudio
             side.Controls.Add(SideHeading("Faces", true));
             side.Controls.Add(this.lblFaceSelection);
             side.Controls.Add(this.chkFrontFaces);
-            side.Controls.Add(SideNote("The tools (select all / none / linked, delete, detach, UV mapper) are in the tool bar above the view, with their keys in the hints. Click: pick a face. Shift+click: add. Ctrl+click: toggle. Drag: the region chosen in the tool bar (rectangle, circle, fence, lasso or brush; same keys; Esc cancels, a fence closes with a double click or Enter). Middle drag: move the view, Alt + middle drag: turn it, wheel: zoom. Delete and Detach touch only the LOD of the mesh the faces are in; pending until File > Save."));
+            side.Controls.Add(SideNote("The tools (select all / none / linked, delete, detach, UV mapper) are in the tool bar above the view, with their keys in the hints. Click: pick a face. Ctrl (or Shift): add. Alt: remove (as in 3ds Max). Drag: the region chosen in the tool bar (rectangle, circle, fence, lasso or brush; same keys; Esc cancels, a fence closes with a double click or Enter). Middle drag: move the view, Alt + middle drag: turn it, wheel: zoom. Delete and Detach touch only the LOD of the mesh the faces are in; pending until File > Save."));
             SubObject.LevelChanged += this.SubLevelChanged;
             this.Disposed += delegate { SubObject.LevelChanged -= this.SubLevelChanged; };
             this.UpdateFaceSelectionLabel();
@@ -382,7 +382,7 @@ namespace ForzaStudio
                 this.UpdateViewOverlay();
                 return;
             }
-            bool add = (Control.ModifierKeys & Keys.Shift) != 0, toggle = (Control.ModifierKeys & Keys.Control) != 0;
+            SelectOp op = CurrentSelectOp();
             List<long> faces = new List<long>(), vertices = new List<long>();
             List<string> edges = new List<string>();
             this.LevelHits(useRegion, click, faces, vertices, edges);
@@ -390,29 +390,43 @@ namespace ForzaStudio
             SubLevel level = SubObject.CurrentLevel;
             if (level == SubLevel.Vertex)
             {
-                Merge(this.vertexSelection, vertices, add, toggle);
+                Merge(this.vertexSelection, vertices, op);
                 this.SyncFacesFromSub();
                 return;
             }
             if (level == SubLevel.Edge)
             {
-                Merge(this.edgeSelection, edges, add, toggle);
+                Merge(this.edgeSelection, edges, op);
                 this.SyncFacesFromSub();
                 return;
             }
-            Merge(this.faceSelection, faces, add, toggle);
+            Merge(this.faceSelection, faces, op);
             this.FaceSelectionChanged();
         }
 
-        private static void Merge<T>(Set<T> selection, List<T> hit, bool add, bool toggle)
+        // 3ds Max rules: no key replaces the selection, Ctrl (or Shift) adds, Alt removes. Nothing ever toggles, so going
+        // over what is already selected again never deselects it.
+        internal enum SelectOp { Replace, Add, Subtract }
+
+        internal static SelectOp CurrentSelectOp()
         {
-            if (!add && !toggle)
+            Keys keys = Control.ModifierKeys;
+            if ((keys & Keys.Alt) != 0)
+            {
+                return SelectOp.Subtract;
+            }
+            return ((keys & (Keys.Control | Keys.Shift)) != 0) ? SelectOp.Add : SelectOp.Replace;
+        }
+
+        private static void Merge<T>(Set<T> selection, List<T> hit, SelectOp op)
+        {
+            if (op == SelectOp.Replace)
             {
                 selection.Clear();
             }
             foreach (T key in hit)
             {
-                if (toggle && selection.Contains(key))
+                if (op == SelectOp.Subtract)
                 {
                     selection.Remove(key);
                 }

@@ -101,6 +101,18 @@ namespace ForzaStudio
 
         private void ShownChanged()
         {
+            // The parts and LODs follow their meshes: hiding everything leaves no tick behind.
+            this.tvModel.AfterCheck -= new TreeViewEventHandler(this.tvModel_AfterCheck);
+            this.tvModel.BeginUpdate();
+            try
+            {
+                SyncParentChecks(this.tvModel.Nodes);
+            }
+            finally
+            {
+                this.tvModel.EndUpdate();
+                this.tvModel.AfterCheck += new TreeViewEventHandler(this.tvModel_AfterCheck);
+            }
             this.UpdateModelInfo();
             if (this.scene != null)
             {
@@ -322,6 +334,11 @@ namespace ForzaStudio
                 }
                 foreach (ForzaVertex vertex in mesh.Vertices)
                 {
+                    // stray game vertices (about 1.7e38) would send the camera out of reach: see ModelBounds
+                    if (!PlausibleCoordinate(vertex.position.X) || !PlausibleCoordinate(vertex.position.Y) || !PlausibleCoordinate(vertex.position.Z))
+                    {
+                        continue;
+                    }
                     min = Vector3.Min(min, vertex.position);
                     max = Vector3.Max(max, vertex.position);
                     any = true;

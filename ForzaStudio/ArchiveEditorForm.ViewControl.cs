@@ -134,12 +134,25 @@ namespace ForzaStudio
                 }
                 foreach (ForzaVertex vertex in mesh.Vertices)
                 {
+                    // A few game files carry stray vertices at about 1.7e38 (FM2 Lingenfelter winga, FTO, Cupra GT,
+                    // 288 GTO; FM3 250 GTO, 288 GTO, Skyline lod0): counted, they put the orbit pivot out of reach
+                    // and the whole view vanishes on the first camera move.
+                    if (!PlausibleCoordinate(vertex.position.X) || !PlausibleCoordinate(vertex.position.Y) || !PlausibleCoordinate(vertex.position.Z))
+                    {
+                        continue;
+                    }
                     min = Vector3.Min(min, vertex.position);
                     max = Vector3.Max(max, vertex.position);
                     any = true;
                 }
             }
             return any;
+        }
+
+        // Metres: no car or track part is anywhere near 100 km from the origin.
+        private static bool PlausibleCoordinate(float value)
+        {
+            return !float.IsNaN(value) && Math.Abs(value) < 100000f;
         }
 
         private void ShowStandardView(Camera.StandardView view)

@@ -157,6 +157,36 @@ namespace ForzaStudio
                 this.tables[table.Name] = table;
                 this.TableNames.Add(table.Name);
             }
+            this.ownGame = this.DetectGame();
+        }
+
+        private readonly ForzaGame ownGame;
+
+        // Which Forza the database belongs to, from its tables alone (it can be opened from anywhere).
+        // A partial database (DLC patch) without the telling tables takes its reference's game.
+        public ForzaGame Game
+        {
+            get { return (this.ownGame == ForzaGame.Unknown && this.reference != null) ? this.reference.Game : this.ownGame; }
+        }
+
+        // Checked on the five extracted games (2026-11-10): FH1/FH2 have the event hubs (FH2 also the tire
+        // brands), FM4 the electric motors, FM2 one upgrade table per part (CamValves) and Data_Car columns
+        // with units in the name; FM3 is a full database with none of these.
+        private ForzaGame DetectGame()
+        {
+            if (this.HasTable("EventHubs"))
+            {
+                return this.HasTable("List_TireBrand") ? ForzaGame.Horizon2 : ForzaGame.Horizon1;
+            }
+            if (this.HasTable("Data_Motor"))
+            {
+                return ForzaGame.Motorsport4;
+            }
+            if (this.HasTable("List_UpgradeEngineCamValves") || this.HasColumn("Data_Car", "FrontWeight-pct"))
+            {
+                return ForzaGame.Motorsport2;
+            }
+            return (this.HasTable("Data_Car") && this.HasTable("CarClasses")) ? ForzaGame.Motorsport3 : ForzaGame.Unknown;
         }
 
         public SqliteDatabase Sql
@@ -364,6 +394,22 @@ namespace ForzaStudio
             }
             string list = string.Join(", ", columns.ToArray());
             string name = SqliteDatabase.Quote(table.Name);
+            // A table without a key (FM2, DLC patches) whose first column is a unique whole-number id: the copy
+            // gets max + 1 there, as a keyed table would, instead of a second row with the same id.
+            Column first = (table.PrimaryKey == null && table.Columns.Count > 0) ? table.Columns[0] : null;
+            if (first != null && first.Kind == ValueKind.Integer)
+            {
+                string id = SqliteDatabase.Quote(first.Name);
+                object[] stats = this.db.Query("SELECT count(*), count(DISTINCT " + id + "), max(" + id + ") FROM " + name).Rows[0];
+                if (stats[2] is long && Convert.ToInt64(stats[0]) == Convert.ToInt64(stats[1]))
+                {
+                    string select = "? AS " + id + list.Substring(id.Length);
+                    this.db.Execute("INSERT INTO " + name + " (" + list + ") SELECT " + select + " FROM " + name + " WHERE rowid = ?", (long) stats[2] + 1, rowId);
+                    long added = this.db.LastInsertRowId;
+                    this.Record(table.Name, added, null, null, "copy of #" + rowId);
+                    return added;
+                }
+            }
             this.db.Execute("INSERT INTO " + name + " (" + list + ") SELECT " + list + " FROM " + name + " WHERE rowid = ?", rowId);
             long copy = this.db.LastInsertRowId;
             this.Record(table.Name, copy, null, null, "copy of #" + rowId);
@@ -605,7 +651,7 @@ namespace ForzaStudio
         private Lookup BuildLookup(string key)
         {
             Lookup lookup = new Lookup();
-            string sql = LookupSql(key);
+            string sql = null;
             string table = LookupTable(key);
             string[] relation = key.StartsWith(RelationPrefix, StringComparison.Ordinal) ? key.Substring(RelationPrefix.Length).Split('|') : null;
             if (relation != null)
@@ -617,6 +663,10 @@ namespace ForzaStudio
                 if (source != null && relation != null && source.HasTable(table))
                 {
                     sql = RelationLookupSql(source, relation[0], relation[1]);
+                }
+                else if (source != null && relation == null)
+                {
+                    sql = LookupSql(source, key);
                 }
                 if (source == null || sql == null || (table != null && !source.HasTable(table)))
                 {
@@ -640,6 +690,15 @@ namespace ForzaStudio
                             if (!string.IsNullOrEmpty(text))
                             {
                                 texts.Add(text);
+                            }
+                        }
+                        // No name and no text found (FM2 keeps part makers as plain text): the first plain value.
+                        for (int k = 2; k < row.Length && name.Length == 0 && texts.Count == 0; k++)
+                        {
+                            string plain = row[k] as string;
+                            if (!string.IsNullOrEmpty(plain) && !plain.StartsWith("_&", StringComparison.Ordinal))
+                            {
+                                name = plain;
                             }
                         }
                         string joined = string.Join(" - ", texts.ToArray());
@@ -723,7 +782,7 @@ namespace ForzaStudio
                 {
                     continue;
                 }
-                foreach (object[] row in source.db.Query("SELECT replace(BadgeTexturePathPrefix, 'CLASS_', ''), ClassColor FROM CarClasses").Rows)
+                foreach (object[] row in source.db.Query("SELECT " + source.ClassLetterSql() + ", ClassColor FROM CarClasses").Rows)
                 {
                     string letter = row[0] as string;
                     if (letter != null && row[1] is long && !colors.ContainsKey(letter))
@@ -904,22 +963,48 @@ namespace ForzaStudio
             return null;
         }
 
-        private static string LookupSql(string key)
+        // The make's name part of its logo: FM4/FH have it as IconPathBase, FM2/FM3 only inside IconPath
+        // (...\L_MAN_AstonMartin_Logo.tga), else the three-letter code.
+        private static string MakeNameSql(GameDatabase source)
+        {
+            if (source.HasColumn("List_CarMake", "IconPathBase"))
+            {
+                return "coalesce(IconPathBase, ManufacturerCode)";
+            }
+            return "CASE WHEN instr(IconPath, 'L_MAN_') > 0 AND instr(lower(IconPath), '_logo.') > instr(IconPath, 'L_MAN_') "
+                + "THEN substr(IconPath, instr(IconPath, 'L_MAN_') + 6, instr(lower(IconPath), '_logo.') - instr(IconPath, 'L_MAN_') - 6) ELSE ManufacturerCode END";
+        }
+
+        // The class letter: FM3/FM4/FH have BadgeTexturePathPrefix (CLASS_R2), FM2 only the badge picture (...\A_CLS-R2.tga).
+        public string ClassLetterSql()
+        {
+            if (this.HasColumn("CarClasses", "BadgeTexturePathPrefix"))
+            {
+                return "replace(BadgeTexturePathPrefix, 'CLASS_', '')";
+            }
+            if (this.HasColumn("CarClasses", "BadgePath"))
+            {
+                return "replace(replace(substr(BadgePath, instr(BadgePath, 'A_CLS-') + 6), '.tga', ''), '.TGA', '')";
+            }
+            return "CAST(Id AS TEXT)";
+        }
+
+        private static string LookupSql(GameDatabase source, string key)
         {
             switch (key)
             {
                 case "make":
-                    return "SELECT ID, IconPathBase || ' (' || ManufacturerCode || ')' FROM List_CarMake ORDER BY IconPathBase";
+                    return "SELECT ID, " + MakeNameSql(source) + " || ' (' || ManufacturerCode || ')' FROM List_CarMake ORDER BY 2";
                 case "make.short":
-                    return "SELECT ID, coalesce(IconPathBase, ManufacturerCode) FROM List_CarMake";
+                    return "SELECT ID, " + MakeNameSql(source) + " FROM List_CarMake";
                 case "make.icon":
                     return "SELECT ID, IconPath FROM List_CarMake";
                 case "class.short":
-                    return "SELECT Id, replace(BadgeTexturePathPrefix, 'CLASS_', '') FROM CarClasses";
+                    return "SELECT Id, " + source.ClassLetterSql() + " FROM CarClasses";
                 case "track.short":
                     return "SELECT id, MediaName FROM Tracks";
                 case "class":
-                    return "SELECT Id, replace(BadgeTexturePathPrefix, 'CLASS_', '') || ' (PI up to ' || MaxDisplayPerformanceIndex || ')' FROM CarClasses ORDER BY Id";
+                    return "SELECT Id, " + source.ClassLetterSql() + " || ' (PI up to ' || MaxDisplayPerformanceIndex || ')' FROM CarClasses ORDER BY Id";
                 case "placement":
                     return "SELECT ID, EnginePlacement FROM List_EnginePlacement ORDER BY ID";
                 case "drivetype":
@@ -939,13 +1024,16 @@ namespace ForzaStudio
                 case "country":
                     return "SELECT CountryID, replace(replace(substr(IconPath, instr(IconPath, 'L_FLA_') + 6), '_flag.tga', ''), '_', ' ') FROM List_Country ORDER BY CountryID";
                 case "track":
-                    return "SELECT id, MediaName || ' (' || Length || ' m' || CASE WHEN IsReverse = 1 THEN ', reverse' ELSE '' END || ')', ShortDisplayName, DisplayName FROM Tracks ORDER BY MediaName, id";
+                    // FM2/FM3 have no IsReverse column.
+                    return "SELECT id, MediaName || ' (' || Length || ' m' || " + (source.HasColumn("Tracks", "IsReverse") ? "CASE WHEN IsReverse = 1 THEN ', reverse' ELSE '' END" : "''")
+                        + " || ')', ShortDisplayName, DisplayName FROM Tracks ORDER BY MediaName, id";
                 case "environment":
                     return "SELECT Id, MediaName FROM Environments ORDER BY MediaName";
                 case "car":
                     return "SELECT Id, MediaName, ModelShort FROM Data_Car ORDER BY MediaName";
                 case "engine":
-                    return "SELECT EngineID, coalesce(EngineName, MediaName) FROM Data_Engine ORDER BY EngineID";
+                    // FM2's EngineName is an empty string.
+                    return "SELECT EngineID, coalesce(nullif(EngineName, ''), MediaName) FROM Data_Engine ORDER BY EngineID";
                 case "motor":
                     return "SELECT MotorID, coalesce(MotorName, MediaName) FROM Data_Motor ORDER BY MotorID";
                 case "tirecompound":
@@ -988,7 +1076,7 @@ namespace ForzaStudio
             return FormatValue(value);
         }
 
-        private bool HasColumn(string table, string column)
+        public bool HasColumn(string table, string column)
         {
             Table found = this.GetTable(table);
             return found != null && found.Find(column) != null;

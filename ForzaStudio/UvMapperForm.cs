@@ -61,7 +61,7 @@ namespace ForzaStudio
             // The four tools: one is on at a time (Q W E R).
             string[] hints =
             {
-                "Select: click a point, or drag a box (Shift adds, Ctrl toggles)  (Q)",
+                "Select: click a point, or drag a box (Ctrl adds, Alt removes)  (Q)",
                 "Move the selected points: drag  (W)",
                 "Rotate the selected points around their centre: drag  (E)",
                 "Scale the selected points from their centre: drag  (R)"
@@ -116,7 +116,7 @@ namespace ForzaStudio
             cancel.Location = new System.Drawing.Point(112, 8);
             cancel.Click += delegate { this.DialogResult = DialogResult.Cancel; this.Close(); };
             Label hint = new Label();
-            hint.Text = "Wheel: zoom   Middle drag: move the view   Shift / Ctrl: add / toggle to the selection";
+            hint.Text = "Wheel: zoom   Middle drag: move the view   Ctrl (or Shift): add to the selection   Alt: remove";
             hint.ForeColor = ForzaTheme.TextDim;
             hint.AutoSize = true;
             hint.Location = new System.Drawing.Point(224, 14);
@@ -683,7 +683,7 @@ namespace ForzaStudio
 
             // A region takes the faces whose centre is inside it, a click the face under the pointer.
             // Ctrl on a face that is already selected deselects its points (the others are added by the caller).
-            private void HitFaces(bool box, System.Drawing.Point click, bool toggle, List<long> hit, List<int[]> faces)
+            private void HitFaces(bool box, System.Drawing.Point click, List<long> hit, List<int[]> faces)
             {
                 PointF pointer = new PointF(click.X, click.Y);
                 for (int i = 0; i < this.session.Parts.Count; i++)
@@ -706,19 +706,9 @@ namespace ForzaStudio
                         {
                             faces.Add(new int[] { i, f });
                         }
-                        long k0 = UvSession.Key(i, t[0]), k1 = UvSession.Key(i, t[1]), k2 = UvSession.Key(i, t[2]);
-                        if (toggle && this.Selection.Contains(k0) && this.Selection.Contains(k1) && this.Selection.Contains(k2))
-                        {
-                            this.Selection.Remove(k0);
-                            this.Selection.Remove(k1);
-                            this.Selection.Remove(k2);
-                        }
-                        else
-                        {
-                            hit.Add(k0);
-                            hit.Add(k1);
-                            hit.Add(k2);
-                        }
+                        hit.Add(UvSession.Key(i, t[0]));
+                        hit.Add(UvSession.Key(i, t[1]));
+                        hit.Add(UvSession.Key(i, t[2]));
                         if (!box)
                         {
                             return;
@@ -826,10 +816,10 @@ namespace ForzaStudio
 
             // Polygon / Element: the faces hit grow to their whole flat polygon (3D plane, SubObject.Polygons) or element (the
             // UV island: triangles joined by their points). Ctrl on a polygon / element that is all selected deselects it.
-            private void HitGrown(bool box, System.Drawing.Point click, bool toggle, List<long> hit)
+            private void HitGrown(bool box, System.Drawing.Point click, List<long> hit)
             {
                 List<int[]> faces = new List<int[]>();
-                this.HitFaces(box, click, false, new List<long>(), faces);
+                this.HitFaces(box, click, new List<long>(), faces);
                 Dictionary<int, Dictionary<int, bool>> wanted = new Dictionary<int, Dictionary<int, bool>>();
                 foreach (int[] pair in faces)
                 {
@@ -857,18 +847,7 @@ namespace ForzaStudio
                             }
                         }
                     }
-                    bool all = keys.Count > 0 && keys.TrueForAll(delegate(long k) { return this.Selection.Contains(k); });
-                    if (toggle && all)
-                    {
-                        foreach (long k in keys)
-                        {
-                            this.Selection.Remove(k);
-                        }
-                    }
-                    else
-                    {
-                        hit.AddRange(keys);
-                    }
+                    hit.AddRange(keys);
                 }
             }
 
@@ -948,8 +927,8 @@ namespace ForzaStudio
                 this.dragLast = at;
                 bool fence = this.region.Mode == RegionMode.Fence;
                 bool click = this.region.WasClick;
-                bool add = (Control.ModifierKeys & Keys.Shift) != 0, toggle = (Control.ModifierKeys & Keys.Control) != 0;
-                if (!add && !toggle)
+                ArchiveEditorForm.SelectOp op = ArchiveEditorForm.CurrentSelectOp();
+                if (op == ArchiveEditorForm.SelectOp.Replace)
                 {
                     this.Selection.Clear();
                 }
@@ -959,11 +938,11 @@ namespace ForzaStudio
                 {
                     if (SubObject.CurrentLevel == SubLevel.Face)
                     {
-                        this.HitFaces(box, at, toggle, hit, null);
+                        this.HitFaces(box, at, hit, null);
                     }
                     else
                     {
-                        this.HitGrown(box, at, toggle, hit);
+                        this.HitGrown(box, at, hit);
                     }
                 }
                 else if (SubObject.CurrentLevel == SubLevel.Edge)
@@ -995,7 +974,7 @@ namespace ForzaStudio
                 this.region.Finish();
                 foreach (long key in hit)
                 {
-                    if (toggle && !this.FaceMode && this.Selection.Contains(key))
+                    if (op == ArchiveEditorForm.SelectOp.Subtract)
                     {
                         this.Selection.Remove(key);
                     }

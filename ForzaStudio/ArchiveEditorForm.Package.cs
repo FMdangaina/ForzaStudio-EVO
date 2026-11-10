@@ -17,6 +17,11 @@ namespace ForzaStudio
         private string packageFolder;
         private bool packageBackedUp;
         private bool packagePending;        // the work folder changed since the package was last written
+        private bool packageOriginal;       // an original package (DlcCatalog): read-only, its cars change through mod packs
+
+        private const string OriginalPackageNote = "This is an original DLC package (in the official DLC list): it is never written.\n\n"
+            + "To change one of its cars: File > Base Game Database (or the car in the game's database), Open Car Model. "
+            + "The car opens as a copy and Save writes a small mod pack in Xenia that replaces the car's files; the original stays as it is.";
 
         private static string PackageWorkRoot
         {
@@ -83,6 +88,7 @@ namespace ForzaStudio
                 this.packageFolder = Path.GetFullPath(folder).TrimEnd('\\');
                 this.packageBackedUp = false;
                 this.packagePending = false;
+                this.packageOriginal = IsOriginalPackage(path);
                 this.bookmarks.Clear();
             }
             catch (Exception exception)
@@ -98,8 +104,10 @@ namespace ForzaStudio
             this.OpenFolder(this.packageFolder);
             if (this.zip != null)
             {
-                this.SetStatus(string.Format("Opened DLC package {0} \"{1}\" ({2}, title {3:X8}, {4} files). Double-click a zip to open it; Save packs the package again.",
-                    Path.GetFileName(this.package.Path), this.package.DisplayName, this.package.Magic.Trim(), this.package.TitleId, this.zip.Entries.Count));
+                this.SetStatus(string.Format("Opened DLC package {0} \"{1}\" ({2}, title {3:X8}, {4} files). {5}",
+                    Path.GetFileName(this.package.Path), this.package.DisplayName, this.package.Magic.Trim(), this.package.TitleId, this.zip.Entries.Count,
+                    this.packageOriginal ? "ORIGINAL package: read-only; File > Base Game Database > Open Car Model opens a car as a copy and Save writes a mod pack."
+                        : "Double-click a zip to open it; Save packs the package again."));
             }
         }
 
@@ -119,6 +127,12 @@ namespace ForzaStudio
             {
                 return false;
             }
+            if (this.packageOriginal)
+            {
+                this.packagePending = false;
+                MessageBox.Show(this, OriginalPackageNote, "Rebuild DLC Package", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return false;
+            }
             string target = this.package.Path;
             string temp = target + ".new";
             try
@@ -126,11 +140,13 @@ namespace ForzaStudio
                 Cursor.Current = Cursors.WaitCursor;
                 this.SetStatus("Packing " + Path.GetFileName(target) + "...");
                 string backup = null;
-                if (!this.packageBackedUp && File.Exists(target))
+                // The original once: not again at every opening when bak\ already holds a copy of this package
+                // (FM4 disc 2 packages are 580-850 MB each).
+                if (!this.packageBackedUp && File.Exists(target) && !PackageBackupExists(target))
                 {
                     backup = BackupFile(target, Path.GetFileName(target), BackupStamp());
-                    this.packageBackedUp = true;
                 }
+                this.packageBackedUp = true;
                 string contentId = StfsPackage.Rewrite(this.packageFolder, temp, this.package.Header);
                 StfsReader check = StfsReader.Open(temp);
                 if (File.Exists(target))
@@ -169,6 +185,18 @@ namespace ForzaStudio
             }
         }
 
+        private static bool PackageBackupExists(string package)
+        {
+            try
+            {
+                return Directory.Exists(BackupFolder) && Directory.GetFiles(BackupFolder, "*_bak_" + Path.GetFileName(package)).Length > 0;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+        }
+
         // File > Rebuild DLC Package: saves what is open, then packs.
         private void RebuildPackageCommand()
         {
@@ -191,6 +219,11 @@ namespace ForzaStudio
         {
             if (this.package == null)
             {
+                return;
+            }
+            if (this.packageOriginal)
+            {
+                MessageBox.Show(this, OriginalPackageNote, "Delete Car from DLC Package", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (this.zip != null && (this.zip.IsModified || this.xmlDirty))

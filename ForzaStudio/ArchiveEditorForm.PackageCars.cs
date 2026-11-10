@@ -81,7 +81,7 @@ namespace ForzaStudio
                     {
                         try
                         {
-                            if (!StfsReader.IsPackage(file))
+                            if (!StfsReader.IsPackage(file) || ModPack.IsModPack(file))   // a mod pack replaces a car, it is not where the car comes from
                             {
                                 continue;
                             }
@@ -261,28 +261,215 @@ namespace ForzaStudio
             }
         }
 
-        // Writes the car's files from its package to a zip (kept while the package is unchanged) and opens it.
-        private void OpenPackageCar(PackageCar package, string media, string root)
+        // The car's files read from a package to a stored zip under PackageCarsRoot, kept while the package is unchanged;
+        // null when the package does not hold the car. source: the package already opened, or null.
+        private static string PackageCarZip(DlcSource source, string packageFile, string media)
         {
-            string zip;
+            string folder = Path.Combine(PackageCarsRoot, Path.GetFileName(packageFile));
+            string zip = Path.Combine(folder, media + ".zip");
+            if (File.Exists(zip) && File.GetLastWriteTimeUtc(zip) >= File.GetLastWriteTimeUtc(packageFile))
+            {
+                return zip;
+            }
+            Directory.CreateDirectory(folder);
+            if (source == null)
+            {
+                source = DlcSource.OpenPackage(packageFile, true);
+            }
+            return (source == null) ? null : source.ExtractCar(media, folder);
+        }
+
+        // A car copy whose Save writes a mod pack (ModPack): its package is an original one.
+        private class ModCar
+        {
+            public string Content;      // the Xenia content folder the original package is in
+            public string Media;
+            public string PackageFile;  // null: a car of the game itself (DVD1)
+            public string PackageTitle;
+            public string Root;         // the game folder (free offer numbers)
+            public bool Pending;        // the copy was saved but the mod pack not written yet (Xenia open, error)
+        }
+
+        private static readonly Dictionary<string, ModCar> modCars = new Dictionary<string, ModCar>(StringComparer.OrdinalIgnoreCase);
+
+        // True for a package the official DLC list knows (an original, never written: its cars are changed through mod
+        // packs). Only FM4's for now: the mod pack's folder name and header are FM4's.
+        private static bool IsOriginalPackage(string file)
+        {
+            DlcCatalog.Pack pack = DlcCatalog.Find(DlcCatalog.ReadHeader(file));
+            return pack != null && pack.Game == ForzaGame.Motorsport4;
+        }
+
+        private static ModCar ModCarOf(string zipPath)
+        {
+            ModCar car;
+            try
+            {
+                return (zipPath != null && modCars.TryGetValue(Path.GetFullPath(zipPath), out car)) ? car : null;
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+        }
+
+        // After a save of a car copy of an original package: writes its mod pack (Xenia closed first).
+        private bool WriteModPack(ModCar car)
+        {
+            if (CarPortForm.XeniaRunning())
+            {
+                car.Pending = true;
+                MessageBox.Show(this, "The copy of " + car.Media + " is saved, but Xenia is open and keeps the packages in use.\n\nClose Xenia, then Save again: the mod pack is written then.",
+                    "Mod Pack", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                this.SetStatus(car.Media + ": copy saved, mod pack NOT written yet (close Xenia, then Save again).");
+                return false;
+            }
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
-                string folder = Path.Combine(PackageCarsRoot, Path.GetFileName(package.File));
-                zip = Path.Combine(folder, media + ".zip");
-                if (!File.Exists(zip) || File.GetLastWriteTimeUtc(zip) < File.GetLastWriteTimeUtc(package.File))
+                this.SetStatus("Writing the mod pack of " + car.Media + "...");
+                // a car of an original DLC: standalone (wheels, offer mapping, names), for players without that DLC
+                ModPack.Standalone standalone = (car.PackageFile == null) ? null : ModPack.StandaloneFrom(car.PackageFile, car.Media, car.Root);
+                string folder = ModPack.Write(car.Content, car.Root, car.Media, this.zip, standalone, car.PackageTitle, car.PackageFile, CarPortForm.PackThumbnail(this.Icon));
+                car.Pending = false;
+                this.SetStatus(string.Format("{0}: mod pack written in Xenia ({1}, priority {2}{3}). {4} is not touched; delete the mod pack folder to get the original car back.",
+                    car.Media, Path.GetFileName(folder), ModPack.Priority, (standalone != null) ? ", standalone: works without " + car.PackageTitle : "", car.PackageTitle));
+                return true;
+            }
+            catch (Exception exception)
+            {
+                car.Pending = true;
+                MessageBox.Show(this, "The copy is saved but the mod pack was not written:\n\n" + exception.Message, "Mod Pack", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return false;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+        }
+
+        // ForzaStudio.ini [ModPack] GameCars (default on): Open Car Model of an FM4 game car (DVD1 Media\cars\<car>.zip) opens a
+        // copy and Save writes a mod pack; off = the game's zip is opened and saved in place as before.
+        private static bool GameCarsAsModPacks
+        {
+            get { return AppSettings.Get("ModPack.GameCars", "1") != "0"; }
+        }
+
+        // An FM4 game car (DVD1) opened as a copy whose Save writes its mod pack. False when it can't (no Xenia content
+        // folder set): the caller opens the game's zip as before.
+        private bool OpenGameCarAsMod(string carZip, string media, string root)
+        {
+            string content = InstalledDlc.ContentFolder(ForzaGame.Motorsport4);
+            if (content == null || GameInfo.Detect(root) != ForzaGame.Motorsport4)
+            {
+                return false;
+            }
+            string copy = Path.Combine(Path.Combine(PackageCarsRoot, "Game"), media + ".zip");
+            string zip;
+            string modFolder;
+            try
+            {
+                Cursor.Current = Cursors.WaitCursor;
+                modFolder = ModPack.Find(content, media);
+                string modZip = modFolder;   // the mod pack file (its time = when it was written)
+                ModCar known = ModCarOf(copy);
+                Directory.CreateDirectory(Path.GetDirectoryName(copy));
+                if (modZip != null && !(known != null && known.Pending) && (!File.Exists(copy) || File.GetLastWriteTimeUtc(copy) < File.GetLastWriteTimeUtc(modZip)))
                 {
-                    this.SetStatus("Reading " + media + " from the installed package " + package.Title + "...");
-                    Directory.CreateDirectory(folder);
-                    DlcSource source = DlcSource.OpenPackage(package.File, true);
-                    zip = (source == null) ? null : source.ExtractCar(media, folder);
-                    if (zip == null)
-                    {
-                        MessageBox.Show(this, media + " was not found in the package " + package.Title + ".", "Open Car Model", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
-                    }
+                    zip = ModPack.ExtractCar(modFolder, media, copy);
+                }
+                else if (modZip == null && !(known != null && known.Pending))
+                {
+                    File.Copy(carZip, copy, true);   // a fresh copy of the game's car (an old copy of a removed mod pack goes)
+                    File.SetLastWriteTimeUtc(copy, DateTime.UtcNow);
+                    zip = copy;
+                }
+                else
+                {
+                    zip = copy;
+                }
+                if (zip == null)
+                {
+                    return false;
+                }
+                ModCar mod = new ModCar();
+                mod.Content = content;
+                mod.Media = media;
+                mod.PackageTitle = "the game's own car (" + Path.GetFileName(carZip) + ")";
+                mod.Root = root;
+                mod.Pending = known != null && known.Pending;
+                modCars[Path.GetFullPath(zip)] = mod;
+                packageCarRoots[Path.GetFullPath(zip)] = root;
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Open Car Model", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return true;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+            string opened = zip;
+            string from = (modFolder != null) ? "its mod pack " + Path.GetFileName(modFolder) : Path.GetFileName(carZip);
+            this.NavigateFrom(delegate
+            {
+                this.OpenArchive(opened);
+                this.SetStatus(string.Format("{0}: a copy of {1}. Save writes a mod pack in Xenia (priority {2}); the game's files are never written.",
+                    media, from, ModPack.Priority));
+            });
+            return true;
+        }
+
+        // Writes the car's files from its package to a zip (kept while the package is unchanged) and opens it. A car of an
+        // original package opens its mod pack's version when there is one, and Save writes the mod pack.
+        private void OpenPackageCar(PackageCar package, string media, string root)
+        {
+            string zip;
+            ModCar mod = null;
+            try
+            {
+                Cursor.Current = Cursors.WaitCursor;
+                this.SetStatus("Reading " + media + " from the installed package " + package.Title + "...");
+                if (IsOriginalPackage(package.File))
+                {
+                    mod = new ModCar();
+                    // Xenia's FM4 content folder (Settings), else the folder the package is in
+                    mod.Content = InstalledDlc.ContentFolder(ForzaGame.Motorsport4) ?? Path.GetDirectoryName(Path.GetFullPath(package.File));
+                    mod.Media = media;
+                    mod.PackageFile = package.File;
+                    mod.PackageTitle = package.Title;
+                    mod.Root = root;
+                }
+                string modFolder = (mod == null) ? null : ModPack.Find(mod.Content, media);
+                string modZip = modFolder;   // the mod pack file (its time = when it was written)
+                string copy = Path.Combine(Path.Combine(PackageCarsRoot, Path.GetFileName(package.File)), media + ".zip");
+                ModCar known = ModCarOf(copy);
+                if (modZip != null && !(known != null && known.Pending) && (!File.Exists(copy) || File.GetLastWriteTimeUtc(copy) < File.GetLastWriteTimeUtc(modZip)))
+                {
+                    // the mod pack's version (a copy saved later, whose mod pack is still pending, is kept)
+                    Directory.CreateDirectory(Path.GetDirectoryName(copy));
+                    zip = ModPack.ExtractCar(modFolder, media, copy);
+                }
+                else
+                {
+                    zip = PackageCarZip(null, package.File, media);
+                }
+                if (zip == null)
+                {
+                    MessageBox.Show(this, media + " was not found in the package " + package.Title + ".", "Open Car Model", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
                 }
                 packageCarRoots[Path.GetFullPath(zip)] = root;
+                if (mod != null)
+                {
+                    mod.Pending = known != null && known.Pending;
+                    modCars[Path.GetFullPath(zip)] = mod;
+                }
+                if (mod != null && modFolder != null)
+                {
+                    package = new PackageCar { File = package.File, Title = package.Title + ", with its mod pack " + Path.GetFileName(modFolder) };
+                }
             }
             catch (Exception exception)
             {
@@ -294,11 +481,15 @@ namespace ForzaStudio
                 Cursor.Current = Cursors.Default;
             }
             string opened = zip;
+            bool original = mod != null;
             this.NavigateFrom(delegate
             {
                 this.OpenArchive(opened);
-                this.SetStatus(string.Format("{0}: a copy read from the installed package {1} ({2}). Edits stay in the copy, the package is not written.",
-                    media, package.Title, Path.GetFileName(package.File)));
+                this.SetStatus(original
+                    ? string.Format("{0}: a copy read from the original package {1} ({2}). Save writes a mod pack in Xenia (priority {3}); the original package is never written.",
+                        media, package.Title, Path.GetFileName(package.File), ModPack.Priority)
+                    : string.Format("{0}: a copy read from the installed package {1} ({2}). Edits stay in the copy, the package is not written.",
+                        media, package.Title, Path.GetFileName(package.File)));
             });
         }
     }

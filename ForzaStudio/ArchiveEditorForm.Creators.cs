@@ -81,7 +81,8 @@ namespace ForzaStudio
             this.dbTrackId = id;
             this.pgTrack.SelectedObject = this.Record("Tracks", id);
             this.relTrack.ShowItems(this.gameDb, this.gameDb.TrackRelated(id));
-            SqliteDatabase.Result result = this.gameDb.Sql.Query("SELECT Logo, MiniRibbonPath, ShortDisplayName, DisplayName, MediaName, Length, IsReverse FROM Tracks WHERE id = ?", id);
+            string reverse = this.gameDb.HasColumn("Tracks", "IsReverse") ? "IsReverse" : "NULL";   // not in FM2/FM3
+            SqliteDatabase.Result result = this.gameDb.Sql.Query("SELECT Logo, MiniRibbonPath, ShortDisplayName, DisplayName, MediaName, Length, " + reverse + " FROM Tracks WHERE id = ?", id);
             object[] row = (result.Rows.Count > 0) ? result.Rows[0] : new object[7];
             SetPicture(this.picTrackLogo, this.LoadGameImage(row[0] as string));
             SetPicture(this.picTrackRibbon, this.LoadGameImage(row[1] as string));
@@ -110,7 +111,7 @@ namespace ForzaStudio
         {
             Bitmap image = this.LoadGameImage("GAME:\\Media\\UI\\Textures\\UI4\\Logos\\Posters\\EventBkgd" + id.ToString(CultureInfo.InvariantCulture) + ".xds");
             string path = null;
-            if (image == null && this.gameDb.HasTable("CareerEventTypes"))
+            if (image == null && this.gameDb.HasColumn("CareerEventTypes", "PosterPath"))   // not in FM2
             {
                 path = this.gameDb.Sql.Scalar("SELECT t.PosterPath FROM CareerEventTypes t JOIN Events e ON e.CareerTypeId = t.id WHERE e.Id = ?", id) as string;
                 image = this.LoadGameImage(path);

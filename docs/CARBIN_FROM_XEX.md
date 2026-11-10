@@ -93,7 +93,8 @@ Trailer (24 bytes): `00000001 00000000` three times in every file: three empty c
 - The car vertex declaration (in the .fxobj) has stream 0 only; the vertex shader fetches the morph itself:
   `vfetch` from constant vf90, **stride 4 bytes, Xenos format 10_11_11, signed normalized -> xyz** (12 car vertex
   shaders of `shaders_v16.fxobj`). Wheels use the same vf90 with 16 bytes, 16_16_16_16_FLOAT: the wheel morph table.
-- Bits: X = 0-10, Y = 11-21, Z = 22-31, two's complement (`CarbinModel.NormalizeDamage` already packs this layout).
+- Bits: X = 0-10, Y = 11-21, Z = 22-31, two's complement (`CarbinModel.NormalizeDamage`, removed 2026-11-10, packed
+  it one bit off until 2026-11-10). FH uses the same bits for an offset in metres: `CARBIN_ALL_GAMES.md` section 5.
 - In the deformable vertices of the DLC files the vector has a length from 0 to 1 (mostly zero or about 1, see
   section 7): a **direction with a weight**; the amount comes from shader constants (`MorphDamageScale`, `damageClamps`...). It is not the normal nor a direction
   to the car or part centre: it cannot be computed from the shape (copying from the nearest original vertex stays the

@@ -257,7 +257,7 @@ namespace ForzaStudio
             EventHandler refresh = delegate
             {
                 button.Image = Icon(current);
-                button.ToolTipText = Name(current) + ": drag the way chosen in the list (Shift adds, Ctrl toggles)";
+                button.ToolTipText = Name(current) + ": drag the way chosen in the list (Ctrl adds, Alt removes)";
                 foreach (KeyValuePair<RegionMode, ToolStripMenuItem> pair in items)
                 {
                     pair.Value.Checked = pair.Key == current;

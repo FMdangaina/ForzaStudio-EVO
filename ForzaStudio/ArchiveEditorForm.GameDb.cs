@@ -30,6 +30,7 @@ namespace ForzaStudio
 
         private Panel pnlGameDb;
         private ToolStripLabel lblDbReference;
+        private ToolStripLabel lblDbGame;
         private ToolStripButton btnDbOpenPath;
         private ToolStripButton btnDbDlc;
         // The DLC packages installed for a game, read once per session (turning the DLC button on again rescans).
@@ -151,6 +152,11 @@ namespace ForzaStudio
             this.lblDbReference.Alignment = ToolStripItemAlignment.Right;
             this.lblDbReference.ForeColor = ForzaTheme.TextDim;
             bar.Items.Add(this.lblDbReference);
+            this.lblDbGame = new ToolStripLabel();
+            this.lblDbGame.Alignment = ToolStripItemAlignment.Right;
+            this.lblDbGame.Font = ForzaTheme.Bold;
+            this.lblDbGame.ToolTipText = "The game this database belongs to, recognized from its tables";
+            bar.Items.Add(this.lblDbGame);
 
             SplitContainer split = new SplitContainer();
             split.Dock = DockStyle.Fill;
@@ -577,7 +583,7 @@ namespace ForzaStudio
                 hint.ForeColor = ForzaTheme.TextDim;
                 hint.Text = found.Count == 0 ? "Every id points at an existing row."
                     : fm4 ? "Red: these columns have no dangling id in the original FM4 database, so an edit made them. Double-click a line to see its rows."
-                    : "Not an FM4 database (FM3, FH1, FH2): the game itself keeps rows of cars and tracks it does not have, so nothing is marked red. Double-click a line to see its rows.";
+                    : "Not an FM4 database (" + (GameInfo.Name(this.gameDb.Game) ?? "FM2, FM3, FH1, FH2") + "): the game itself keeps rows of cars and tracks it does not have, so nothing is marked red. Double-click a line to see its rows.";
                 GameDatabase.Orphans picked = null;
                 list.DoubleClick += delegate
                 {
@@ -617,6 +623,8 @@ namespace ForzaStudio
                 this.gameDbEntry = entry;
                 this.gameDbBytes = data;
                 this.LoadReferenceDb(entry);
+                string gameName = GameInfo.Name(opened.Game);
+                this.lblDbGame.Text = (gameName != null) ? gameName + " database" : "Unknown game database";
                 this.LoadDbStrings();
                 this.dbClassColors = this.gameDb.ClassColors();
                 this.UpdateDbChanges();
@@ -891,6 +899,7 @@ namespace ForzaStudio
                 this.gameDb = null;
             }
             this.lblDbReference.Text = "";
+            this.lblDbGame.Text = "";
             this.gameDbEntry = null;
             this.gameDbBytes = null;
             this.dbCarId = -1;
@@ -1023,7 +1032,8 @@ namespace ForzaStudio
                 case DbSection.Tracks:
                     this.AddDbColumns(new string[] { "Id", "Track", "Layout", "Media name", "Length (m)", "Reverse" }, new int[] { 40, 120, 110, 85, 60, 50 });
                     this.AddDlcColumn(this.gameDb.DlcTracks);
-                    foreach (object[] row in this.gameDb.Sql.Query("SELECT id, MediaName, Length, IsReverse, ShortDisplayName, DisplayName FROM Tracks ORDER BY MediaName, id").Rows)
+                    string reverse = this.gameDb.HasColumn("Tracks", "IsReverse") ? "IsReverse" : "NULL";   // not in FM2/FM3
+                    foreach (object[] row in this.gameDb.Sql.Query("SELECT id, MediaName, Length, " + reverse + ", ShortDisplayName, DisplayName FROM Tracks ORDER BY MediaName, id").Rows)
                     {
                         string track = this.gameDb.Text("Tracks", "ShortDisplayName", row[4]) ?? GameDatabase.FormatValue(row[1]);
                         this.dbItems.Add(NewItem(row[0], track, this.gameDb.Text("Tracks", "DisplayName", row[5]) ?? "", row[1], row[2], YesNoText(row[3]), DlcName(this.gameDb.DlcTracks, row[0])));
@@ -1048,7 +1058,8 @@ namespace ForzaStudio
                             tracks[(long) row[0]].Add(this.gameDb.LookupName("track.short", row[1]) ?? GameDatabase.FormatValue(row[1]));
                         }
                     }
-                    foreach (object[] row in this.gameDb.Sql.Query("SELECT Id, Level, NumberOfRaces, TargetClass, Name FROM Events ORDER BY Id").Rows)
+                    string targetClass = this.gameDb.HasColumn("Events", "TargetClass") ? "TargetClass" : "NULL";   // not in FM2
+                    foreach (object[] row in this.gameDb.Sql.Query("SELECT Id, Level, NumberOfRaces, " + targetClass + ", Name FROM Events ORDER BY Id").Rows)
                     {
                         List<string> names;
                         string list = (row[0] is long && tracks.TryGetValue((long) row[0], out names)) ? string.Join(", ", names.ToArray()) : "";
@@ -2026,6 +2037,15 @@ namespace ForzaStudio
             string root = this.GameRoot;
             string media = (this.gameDb == null) ? null : this.gameDb.Sql.Scalar("SELECT MediaName FROM Data_Car WHERE Id = ?", this.dbCarId) as string;
             ForzaZip.Entry own = this.OwnMedia("cars", media);
+            if (own != null && this.packageOriginal && this.package != null && this.zip != null && this.InPackage(this.zip.FilePath))
+            {
+                // an original package's car: a copy whose Save writes a mod pack, never the package itself
+                PackageCar original = new PackageCar();
+                original.File = this.package.Path;
+                original.Title = (this.package.DisplayName.Length > 0) ? this.package.DisplayName : Path.GetFileName(this.package.Path);
+                this.OpenPackageCar(original, media, root);
+                return;
+            }
             if (own != null)
             {
                 this.OpenOwnEntry(own);
@@ -2040,6 +2060,10 @@ namespace ForzaStudio
                 {
                     this.OpenPackageCar(package, media, root);
                 }
+                return;
+            }
+            if (File.Exists(car) && GameCarsAsModPacks && this.OpenGameCarAsMod(car, media, root))
+            {
                 return;
             }
             this.NavigateFrom(delegate

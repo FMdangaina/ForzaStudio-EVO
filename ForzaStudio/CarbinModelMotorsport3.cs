@@ -120,6 +120,10 @@ namespace ForzaStudio
 
         private void ConvertMotorsport3Section(Section section, bool brake, System.Text.StringBuilder report)
         {
+            if (CollapseAbsurdBounds(section))
+            {
+                report.AppendFormat(CultureInfo.InvariantCulture, "{0}: FM3 bounds hold absurd values (about 1.7e38), part made a 1 mm speck like FM4's placeholder parts\r\n", section.Name);
+            }
             double[] lodPositions = Motorsport3Positions(section, section.Lod);
             double[] lod0Positions = Motorsport3Positions(section, section.Lod0);
             if (IsZeroBounds(section.Bounds))
@@ -257,6 +261,37 @@ namespace ForzaStudio
             }
             exponent = Math.Min(exponent, 15);
             return (ushort) (sign | ((exponent + 15) << 10) | mantissa);
+        }
+
+        // Two FM3 sections (FER_250GTO_64 glassRHL, FER_GTO_84 headlightRdown: broken right-hand copies of millimetre
+        // glass parts) carry +-1.7e38 in some bounds components; no FM4 file does (0 of 26855 sections). The section
+        // becomes a 1 mm speck, as FM4's placeholder parts are next to nothing (wingz): broken axes at 0, every extent
+        // 1 mm (not 0: the encoding divides by the bounds' size).
+        private static bool CollapseAbsurdBounds(Section section)
+        {
+            bool absurd = false;
+            foreach (float value in section.Bounds)
+            {
+                if (float.IsNaN(value) || Math.Abs(value) > 100000f)
+                {
+                    absurd = true;
+                }
+            }
+            if (!absurd)
+            {
+                return false;
+            }
+            for (int c = 0; c < 3; c++)
+            {
+                float origin = section.Bounds[c];
+                if (float.IsNaN(origin) || Math.Abs(origin) > 100000f)
+                {
+                    section.Bounds[c] = 0f;
+                }
+                section.Bounds[3 + c] = -0.001f;
+                section.Bounds[6 + c] = 0.001f;
+            }
+            return true;
         }
 
         private static bool IsZeroBounds(float[] bounds)

@@ -239,7 +239,10 @@ namespace ForzaStudio
                     foreach (object[] row in merge.Query("SELECT Id, MediaName FROM Data_Car").Rows)
                     {
                         long id = Convert.ToInt64(row[0]);
-                        if (string.Equals(row[1] as string, mediaName, StringComparison.OrdinalIgnoreCase) && !Taken(target, id))
+                        // Only a car installed in the game reuses an installed pack's Id. A new pack built while another pack has
+                        // the same car would share its Id: the build then moved Data_Car.Id alone, leaving ModelId and the
+                        // car * 1000 rows behind, and the car did not show in the game (FOR_GTX1_06 1702 -> 1703, 2026-11-10).
+                        if (reuseInstalled && string.Equals(row[1] as string, mediaName, StringComparison.OrdinalIgnoreCase) && !Taken(target, id))
                         {
                             reason = "its id in the installed pack " + Path.GetFileName(pack);
                             return id;

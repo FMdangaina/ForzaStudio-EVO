@@ -46,6 +46,7 @@ namespace ForzaStudio
         private readonly Dictionary<string, TextBox> folders = new Dictionary<string, TextBox>();
         private readonly Dictionary<string, TextBox> portBoxes = new Dictionary<string, TextBox>();
         private CheckBox dragTires;
+        private ComboBox damageWords;
         private CheckBox textures;
         private ComboBox language;
         private CheckBox musicAutoPlay;
@@ -291,10 +292,72 @@ namespace ForzaStudio
             page.Controls.Add(this.dragTires);
             y += 36;
 
+            // [Damage]: where the crash deformation words of a car ported from FH1 / FH2 come from.
+            Label damageTitle = new Label();
+            damageTitle.Text = "Crash damage of cars ported from FH1 / FH2";
+            damageTitle.Font = new Font(this.Font, FontStyle.Bold);
+            damageTitle.AutoSize = true;
+            damageTitle.Location = new Point(12, y);
+            page.Controls.Add(damageTitle);
+            y += 24;
+            this.damageWords = new ComboBox();
+            this.damageWords.DropDownStyle = ComboBoxStyle.DropDownList;
+            this.damageWords.Items.AddRange(DamageWordChoices);
+            this.damageWords.Width = 400;
+            y = LabelledRow(page, "Damage words:", this.damageWords, y);
+            this.LoadDamage();
+            Label damageNote = Note(page, "The deformation of every part comes from an FM4 car; a part that car lacks takes the words of its nearest part. FH's own words are never used (they made a car explode in game).", y);
+            y += damageNote.Height + 14;
+
             Button reset = DefaultsButton(PortSettings.FileName, delegate { this.ResetIni(PortSettings.IniPath, PortSettings.DefaultIni, true); });
             reset.Location = new Point(12, y);
             page.Controls.Add(reset);
             return page;
+        }
+
+        // Port.ini [Damage] Words values, shown as "value - meaning".
+        private static readonly object[] DamageWordChoices =
+        {
+            "donor - an FM4 car's words (the same car if FM4 has it, else the donor)",
+            "donorcar - always the donor car's words",
+        };
+
+        private static int LabelledRow(TabPage page, string caption, Control control, int y)
+        {
+            Label label = new Label();
+            label.Text = caption;
+            label.AutoSize = true;
+            label.Location = new Point(12, y + 3);
+            control.Location = new Point(270, y);
+            page.Controls.Add(label);
+            page.Controls.Add(control);
+            return y + 28;
+        }
+
+        private static string ChoiceValue(ComboBox box)
+        {
+            string text = (box.SelectedItem as string) ?? "";
+            int dash = text.IndexOf(" - ", StringComparison.Ordinal);
+            return (dash > 0) ? text.Substring(0, dash) : text;
+        }
+
+        private static void SelectChoice(ComboBox box, string value)
+        {
+            for (int i = 0; i < box.Items.Count; i++)
+            {
+                string item = (string) box.Items[i];
+                if (string.Equals(item, value, StringComparison.OrdinalIgnoreCase) || item.StartsWith(value + " - ", StringComparison.OrdinalIgnoreCase))
+                {
+                    box.SelectedIndex = i;
+                    return;
+                }
+            }
+            box.SelectedIndex = 0;
+        }
+
+        private void LoadDamage()
+        {
+            SelectChoice(this.damageWords, PortSettings.Get("Damage", "Words", "donor").Trim());
         }
 
         private static Button DefaultsButton(string file, EventHandler click)
@@ -342,6 +405,7 @@ namespace ForzaStudio
                     this.portBoxes[value[0] + "." + value[1]].Text = PortSettings.Get(value[0], value[1], "");
                 }
                 this.dragTires.Checked = PortSettings.GetBool("Tires", "DragTires", true);
+                this.LoadDamage();
             }
             else
             {
@@ -649,6 +713,17 @@ namespace ForzaStudio
                 if (this.dragTires.Checked != PortSettings.GetBool("Tires", "DragTires", true))
                 {
                     IniFile.Set(PortSettings.IniPath, PortSettings.DefaultIni, "Tires", "DragTires", this.dragTires.Checked ? "on" : "off");
+                }
+                string[][] damage =
+                {
+                    new string[] { "Words", ChoiceValue(this.damageWords), "donor" },
+                };
+                foreach (string[] value in damage)
+                {
+                    if (!string.Equals(value[1], PortSettings.Get("Damage", value[0], value[2]).Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        IniFile.Set(PortSettings.IniPath, PortSettings.DefaultIni, "Damage", value[0], value[1]);
+                    }
                 }
             }
             catch (Exception exception)

@@ -306,8 +306,8 @@ values, not checked in game.
 
 ### Mesh, collision, driver and exhaust (side panel tabs)
 
-- **Mesh**: select faces in the view and work on them. Click picks a face, Shift+click adds, Ctrl+click
-  toggles; a drag selects with the region chosen in the tool bar (rectangle, circle, fence, lasso or
+- **Mesh**: select faces in the view and work on them. Click picks a face, Ctrl (or Shift) adds, Alt
+  removes, as in 3ds Max (going over a selected face again never deselects it); a drag selects with the region chosen in the tool bar (rectangle, circle, fence, lasso or
   brush). The sub-object levels of the tool bar (Vertex, Edge, Face, Polygon, Element) choose what a
   click picks. The tool bar also has select all / none / linked, **Delete**, **Detach** and the **UV
   mapper** (a window with the UV layout, the same selection tools, keys 1-5 for the levels). While the
@@ -338,6 +338,11 @@ one of its materials to edit only that material.
 - **Focus On Part** centres the camera on the part. **Show only this part** hides the rest.
 - **Merge...** joins this part into the one picked in **Merge this part into**. Materials with the same name are
   joined, and the source part is removed.
+- **Attach...** (right-click a mesh in the model tree) joins one mesh into another of the same LOD, as Attach
+  in 3ds Max: pick the other mesh in the list (same part or another, even with the same name, e.g. two
+  `body_2`). The right-clicked mesh keeps its name and material; the picked one goes, and its part too if
+  it was the last mesh there. This file only. Refused when the result would be longer than FM4 draws
+  (78,657 indices: holes in game).
 - **Duplicate...** copies a part under a new name. A free variant letter is
   suggested, e.g. `bumperRa` → `bumperRb`.
 - **Delete...** removes the selected part or material. The **Del** key does the same.

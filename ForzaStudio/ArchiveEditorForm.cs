@@ -208,6 +208,9 @@
             ToolStripMenuItem baseDb = new ToolStripMenuItem("Base Game Database (disc 2 packs)", null, delegate { this.ShowBaseDatabase(); });
             baseDb.ToolTipText = "For a package with cars but no database of its own (FM4 disc 2, FM3 second disc): the base game's gamedb.slt, read-only, linked to the pack's cars.";
             file.DropDownItems.Add(baseDb);
+            ToolStripMenuItem modPacks = new ToolStripMenuItem("&Mod Packs (uninstall)...", null, delegate { this.ShowModPacks(); });
+            modPacks.ToolTipText = "The mod packs Save wrote for game and DLC cars (FM4): uninstall one to get the original car back.";
+            file.DropDownItems.Add(modPacks);
             file.DropDownOpening += delegate { rebuild.Enabled = this.package != null; deletePackageCar.Enabled = this.package != null; baseDb.Enabled = this.package != null; };
             file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add(new ToolStripMenuItem("E&xit", null, delegate { this.Close(); }));
@@ -1000,7 +1003,7 @@
                 foreach (ForzaZip.Entry entry in modified)
                 {
                     // A deleted file goes to the Recycle Bin, not to bak\.
-                    if (!entry.IsDeleted && File.Exists(entry.FullPath))
+                    if (!entry.IsDeleted && File.Exists(entry.FullPath) && !this.InPackage(entry.FullPath))
                     {
                         BackupFile(entry.FullPath, this.SourceName + "_" + entry.Name.Replace('/', '_'), stamp);
                     }
@@ -1043,11 +1046,23 @@
         }
 
         // Inside an open DLC package, a save also packs the package again.
+        // A car copy of an original DLC package writes its mod pack instead; an original package is never written.
         private bool SaveArchive(bool saveAs)
         {
+            if (this.packageOriginal && this.zip != null && this.InPackage(this.zip.FilePath) && !saveAs)
+            {
+                MessageBox.Show(this, OriginalPackageNote, "Save", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return false;
+            }
+            ModCar mod = saveAs ? null : ModCarOf((this.zip != null) ? this.zip.FilePath : null);
+            bool changed = this.zip != null && (this.zip.IsModified || this.xmlDirty);
             if (!this.SaveArchiveCore(saveAs))
             {
                 return false;
+            }
+            if (mod != null && this.zip != null)
+            {
+                return (!changed && !mod.Pending) || this.WriteModPack(mod);
             }
             return !this.packagePending || this.zip == null || !this.InPackage(this.zip.FilePath) || this.RebuildPackage();
         }
@@ -1091,7 +1106,9 @@
                 this.SetStatus("Saving " + Path.GetFileName(path) + "...");
                 string backup = null;
                 string stamp = BackupStamp();
-                if (File.Exists(path))
+                // A zip in an open DLC package's work folder is a copy: the package's original is kept in bak\ once
+                // (RebuildPackage), so the pack zip (830 MB on FM4 disc 2) is not copied again at every save.
+                if (File.Exists(path) && !this.InPackage(path))
                 {
                     backup = BackupFile(path, Path.GetFileName(path), stamp);
                 }

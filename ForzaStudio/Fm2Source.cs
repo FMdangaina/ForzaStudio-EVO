@@ -231,8 +231,12 @@ namespace ForzaStudio
                     }
                     object[] fm2Row = row.Rows[0];
                     long fm2Id = Convert.ToInt64(fm2Row[0]);
-                    // A car of this name already in the target (ported earlier): not the one the port reads.
-                    stageDb.Execute("DELETE FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", car);
+                    // A car of this name already in the target (ported earlier): not the one the port reads. Not when the
+                    // donor has the car's own name (FM4's FER_GTO_84 as donor of FM2's): that row is the donor itself.
+                    if (!string.Equals(car, donor, StringComparison.OrdinalIgnoreCase))
+                    {
+                        stageDb.Execute("DELETE FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", car);
+                    }
                     string thumbnail = "game:\\Media\\UI\\Textures\\Thumbnails\\Thumbnail_" + fm2Id.ToString(CultureInfo.InvariantCulture) + ".xds";
                     stageDb.Execute("UPDATE Data_Car SET MediaName = ?, DisplayName = ?, ModelShort = ?, Year = ?, Thumbnail = ? WHERE MediaName = ? COLLATE NOCASE", car, fm2Row[1], fm2Row[2], fm2Row[3], thumbnail, donor);
                     log.Add(string.Format("database: donor row renamed to {0} ({1} / {2}, {3})", car, fm2Row[1], fm2Row[2], fm2Row[3]));
