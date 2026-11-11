@@ -211,7 +211,16 @@
             ToolStripMenuItem modPacks = new ToolStripMenuItem("&Mod Packs (uninstall)...", null, delegate { this.ShowModPacks(); });
             modPacks.ToolTipText = "The mod packs Save wrote for game and DLC cars (FM4): uninstall one to get the original car back.";
             file.DropDownItems.Add(modPacks);
-            file.DropDownOpening += delegate { rebuild.Enabled = this.package != null; deletePackageCar.Enabled = this.package != null; baseDb.Enabled = this.package != null; };
+            ToolStripMenuItem carDb = new ToolStripMenuItem("Database of This &Car", null, delegate { this.ShowModCarDatabase(); });
+            carDb.ToolTipText = "For a game or original DLC car open as a copy (its Save writes a mod pack): its database rows, edited here and saved into the mod pack with the car. The game's gamedb.slt is never written.";
+            file.DropDownItems.Add(carDb);
+            file.DropDownOpening += delegate
+            {
+                rebuild.Enabled = this.package != null;
+                deletePackageCar.Enabled = this.package != null;
+                baseDb.Enabled = this.package != null;
+                carDb.Enabled = this.zip != null && ModCarOf(this.zip.FilePath) != null;
+            };
             file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add(new ToolStripMenuItem("E&xit", null, delegate { this.Close(); }));
 

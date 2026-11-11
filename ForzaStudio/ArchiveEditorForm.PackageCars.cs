@@ -330,10 +330,24 @@ namespace ForzaStudio
                 this.SetStatus("Writing the mod pack of " + car.Media + "...");
                 // a car of an original DLC: standalone (wheels, offer mapping, names), for players without that DLC
                 ModPack.Standalone standalone = (car.PackageFile == null) ? null : ModPack.StandaloneFrom(car.PackageFile, car.Media, car.Root);
-                string folder = ModPack.Write(car.Content, car.Root, car.Media, this.zip, standalone, car.PackageTitle, car.PackageFile, CarPortForm.PackThumbnail(this.Icon));
+                // the car's database copy (File > Database of This Car): every row of the car goes into the pack's merge
+                ModPack.CarDatabase database = null;
+                ForzaZip.Entry dbEntry = this.zip.Find(ModCarDb.EntryName);
+                if (dbEntry != null)
+                {
+                    database = new ModPack.CarDatabase();
+                    database.Working = this.zip.Read(dbEntry);
+                    database.Reference = ModCarDb.Reference(car.Root, car.PackageFile);
+                }
+                string folder = ModPack.Write(car.Content, car.Root, car.Media, this.zip, standalone, car.PackageTitle, car.PackageFile, CarPortForm.PackThumbnail(this.Icon), database);
                 car.Pending = false;
-                this.SetStatus(string.Format("{0}: mod pack written in Xenia ({1}, priority {2}{3}). {4} is not touched; delete the mod pack folder to get the original car back.",
-                    car.Media, Path.GetFileName(folder), ModPack.Priority, (standalone != null) ? ", standalone: works without " + car.PackageTitle : "", car.PackageTitle));
+                this.SetStatus(string.Format("{0}: mod pack written in Xenia ({1}, priority {2}{3}{5}). {4} is not touched; delete the mod pack folder to get the original car back.",
+                    car.Media, Path.GetFileName(folder), ModPack.Priority, (standalone != null) ? ", standalone: works without " + car.PackageTitle : "", car.PackageTitle,
+                    (database != null) ? ", with the car's database rows" : ""));
+                if (database != null && database.Report.ToString().IndexOf("WARNING", StringComparison.Ordinal) >= 0)
+                {
+                    MessageBox.Show(this, "The mod pack is written. Some database changes cannot go into a mod pack:\n\n" + database.Report.ToString().Trim(), "Mod Pack", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
                 return true;
             }
             catch (Exception exception)
@@ -341,6 +355,61 @@ namespace ForzaStudio
                 car.Pending = true;
                 MessageBox.Show(this, "The copy is saved but the mod pack was not written:\n\n" + exception.Message, "Mod Pack", MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return false;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+        }
+
+        // File > Database of This Car (user 2026-11-11): the database of the car copy open (a game or original DLC car whose
+        // Save writes a mod pack). A copy of the game's database (+ the original package's merge + the car's mod pack merge)
+        // kept in the car copy zip as ModCarDb.EntryName; edits are saved with the car, and Save puts every row of the car
+        // in the mod pack's merge. The game's gamedb.slt is never written.
+        private void ShowModCarDatabase()
+        {
+            ModCar mod = (this.zip == null) ? null : ModCarOf(this.zip.FilePath);
+            if (mod == null)
+            {
+                MessageBox.Show(this, "Open a car of the game or of an original DLC first (Open Car Model from the game's database): its Save writes a mod pack, and this is its database.",
+                    "Database of This Car", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            ForzaZip.Entry entry = this.zip.Find(ModCarDb.EntryName);
+            try
+            {
+                Cursor.Current = Cursors.WaitCursor;
+                if (entry == null)
+                {
+                    this.SetStatus("Building the database of " + mod.Media + " (game database + its packages)...");
+                    byte[] reference = ModCarDb.Reference(mod.Root, mod.PackageFile);
+                    string modFile = ModPack.Find(mod.Content, mod.Media);
+                    byte[] working = ModCarDb.Working(reference, (modFile == null) ? null : ModPack.ReadMerge(modFile));
+                    entry = this.zip.Add(ModCarDb.EntryName, working);
+                    this.currentEntry = null;
+                    this.PopulateTree();
+                    this.UpdateTitle();
+                }
+                ForzaZip.Entry open = entry;
+                this.NavigateFrom(delegate
+                {
+                    this.SelectEntry(open.Name);   // the tree shows it (the database view)
+                    if (this.gameDbEntry != open)
+                    {
+                        this.currentEntry = open;
+                        this.ShowGameDb(open, this.zip.Read(open));
+                    }
+                    object id = (this.gameDb == null) ? null : this.gameDb.Sql.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", mod.Media);
+                    if (id is long)
+                    {
+                        this.SelectDbItem(DbSection.Cars, (long) id);
+                    }
+                    this.SetStatus(mod.Media + ": the car's database (a copy). Edit it here; File > Save writes the car AND its database rows into the mod pack. The game's gamedb.slt is never written.");
+                });
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Database of This Car", MessageBoxButtons.OK, MessageBoxIcon.Hand);
             }
             finally
             {
@@ -415,7 +484,7 @@ namespace ForzaStudio
             this.NavigateFrom(delegate
             {
                 this.OpenArchive(opened);
-                this.SetStatus(string.Format("{0}: a copy of {1}. Save writes a mod pack in Xenia (priority {2}); the game's files are never written.",
+                this.SetStatus(string.Format("{0}: a copy of {1}. Save writes a mod pack in Xenia (priority {2}); the game's files are never written. Its database rows: File > Database of This Car.",
                     media, from, ModPack.Priority));
             });
             return true;
@@ -486,7 +555,7 @@ namespace ForzaStudio
             {
                 this.OpenArchive(opened);
                 this.SetStatus(original
-                    ? string.Format("{0}: a copy read from the original package {1} ({2}). Save writes a mod pack in Xenia (priority {3}); the original package is never written.",
+                    ? string.Format("{0}: a copy read from the original package {1} ({2}). Save writes a mod pack in Xenia (priority {3}); the original package is never written. Its database rows: File > Database of This Car.",
                         media, package.Title, Path.GetFileName(package.File), ModPack.Priority)
                     : string.Format("{0}: a copy read from the installed package {1} ({2}). Edits stay in the copy, the package is not written.",
                         media, package.Title, Path.GetFileName(package.File)));

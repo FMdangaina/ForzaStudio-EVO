@@ -1461,7 +1461,7 @@ namespace ForzaStudio
         // The pack row and one mapping row per car. IsInstalled and IsPurchased are 1 as in XTD's
         // package (the game's showroom packs have IsPurchased 1 too); the names (DisplayName,
         // Description) are ContentOffers string keys, set when the string tables are written.
-        private static void AddOffer(SqliteDatabase game, SqliteDatabase merge, int offer, List<long> cars, StringBuilder report)
+        internal static void AddOffer(SqliteDatabase game, SqliteDatabase merge, int offer, List<long> cars, StringBuilder report)
         {
             string id = OfferId(offer);
             long offerId = long.Parse(id, NumberStyles.HexNumber, CultureInfo.InvariantCulture);

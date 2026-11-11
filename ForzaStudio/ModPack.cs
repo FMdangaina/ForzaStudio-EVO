@@ -22,6 +22,10 @@ namespace ForzaStudio
     // mapping the car to the mod's own offer (DlcPackage.BuildOfferMerge), and the original pack's string tables (car
     // names) with its zipmount.xml. The car's database rows stay the base game's. Deleting the file gives the original back.
     //
+    // The car's database (user 2026-11-11, ModCarDb): File > Database of This Car edits a copy of the game's database kept
+    // in the car copy zip; Save puts EVERY row of the car, plus the rows the user added or changed, in the pack's
+    // media/db/patch/<offer>000_merge.slt. A merge row with a key the game has replaces the game's row (checked in game).
+    //
     // One mod pack per car; the next Save of the same car replaces its file (the content id, so the name, changes).
     public static class ModPack
     {
@@ -124,6 +128,13 @@ namespace ForzaStudio
             return (files.Count == 0) ? null : WriteZip(files, zipPath);
         }
 
+        // The merge database a mod pack carries (media/db/patch/*_merge.slt of its zip), or null.
+        public static byte[] ReadMerge(string file)
+        {
+            List<byte[]> merges = ModCarDb.PackageMerges(file);
+            return (merges.Count == 0) ? null : merges[merges.Count - 1];
+        }
+
         // A car zip (names relative to the car folder) from files, LZX like the game's.
         public static string WriteZip(Dictionary<string, byte[]> files, string zipPath)
         {
@@ -155,6 +166,21 @@ namespace ForzaStudio
         // null. thumbnail: PNG for the package, may be null. Returns the mod pack file.
         public static string Write(string content, string targetRoot, string media, ForzaZip car, Standalone standalone, string sourceTitle, string sourceFile, byte[] thumbnail)
         {
+            return Write(content, targetRoot, media, car, standalone, sourceTitle, sourceFile, thumbnail, null);
+        }
+
+        // The car's database (ModCarDb) the pack carries: the working copy the user edited and the reference it is
+        // compared with. Report: what went into the merge.
+        public sealed class CarDatabase
+        {
+            public byte[] Working;
+            public byte[] Reference;
+            public StringBuilder Report = new StringBuilder();
+        }
+
+        // database: null = only the offer rows (standalone) as before; else every row of the car (ModCarDb.BuildMerge).
+        public static string Write(string content, string targetRoot, string media, ForzaZip car, Standalone standalone, string sourceTitle, string sourceFile, byte[] thumbnail, CarDatabase database)
+        {
             if (content == null)
             {
                 throw new InvalidOperationException("The Xenia content folder of the game is not set (Tools > Settings > Folders).");
@@ -184,9 +210,9 @@ namespace ForzaStudio
             int count = 0;
             foreach (ForzaZip.Entry entry in car.Entries)
             {
-                if (entry.IsDirectory || entry.IsDeleted)
+                if (entry.IsDirectory || entry.IsDeleted || string.Equals(entry.Name, ModCarDb.EntryName, StringComparison.OrdinalIgnoreCase))
                 {
-                    continue;
+                    continue;   // the car's database copy goes in as the merge, not as a car file
                 }
                 Stage(files, carPrefix + entry.Name.Replace('\\', '/'), car.Read(entry));
                 count++;
@@ -201,12 +227,19 @@ namespace ForzaStudio
                 {
                     Stage(files, file.Key, file.Value);
                 }
-                if (standalone.CarId > 0 && standalone.GameDb != null)
+                if (standalone.CarId > 0 && standalone.GameDb != null && database == null)
                 {
                     StringBuilder report = new StringBuilder();
                     byte[] merge = DlcPackage.BuildOfferMerge(standalone.GameDb, offer, new List<long> { standalone.CarId }, report);
                     Stage(files, "media/db/patch/" + offerText + "000_merge.slt", merge);
                 }
+            }
+
+            if (database != null)
+            {
+                // every row of the car + the rows the user changed; the car mapped to the mod's offer when standalone
+                byte[] merge = ModCarDb.BuildMerge(database.Working, database.Reference, offer, media, standalone != null, database.Report);
+                Stage(files, "media/db/patch/" + offerText + "000_merge.slt", merge);
             }
 
             // The package's folder.

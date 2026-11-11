@@ -393,6 +393,7 @@
     <Compile Include="ForzaStudio\DlcFixer.Fm3.cs" />
     <Compile Include="ForzaStudio\DlcSource.cs" />
     <Compile Include="ForzaStudio\DlcCatalog.cs" />
+    <Compile Include="ForzaStudio\ModCarDb.cs" />
     <Compile Include="ForzaStudio\ModPack.cs" />
     <Compile Include="ForzaStudio\InstalledDlc.cs" />
     <Compile Include="ForzaStudio\SoundBankIndex.cs" />

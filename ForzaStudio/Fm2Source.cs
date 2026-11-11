@@ -35,6 +35,13 @@ namespace ForzaStudio
         // game's (fm2Root); null for the game itself.
         public static void Stage(string fm2Root, string fm4Root, string car, string donor, string stageDir, List<string> log, string overlay)
         {
+            Stage(fm2Root, fm4Root, car, donor, stageDir, log, overlay, null);
+        }
+
+        // donorRoot: the donor is a car of an installed FM4 pack (disc 2): that pack laid out as a game folder (CarPort.ResolveDonor),
+        // where its car and wheel zips are; its database rows are the FM4 folder's. null: the donor is in the FM4 folder.
+        public static void Stage(string fm2Root, string fm4Root, string car, string donor, string stageDir, List<string> log, string overlay, string donorRoot)
+        {
             string carLow = car.ToLowerInvariant();
             string donorLow = donor.ToLowerInvariant();
             if (Directory.Exists(stageDir))
@@ -66,7 +73,15 @@ namespace ForzaStudio
             {
                 throw new InvalidOperationException(car + ".zip has no " + carLow + ".carbin.");
             }
-            string donorZipPath = Path.Combine(Path.Combine(Path.Combine(fm4Root, "Media"), "cars"), donor + ".zip");
+            string donorZipPath = ((donorRoot != null) ? GamePaths.FindCar(donorRoot, donor) : null)
+                ?? Path.Combine(Path.Combine(Path.Combine(fm4Root, "Media"), "cars"), donor + ".zip");
+            using (SqliteDatabase fm4Check = SqliteDatabase.FromBytes(File.ReadAllBytes(fm4DbPath)))
+            {
+                if (Convert.ToInt64(fm4Check.Scalar("SELECT count(*) FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", donor)) == 0)
+                {
+                    throw new InvalidOperationException("The donor " + donor + " has no row in the FM4 database (a car of an official DLC car pack: its rows are in the pack). Pick another donor.");
+                }
+            }
             ForzaZip donorZip = new ForzaZip(donorZipPath);
             try
             {
@@ -240,7 +255,7 @@ namespace ForzaStudio
                     string thumbnail = "game:\\Media\\UI\\Textures\\Thumbnails\\Thumbnail_" + fm2Id.ToString(CultureInfo.InvariantCulture) + ".xds";
                     stageDb.Execute("UPDATE Data_Car SET MediaName = ?, DisplayName = ?, ModelShort = ?, Year = ?, Thumbnail = ? WHERE MediaName = ? COLLATE NOCASE", car, fm2Row[1], fm2Row[2], fm2Row[3], thumbnail, donor);
                     log.Add(string.Format("database: donor row renamed to {0} ({1} / {2}, {3})", car, fm2Row[1], fm2Row[2], fm2Row[3]));
-                    StageWheel(overlay, fm2Root, fm4Root, fm2Db, stageDb, media, work, car, donor, fm2Row[4], log);
+                    StageWheel(overlay, fm2Root, fm4Root, fm2Db, stageDb, media, work, car, donor, fm2Row[4], log, donorRoot);
                     File.WriteAllBytes(db, stageDb.ToBytes());
                     Thumbnail(overlay, fm2Root, media, fm2Id, log);
                 }
@@ -277,7 +292,7 @@ namespace ForzaStudio
         // The car's own wheel: FM2 StockWheelID -> List_Wheels.MediaName, rebuilt on the FM4 donor's wheel (its LOD 0 is
         // dropped, the port rebuilds it from LOD 1), a List_Wheels row (the id of the same wheel in the target, else the
         // next free one) and its WheelNormOffsets. A car without a findable wheel keeps the donor's.
-        private static void StageWheel(string overlay, string fm2Root, string fm4Root, SqliteDatabase fm2Db, SqliteDatabase stageDb, string media, string work, string car, string donor, object stockWheel, List<string> log)
+        private static void StageWheel(string overlay, string fm2Root, string fm4Root, SqliteDatabase fm2Db, SqliteDatabase stageDb, string media, string work, string car, string donor, object stockWheel, List<string> log, string donorRoot)
         {
             SqliteDatabase.Result wheel = fm2Db.Query("SELECT MediaName, Mass FROM List_Wheels WHERE ID = ?", stockWheel);
             SqliteDatabase.Result donorWheel = stageDb.Query("SELECT w.MediaName FROM Data_Car c JOIN List_Wheels w ON w.ID = c.StockWheelID WHERE c.MediaName = ? COLLATE NOCASE", car);
@@ -294,7 +309,8 @@ namespace ForzaStudio
             {
                 fm2WheelZip = Path.Combine(Path.Combine(Path.Combine(overlay, "Media"), "wheels"), wheelLow + ".zip");
             }
-            string donorWheelZip = Path.Combine(Path.Combine(Path.Combine(fm4Root, "Media"), "wheels"), donorWheelMedia + ".zip");
+            string donorWheelZip = ((donorRoot != null) ? GamePaths.FindMedia(donorRoot, "wheels", donorWheelMedia) : null)
+                ?? Path.Combine(Path.Combine(Path.Combine(fm4Root, "Media"), "wheels"), donorWheelMedia + ".zip");
             if (!File.Exists(fm2WheelZip) || !File.Exists(donorWheelZip))
             {
                 log.Add("wheel: " + wheelMedia + " or the donor's wheel zip is missing, the donor's stays");

@@ -947,14 +947,17 @@ namespace ForzaStudio
         // degrees around the axle (the row's CaliperAngleFront/Rear, radians, when left out; a value given is
         // written to the row). The rotor is one model per size, the slotted one (user 2026-10-24: the game has
         // no LOD0 plain disc, only the caliper changes); its size comes from the rim.
+        // Default (user 2026-11-11, "take them from the source's database"): pistons 0 = the car's own stock brake row
+        // (List_UpgradeBrakes IsStock = 1, Front/RearCaliperPistons, the source's values: FM2 Lingenfelter 4 / 2), angles
+        // empty = the car's own row (CaliperAngleFront/Rear, copied from the source: FM2 -74 / 81 degrees).
         public class BrakeChoice
         {
-            public int FrontPistons = 2;
-            public int RearPistons = 2;
+            public int FrontPistons;    // 2, 4, 6; 0 = from the car's stock brakes
+            public int RearPistons;
             public double? FrontAngle;
             public double? RearAngle;
 
-            // "2,2,-75,90": front pistons, rear pistons, front/rear angle (empty = the row's)
+            // "2,2,-75,90": front pistons, rear pistons, front/rear angle (empty = the row's; pistons 0 = the car's)
             public override string ToString()
             {
                 return string.Format(CultureInfo.InvariantCulture, "{0},{1},{2},{3}", this.FrontPistons, this.RearPistons,
@@ -971,8 +974,8 @@ namespace ForzaStudio
                 if (p.Length >= 4)
                 {
                     int angles = (p.Length >= 6) ? 4 : 2;
-                    choice.FrontPistons = (int.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out pistons) && pistons >= 2 && pistons <= 6) ? pistons : 2;
-                    choice.RearPistons = (int.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out pistons) && pistons >= 2 && pistons <= 6) ? pistons : 2;
+                    choice.FrontPistons = (int.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out pistons) && pistons >= 2 && pistons <= 6) ? pistons : 0;
+                    choice.RearPistons = (int.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out pistons) && pistons >= 2 && pistons <= 6) ? pistons : 0;
                     choice.FrontAngle = double.TryParse(p[angles], NumberStyles.Float, CultureInfo.InvariantCulture, out angle) ? (double?) angle : null;
                     choice.RearAngle = double.TryParse(p[angles + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out angle) ? (double?) angle : null;
                 }
@@ -986,6 +989,32 @@ namespace ForzaStudio
         // is the model the showroom takes from Shared when a brake upgrade is fitted, and its material reads the
         // game's shared brake texture. The car's textures are not touched (user 2026-10-22).
 
+        // The caliper pistons of the car's stock brakes in the original source database (ReadSourcePistons), 0 if none.
+        private int StockCaliperPistons(bool front)
+        {
+            return front ? this.sourceFrontPistons : this.sourceRearPistons;
+        }
+
+        // The source car's stock brake row (List_UpgradeBrakes IsStock = 1, by MediaName) as the source game has it, before the
+        // port rebuilds the upgrades (FH traffic cars get generic ones, FM2 cars FM2-mapped ones). Only the generic brakes use it.
+        private void ReadSourcePistons(SqliteDatabase db)
+        {
+            try
+            {
+                SqliteDatabase.Result row = db.Query("SELECT b.FrontCaliperPistons, b.RearCaliperPistons FROM List_UpgradeBrakes b JOIN Data_Car c ON b.Ordinal = c.Id"
+                    + " WHERE c.MediaName = ? COLLATE NOCASE AND b.IsStock = 1 ORDER BY b.Level LIMIT 1", this.MediaName);
+                if (row.Rows.Count == 1)
+                {
+                    this.sourceFrontPistons = (row.Rows[0][0] == null || row.Rows[0][0] is DBNull) ? 0 : Convert.ToInt32(row.Rows[0][0], CultureInfo.InvariantCulture);
+                    this.sourceRearPistons = (row.Rows[0][1] == null || row.Rows[0][1] is DBNull) ? 0 : Convert.ToInt32(row.Rows[0][1], CultureInfo.InvariantCulture);
+                }
+            }
+            catch (Exception)
+            {
+                // a source without the brake columns: the generic brakes fall back to 2 pistons
+            }
+        }
+
         // The generic brake for a car file name (prefix_caliperlf_lod0.carbin...), or null without the game file.
         private byte[] GenericBrake(ForzaZip car, string prefix, string name, out string description)
         {
@@ -994,8 +1023,17 @@ namespace ForzaStudio
             bool right = name.Contains("rf_") || name.Contains("rr_");
             bool caliper = name.Contains("_caliper");
             int inches = this.GenericBrakeInches(car, prefix, front);
-            string why = string.Format(CultureInfo.InvariantCulture, "chosen: {0} piston", front ? this.Brakes.FrontPistons : this.Brakes.RearPistons);
-            string kind = caliper ? "caliper_" + (front ? this.Brakes.FrontPistons : this.Brakes.RearPistons).ToString(CultureInfo.InvariantCulture) : "rotor_slotted";
+            int pistons = front ? this.Brakes.FrontPistons : this.Brakes.RearPistons;
+            string why = string.Format(CultureInfo.InvariantCulture, "chosen: {0} piston", pistons);
+            if (pistons <= 0)
+            {
+                int own = this.StockCaliperPistons(front);
+                pistons = (own <= 0) ? 2 : (own <= 2) ? 2 : (own <= 4) ? 4 : 6;   // the generic set: 2, 4, 6
+                why = (own > 0)
+                    ? string.Format(CultureInfo.InvariantCulture, "{0} piston from the car's stock brakes ({1})", pistons, own)
+                    : "2 piston (the car's stock brakes give no count)";
+            }
+            string kind = caliper ? "caliper_" + pistons.ToString(CultureInfo.InvariantCulture) : "rotor_slotted";
             string file = string.Format(CultureInfo.InvariantCulture, "{0}_{1}_LOD0.rmb.carbin", inches, kind);
             string path = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "brakes"), file);
             if (!File.Exists(path))

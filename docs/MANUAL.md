@@ -138,6 +138,61 @@ A DLC pack zip (`Media\DLCZips\…_pri_N.zip`) or a DLC development folder (the 
 with its `*_merge.slt` database) shows the cars, wheels and pictures its database names from **its own
 `media` folder** first, and from the main game for the rest.
 
+### Game and DLC cars: mod packs (FM4)
+
+The game's own files and the original DLC packages (FM4 disc 2 and the official car packs) are **never
+written**. A change to one of their cars goes into a small package of its own, the car's **mod pack**,
+that Xenia loads on top of the original. Delete the mod pack and the original car is back.
+
+**The workflow**
+
+1. Open the game's `Media\db\gamedb.slt`, select the car and press **Open Car Model**. For a car of the
+   game (disc 1) or of an original DLC package, the editor opens a **copy** of the car (the status line says
+   so). If the car already has a mod pack, the copy is the mod pack's version.
+2. Edit the model as usual: parts, meshes, materials, textures, Copy Part From Another Car...
+3. **File > Database of This Car** opens the car's database: a copy of the game's database, plus the
+   original package's rows and the car's mod pack rows. Only the car is shown (no car list). Edit
+   anything here: the car's rows, a new body kit row (for example `List_UpgradeCarBodyRearBumper` for a
+   new rear bumper made in step 2), its upgrades, colors, cameras, engine. **Go to / Used by** reach the
+   other tables.
+4. **Close Xenia**, then **File > Save**. One save writes the car's files **and** its database rows into
+   the mod pack, in Xenia's FM4 content folder. With Xenia open the copy is saved and the status line
+   asks you to save again once Xenia is closed.
+5. Start FM4 in Xenia: the car has the changes, model and data together.
+
+**What the mod pack carries**
+
+- The car's files (lower case names, as the game's own zips spell them).
+- For a car of an original DLC package, its wheels, names and string tables too: the mod pack is
+  **standalone**, so it works for players who do not have that DLC.
+- With step 3, **every database row of the car** (`Data_Car` and every table that belongs to the car:
+  upgrades, body kits, colors, physics, cameras, part positions...), plus every other row you added or
+  changed (an engine, a part made for it).
+
+**Rules of the database rows** (checked in game, 2026-11-11)
+
+- A row the game already has (same key) is **replaced** by the mod pack's row: a changed year, price or
+  upgrade value shows in game.
+- A new row is **added**: a new paint, a new body kit part.
+- A row of the game you **delete** cannot be removed by a mod pack: it stays in game. Save says so.
+- Tables without a key (`CarPartPositions`, `CarInvalidDefaultParts`, `KinectSplitscreenCars`,
+  `StripeColors`) only take new rows: a changed row there would be added beside the game's one. Save warns
+  about it and lists the rows.
+- The game's `gamedb.slt` is not written: never put a car's rows there by hand, use step 3.
+
+**Managing mod packs**
+
+- **File > Mod Packs (uninstall)...** lists the installed mod packs (car, offer, standalone, date) and
+  uninstalls the ones you pick (Xenia closed): the original car comes back.
+- One mod pack per car. Saving the car again replaces its mod pack and keeps its offer number. Several mod
+  packs work together: each has its own offer number, so their zips never share a name.
+- `ForzaStudio.ini`, section `[App]`: `ModPack.GameCars = 0` makes Open Car Model open and save a disc 1
+  car's zip in place, as before mod packs.
+- The mod pack is an Xbox 360 package file (LIVE, empty signature). Xenia loads it as it is; a modded
+  console should too (not tested yet).
+
+Technical details (priorities, merge database) are in [DLC_PACKAGES.md](DLC_PACKAGES.md#mod-packs).
+
 ### What each file shows
 
 | File | View |
@@ -667,11 +722,25 @@ from there only (its **Settings...** button opens that tab).
      port builds as for the Horizon traffic cars (yellow).
 3. Select a car and choose its **FM4 template car** (the donor): the FM4 car used as a template for the data FM4
    needs. The ★ cars are the closest matches. Cars of DLC packs installed in Xenia can be donors too (marked
-   `[DLC: pack]`), except with Forza Motorsport 2 as source.
+   `[DLC: pack]`). With Forza Motorsport 2 as source only the DLC cars whose rows are in FM4's own database
+   can be donors: the cars of FM4's disc 2 (for example the Corvette Z06 C5), not those of the official car
+   packs. Their files are read from the installed package.
 4. Choose the **Tires**: *Normal* keeps the tire models the source car has (the Raptor and the Wrangler of
    Horizon have their own), else FM4's generic tires; *Offroad* gives the car the program's own deep-tread
    offroad tires (`Service\OffroadTires`, same size as the normal ones); *Small* gives it the small tires of
    FM4's C1 (`Service\SmallTires`). You bring these files yourself, see [Install](#2-install).
+5. **FRONT / REAR brakes (only if the car has none)**. A normal car keeps its own calipers and discs and
+   their angles, converted 1:1, and these boxes do not touch it. Forza Motorsport 2 cars and the Horizon
+   traffic cars have no brake models: they get FM4's generic brakes (`Media\brakes`), built from the source's
+   data:
+   - **pistons**: *from the car* (the default) takes the caliper pistons of the car's stock brakes in the
+     source game's database (FM2 Lingenfelter Corvette: 4 front, 2 rear), rounded to FM4's generic
+     calipers (2, 4, 6 pistons; a drum brake, 0, becomes 2). Pick 2, 4 or 6 to choose yourself;
+   - **caliper angle, degrees**: empty (the default) keeps the angle of the car's row, copied from the source
+     game (`CaliperAngleFront/Rear`). A value typed here replaces it;
+   - the disc size comes from the car's disc, else from its rim.
+
+   The Report shows what was used, e.g. `generic brake 13_caliper_4_LOD0 (4 piston from the car's stock brakes)`.
 
 Everything the port needs from the source stays the source's (names, sound, values), and the donor only
 supplies what the source lacks. The window also lists the problems it found, with a choice for each, in the
@@ -691,6 +760,10 @@ The game's own files are not touched. The cars live in a package you can remove 
      editor shows such materials in red and **Rename Material...** fixes them by hand);
    - a missing engine sound: the line says the source game has none and that another car's sound is used.
      Pick the FM4 car whose sound you want, or leave it.
+   - an engine sound converted to another number of cylinders (`Data_Engine.CylinderID`): the sound used
+     has a different count from the engine, and the port converts it to the engine's. Pick another count
+     only if the engine's data is wrong. When the counts are the same nothing is listed (the Report says
+     the sound is used as it is).
 
    If you change fixes, run **Trial Pack** again.
 5. Set **Xenia's folder** (the one with `xenia_canary.exe`).

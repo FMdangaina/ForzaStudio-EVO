@@ -228,7 +228,15 @@ namespace ForzaStudio
                 cylinderId = fix;
             }
             int cylinders = this.EngineCylinders(this.target, media);
-            if (cylinderId != null && !(cylinderId is DBNull))
+            // Only a conversion (or a rotary engine) is something to review: the same count is regular, the sound is used
+            // as it is and the review stays empty (user 2026-11-11: the Lingenfelter showed "1 thing to fix" on every trial).
+            bool converted = cylinders > 0 && fromCylinders > 0 && cylinders != fromCylinders;
+            bool rotaryEngine = cylinders < 0 || fromCylinders < 0;
+            if (!converted && !rotaryEngine)
+            {
+                this.Line("  engine sound {0}: {1} ({2} cylinders) used as it is, the engine has the same count", media, from, fromCylinders);
+            }
+            if (cylinderId != null && !(cylinderId is DBNull) && (converted || rotaryEngine))
             {
                 Issue issue = new Issue();
                 issue.Key = key;

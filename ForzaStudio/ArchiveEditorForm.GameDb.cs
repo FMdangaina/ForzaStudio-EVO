@@ -92,6 +92,23 @@ namespace ForzaStudio
         private byte[] gameDbBytes;
         private long dbCarId = -1;
         private bool dbSplitSized;
+        private SplitContainer dbSplit;
+
+        // File > Database of This Car (user 2026-11-11): the list of all the cars is not needed there, only the car itself.
+        // The list stays for the other sections (engines, tables...) reached with Go to / Used by.
+        private void UpdateDbListVisibility()
+        {
+            if (this.dbSplit == null)
+            {
+                return;
+            }
+            bool carOnly = this.dbSection == DbSection.Cars && this.gameDbEntry != null
+                && string.Equals(this.gameDbEntry.Name, ModCarDb.EntryName, StringComparison.OrdinalIgnoreCase);
+            if (this.dbSplit.Panel1Collapsed != carOnly)
+            {
+                this.dbSplit.Panel1Collapsed = carOnly;
+            }
+        }
 
         private void BuildGameDbView()
         {
@@ -158,7 +175,7 @@ namespace ForzaStudio
             this.lblDbGame.ToolTipText = "The game this database belongs to, recognized from its tables";
             bar.Items.Add(this.lblDbGame);
 
-            SplitContainer split = new SplitContainer();
+            SplitContainer split = this.dbSplit = new SplitContainer();
             split.Dock = DockStyle.Fill;
             split.FixedPanel = FixedPanel.Panel1;
             split.SizeChanged += delegate
@@ -995,6 +1012,7 @@ namespace ForzaStudio
                 }
             }
             this.dbSection = section;
+            this.UpdateDbListVisibility();
             this.btnWheelFilter.Visible = section == DbSection.Wheels;
             for (int i = 0; i < this.btnDbSections.Length; i++)
             {

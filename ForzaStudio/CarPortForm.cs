@@ -170,7 +170,8 @@ namespace ForzaStudio
             public string Root;         // the source game folder, or the DLC package laid out as one (DlcSource); null until RootOf stages Package
             public string Package;      // a DlcCatalog package file the car is listed from without opening it, or null
             public string Dlc;          // the DLC package the car comes from, empty for the game itself
-            public string PortedAs;     // an FM4 car also ported beside FM4's own, under this MediaName (for tests), or null
+            public bool InFm4Database;  // an FM4 car whose rows are in the FM4 folder's gamedb.slt (the game's and disc 2's cars)
+            public string PortedAs;    // an FM4 car also ported beside FM4's own, under this MediaName (for tests), or null
         }
 
         private class DonorChoice : IRecommended
@@ -432,22 +433,22 @@ namespace ForzaStudio
             brakeLabel.Text = "FRONT brakes (only if the car has none):";
             brakeLabel.Location = new Point(8, 99);
             brakeLabel.AutoSize = true;
-            this.frontCaliper = BrakeCombo(options, 268, 96, new string[] { "2 pistons", "4 pistons", "6 pistons" });
+            this.frontCaliper = BrakeCombo(options, 268, 96, new string[] { "from the car", "2 pistons", "4 pistons", "6 pistons" });
             Label frontAngleLabel = new Label();
             frontAngleLabel.Text = "caliper angle, degrees:";
             frontAngleLabel.Location = new Point(344, 99);
             frontAngleLabel.AutoSize = true;
-            this.frontAngle = BrakeAngle(options, 480, 96, "-75");
+            this.frontAngle = BrakeAngle(options, 480, 96, "");
             Label rearLabel = new Label();
             rearLabel.Text = "REAR brakes (only if the car has none):";
             rearLabel.Location = new Point(8, 127);
             rearLabel.AutoSize = true;
-            this.rearCaliper = BrakeCombo(options, 268, 124, new string[] { "2 pistons", "4 pistons", "6 pistons" });
+            this.rearCaliper = BrakeCombo(options, 268, 124, new string[] { "from the car", "2 pistons", "4 pistons", "6 pistons" });
             Label rearAngleLabel = new Label();
             rearAngleLabel.Text = "caliper angle, degrees:";
             rearAngleLabel.Location = new Point(344, 127);
             rearAngleLabel.AutoSize = true;
-            this.rearAngle = BrakeAngle(options, 480, 124, "90");
+            this.rearAngle = BrakeAngle(options, 480, 124, "");
             options.Controls.Add(brakeLabel);
             options.Controls.Add(frontAngleLabel);
             options.Controls.Add(rearLabel);
@@ -1396,7 +1397,8 @@ namespace ForzaStudio
             ComboBox combo = new ComboBox();
             combo.DropDownStyle = ComboBoxStyle.DropDownList;
             combo.Location = new Point(x, y);
-            combo.Width = 66;
+            combo.Width = 74;
+            combo.DropDownWidth = 110;
             combo.Items.AddRange(items);
             combo.SelectedIndex = 0;
             parent.Controls.Add(combo);
@@ -1409,7 +1411,7 @@ namespace ForzaStudio
             box.Location = new Point(x, y);
             box.Width = 50;
             box.Text = proposed;
-            new ToolTip().SetToolTip(box, "Where the caliper sits around the axle, in degrees, as Data_Car CaliperAngleFront/Rear (about 90 or -90 on most cars). Proposed: front -75, rear 90. Empty = the value the car's row already has. The value is written to the row.");
+            new ToolTip().SetToolTip(box, "Where the caliper sits around the axle, in degrees, as Data_Car CaliperAngleFront/Rear (about 90 or -90 on most cars). Empty (default) = the car's own value, copied from the source game's database (FM2 Lingenfelter: -74 / 81). A value typed here is written to the row.");
             parent.Controls.Add(box);
             return box;
         }
@@ -1423,8 +1425,8 @@ namespace ForzaStudio
         private CarPort.BrakeChoice CurrentBrakes()
         {
             CarPort.BrakeChoice choice = new CarPort.BrakeChoice();
-            choice.FrontPistons = 2 + (this.frontCaliper.SelectedIndex * 2);
-            choice.RearPistons = 2 + (this.rearCaliper.SelectedIndex * 2);
+            choice.FrontPistons = (this.frontCaliper.SelectedIndex <= 0) ? 0 : this.frontCaliper.SelectedIndex * 2;   // 0 = the car's stock brakes
+            choice.RearPistons = (this.rearCaliper.SelectedIndex <= 0) ? 0 : this.rearCaliper.SelectedIndex * 2;
             double angle;
             choice.FrontAngle = double.TryParse(this.frontAngle.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out angle) ? (double?) angle : null;
             choice.RearAngle = double.TryParse(this.rearAngle.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out angle) ? (double?) angle : null;
@@ -2782,15 +2784,21 @@ namespace ForzaStudio
         {
             List<Car> cars = new List<Car>();
             Dictionary<string, bool> known = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, bool> inDb = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (Car car in inDatabase)
+            {
+                inDb[car.MediaName] = true;
+            }
             foreach (Fm4CarList.Entry e in Fm4CarList.Cars)
             {
                 known[e.MediaName] = true;
-                cars.Add(new Car { Id = e.Id, MediaName = e.MediaName, Name = e.Name, Year = e.Year, Make = e.Make, Placement = e.Placement, Drive = e.Drive, Type = e.Type, Weight = e.Weight, Pi = e.Pi, Dlc = e.Dlc });
+                cars.Add(new Car { Id = e.Id, MediaName = e.MediaName, Name = e.Name, Year = e.Year, Make = e.Make, Placement = e.Placement, Drive = e.Drive, Type = e.Type, Weight = e.Weight, Pi = e.Pi, Dlc = e.Dlc, InFm4Database = inDb.ContainsKey(e.MediaName) });
             }
             foreach (Car car in inDatabase)
             {
                 if (!known.ContainsKey(car.MediaName))
                 {
+                    car.InFm4Database = true;
                     cars.Add(car);
                 }
             }
@@ -2815,6 +2823,25 @@ namespace ForzaStudio
                 string sourceCars = Path.Combine(Path.Combine(source, "Media"), "cars");
                 // A DLC package's cars are in the stage's list; their zips are written when one is ported.
                 Dictionary<string, KeyValuePair<bool, string>> lazy = DlcSource.LazyCars(source);
+                // A package without a database of its own (FM2's packs and DLCBeta, FM4/FM3 second-disc packs) is staged
+                // over the WHOLE base game's database: only the cars the package holds are its cars (2026-11-11: DLCBeta
+                // listed every FM2 car, each one then reported "also in DLCBeta").
+                List<Car> own = new List<Car>();
+                int baseRows = 0;
+                foreach (Car car in horizon)
+                {
+                    if (package && !File.Exists(Path.Combine(sourceCars, car.MediaName + ".zip")) && !lazy.ContainsKey(car.MediaName))
+                    {
+                        baseRows++;
+                        continue;
+                    }
+                    own.Add(car);
+                }
+                if (baseRows > 0)
+                {
+                    notes.AppendLine(string.Format("{0}: {1} cars of {2}, {3} rows of the base game's database without files in it left out", Path.GetFileName(source), own.Count, GameInfo.Name(game) ?? "the source game", baseRows));
+                }
+                horizon = own;
                 foreach (Car car in horizon)
                 {
                     car.Root = source;
@@ -3079,8 +3106,9 @@ namespace ForzaStudio
                 List<Car> ranked = new List<Car>(this.fm4Cars);
                 if (this.sourceTag == "FM2")
                 {
-                    // an FM2 port is built on a car of the FM4 game folder itself: no donor from a DLC pack
-                    ranked.RemoveAll(delegate(Car donorCar) { return !string.IsNullOrEmpty(donorCar.Dlc); });
+                    // An FM2 port renames the donor's row of the FM4 database (Fm2Source): a DLC donor needs its rows there, as
+                    // disc 2's cars have (user 2026-11-11: the Corvette Z06 C5 was missing); its files come from the pack.
+                    ranked.RemoveAll(delegate(Car donorCar) { return !string.IsNullOrEmpty(donorCar.Dlc) && !donorCar.InFm4Database; });
                 }
                 List<DonorChoice> choices = new List<DonorChoice>();
                 foreach (Car donorCar in ranked)

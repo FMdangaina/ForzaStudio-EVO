@@ -105,6 +105,8 @@ namespace ForzaStudio
         private bool traffic;           // an FH traffic car: its close-up models were placeholders (RebuildCloseUpModels)
         private SqliteDatabase source;
         private SqliteDatabase target;
+        private int sourceFrontPistons;  // the caliper pistons of the car's stock brakes in the ORIGINAL source database (FM2's own
+        private int sourceRearPistons;   // for FM2), read before the upgrades are rebuilt; 0 = none (drum brakes). Generic brakes only.
         private long carId;
         private long donorId;
         private SqliteDatabase donorDb;  // the donor pack's rows (DonorRoot), when the donor is not in the target database
@@ -279,15 +281,13 @@ namespace ForzaStudio
                 {
                     throw new InvalidOperationException("An FM2 DLC package needs the Forza Motorsport 2 game: set its folder in Tools > Settings > Folders.");
                 }
-                if (GamePaths.FindCar(this.TargetRoot, this.DonorMediaName) == null)
-                {
-                    throw new InvalidOperationException("An FM2 car is built on a donor from the FM4 game folder itself, and " + this.DonorMediaName + " is not there (a DLC car?). Pick another donor.");
-                }
+                // A donor of an installed pack (disc 2): its files are read from the pack, its rows are the FM4 database's.
+                this.ResolveDonor();
                 tempStage = Path.Combine(Path.GetTempPath(), "ForzaStudio_FM2_" + this.MediaName);
                 List<string> stageLog = new List<string>();
                 try
                 {
-                    Fm2Source.Stage(fm2Game, this.TargetRoot, this.MediaName, this.DonorMediaName, tempStage, stageLog, dlcRaw ? this.SourceRoot : null);
+                    Fm2Source.Stage(fm2Game, this.TargetRoot, this.MediaName, this.DonorMediaName, tempStage, stageLog, dlcRaw ? this.SourceRoot : null, this.DonorRoot);
                 }
                 finally
                 {
@@ -368,6 +368,7 @@ namespace ForzaStudio
             string sourceDbPath = Path.Combine(Path.Combine(Path.Combine(this.SourceRoot, "Media"), "db"), "gamedb.slt");
             string targetDbPath = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "db"), "gamedb.slt");
             this.source = SqliteDatabase.FromBytes(File.ReadAllBytes(sourceDbPath));
+            this.ReadSourcePistons(this.source);   // FM2: read again from the FM2 game's database (ImportFm2Data)
             byte[] targetBefore = File.ReadAllBytes(this.In(targetDbPath));
             this.target = SqliteDatabase.FromBytes(targetBefore);
             try

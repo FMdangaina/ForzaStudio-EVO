@@ -181,8 +181,73 @@ package XTD built with the Xbox 360 authoring tool, which a console loads:
   byte-identical; official FH1 packages keep every header byte except the content id and the top
   hash (the file table order and dates are ours).
 
+## Mod packs
+
+A mod pack changes a car of the game or of an original DLC package without writing either (user rule
+2026-11-10). The workflow is in the [manual](MANUAL.md#game-and-dlc-cars-mod-packs-fm4); this is the
+format.
+
+```
+<content>\<content id>4D                     an STFS file (LIVE, title 4D530910, type 2), one per car
+  ForzaStudioMod.txt                         car=, offer=, source=, sourceFile=, standalone=, written=
+  Media\<offer>.puboffer
+  Media\DLCZips\<offer>_pri_999.zip          stored zip:
+      media/cars/<car>/...                   the car's files, names in lower case
+      media/wheels/<car>/...                 standalone: the original pack's wheels
+      media/db/patch/<offer>000_merge.slt    the car's database rows (below)
+  Media\DLCZips\StringTables_pri_<P>.zip     standalone: the original pack's names
+  Media\DLCZips\zipmount.xml                 standalone: the original pack's
+```
+
+**Mount priorities.** The game mounts every `DLCZips\<name>_pri_<N>.zip` at `game:\` with priority `N`; for
+the same file the higher priority wins. The values the game uses (from The Admiester):
+
+| Priority | What |
+|---|---|
+| 50 | cache |
+| 65 | DLC cars that add content (official packs, our ported-car packs: `<offer>_pri_65`) |
+| 80 (a few 95) | the game's own zips in `zipmanifest.xml` |
+| 100 | loose files |
+| 250xx | DLC string tables and audio XMLs (ours: `StringTables_pri_<50000 + offer>`) |
+| 100000 | title updates |
+
+A mod pack uses **999**: above the game's zips and the loose files, so it replaces them, below the string
+tables and title updates. Checked in game: 99 beat disc 2's `0002_pri_65.zip` but not disc 1's
+`media\cars\<car>.zip` (80) with the car's own spelling; 999 with lower case names (as `zipmanifest.xml`
+spells them) beats both. Two mod packs both at 999 do not clash: each car's files are its own, and the zip
+names differ by offer. The zip name is always `<offer>_pri_<priority>`, never a random name.
+
+**The merge database** (`ModCarDb.cs`, File > Database of This Car). The car's database is a working copy
+kept in the car copy zip as `_car_database.slt` (never staged as a car file):
+
+- *reference* = the game's `gamedb.slt` + the original package's merges (an official car pack's rows are in
+  its merge; disc 2's are in `gamedb.slt` itself);
+- *working* = the reference + the mod pack's merge, edited by the user;
+- *merge* = the mod's `ContentOffers` row (and the car mapped to it in `ContentOffersMapping` when
+  standalone) + **every row of the car** in a table with a key + every row of the working copy the reference
+  lacks (added or changed).
+
+The car's rows are found as `DbIds.RenumberCar` finds them: `Data_Car`, every row whose car column
+(`Ordinal`, `CarId`...) is the car, the body part rows (`List_UpgradeCarBody*`, `Id = car × 1000 + n`), and
+the rows those point at in the range `car × 1000 … car × 1000 + 999` (`Data_CarBody`, physics, aero),
+followed through the relations until nothing new is found. `ContentOffers*`, `NewProfile_*` and
+`MultiDiscContentPacks` are left out.
+
+**How the game applies a merge row** (checked in game 2026-11-11 with the R34 V-Spec II, offer 411):
+
+| Merge row | Result |
+|---|---|
+| a key the game has (`Data_Car` 445, Year 1977, BaseCost 77777) | **replaces** the game's row |
+| a new key (`Combo_Colors` 445006, a sixth paint) | **added** |
+
+Both at once, no crash. So a mod pack can change any keyed row. Tables without a key take only new rows;
+a changed row of one of them (`CarPartPositions`...) is reported at Save, not tested in game. A deleted game
+row cannot be taken out by a merge.
+
 ## Code
 
+- `ForzaStudio\ModPack.cs` writes, finds, reopens, lists and removes mod packs; `ModCarDb.cs` builds the
+  reference, the working copy and the merge.
 - `ForzaStudio\DlcPackage.cs` builds a package. Main entry points:
   - `BuildMerge(clean, ported, offer)`: the merge database.
   - `BuildFolder(clean, target, trial, content, offer, name)`: the whole package from a trial
@@ -228,5 +293,6 @@ In `fm4dev\DEV_DLC\tools`, outside the repository. They are one-file C# harnesse
   - a real FH1 car package built with the Xbox 360 authoring tool (XLAST).
 
   He also offered to test packages on a console.
+- **The Admiester (https://www.theadmiester.co.uk/)** gave the table of the game's mount priorities.
 
-Thank you both.
+Thank you all.

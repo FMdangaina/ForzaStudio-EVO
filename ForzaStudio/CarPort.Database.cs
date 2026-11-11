@@ -38,6 +38,7 @@ namespace ForzaStudio
             using (SqliteDatabase fm2 = SqliteDatabase.FromBytes(File.ReadAllBytes(fm2Db)))
             {
                 this.Line("FM2 data from {0}:", fm2Db);
+                this.ReadSourcePistons(fm2);   // the stage's rows are the donor's: the FM2 car's own stock brakes
                 object fm2PiValue = fm2.Scalar("SELECT PerformanceIndex FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.MediaName);
                 if (fm2PiValue != null)
                 {
