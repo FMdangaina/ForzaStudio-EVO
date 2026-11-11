@@ -32,9 +32,59 @@ namespace ForzaStudio
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 
+        private static Icon appIcon;
+
+        // The white FS icon of the exe (logo2.ico).
+        public static Icon AppIcon
+        {
+            get
+            {
+                if (appIcon == null)
+                {
+                    try
+                    {
+                        appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+                return appIcon;
+            }
+        }
+
+        // User 2026-11-11: no window may show Visual Studio's default form icon, every one shows the FS icon. WinForms
+        // gives a form without its own icon Form.defaultIcon (a private static field): set once at start-up to the FS
+        // icon, it covers every form, also the small dialogs built in code.
+        public static void UseAppIconForAllForms()
+        {
+            Icon icon = AppIcon;
+            if (icon == null)
+            {
+                return;
+            }
+            try
+            {
+                System.Reflection.FieldInfo field = typeof(Form).GetField("defaultIcon", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                if (field != null)
+                {
+                    field.SetValue(null, icon);
+                }
+            }
+            catch (Exception)
+            {
+                // Apply still sets it on every themed form
+            }
+        }
+
         // Colors every control below root (call again after adding controls).
         public static void Apply(Control root)
         {
+            Form form = root as Form;
+            if (form != null && AppIcon != null)
+            {
+                form.Icon = AppIcon;
+            }
             Style(root);
             DarkChrome(root);
             foreach (Control child in root.Controls)

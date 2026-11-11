@@ -349,8 +349,13 @@ one of its materials to edit only that material.
 
 ### Parts from other cars and from 3D programs (PART tab)
 
-- **Copy Part From Another Car...** copies a part from another car's zip, with all its LODs and damage
-  data:
+- **Copy Part From Another Car...** copies a part from another car, with all its LODs and damage
+  data. First choose where from: *This pack* (the other cars of the zip being edited), a game, or
+  *(another file...)* (a file dialog for a car zip, pack zip, DLC package or `_lod0.carbin`). For a game
+  only its cars are read and listed: `Media\cars` of its folders (the open car's game, Tools > Settings >
+  Folders, the FM4 folder of the port window) and its packages installed in Xenia (disc 2 and DLC; FM2 is
+  not listed). Several parts can be picked at once (Ctrl/Shift + click): each keeps its name and replaces
+  this car's part of the same name, if there is one:
   - add it as a new part, or replace one of this car's parts;
   - optionally place it at the replaced part's center;
   - optionally use this car's texture regions for its materials.

@@ -67,37 +67,85 @@ namespace ForzaStudio
                 this.items.Add(item);
             }
             this.list.DoubleClick += delegate { this.Accept(); };
+            this.list.ItemCheck += this.OnItemCheck;
+            this.list.SelectedIndexChanged += delegate { this.RaiseSelectionChanged(); };
 
-            Panel bottom = new Panel();
-            bottom.Dock = DockStyle.Bottom;
-            bottom.Height = 44 + ((extra != null) ? extra.Height : 0);
+            // Options of the caller (above the buttons), full width.
+            Panel options = null;
             if (extra != null)
             {
+                options = new Panel();
+                options.Dock = DockStyle.Bottom;
+                options.Height = extra.Height + 12;
+                options.Padding = new Padding(8, 6, 8, 6);
                 extra.Location = new Point(8, 6);
-                bottom.Controls.Add(extra);
+                options.Controls.Add(extra);
+                this.Width = Math.Max(this.Width, extra.Width + 48);
             }
-            Button ok = new Button();
-            ok.Text = "OK";
-            ok.Size = new Size(84, 28);
-            ok.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
-            ok.Location = new Point(this.ClientSize.Width - 186, bottom.Height - 36);
-            ok.Click += delegate { this.Accept(); };
+
+            // The button bar (user 2026-11-11: OK and Cancel had gone out of the window): a right-to-left flow docked at
+            // the bottom, so the buttons are always on screen whatever the width. The main button says what it does
+            // (AcceptLabel) and stays off until something is picked.
+            FlowLayoutPanel buttons = new FlowLayoutPanel();
+            buttons.Dock = DockStyle.Bottom;
+            buttons.FlowDirection = FlowDirection.RightToLeft;
+            buttons.WrapContents = false;
+            buttons.Height = 48;
+            buttons.Padding = new Padding(8, 8, 8, 8);
             Button cancel = new Button();
             cancel.Text = "Cancel";
-            cancel.Size = new Size(84, 28);
-            cancel.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
-            cancel.Location = new Point(this.ClientSize.Width - 96, bottom.Height - 36);
+            cancel.Size = new Size(96, 30);
             cancel.DialogResult = DialogResult.Cancel;
-            bottom.Controls.Add(ok);
-            bottom.Controls.Add(cancel);
+            this.ok = new Button();
+            this.ok.Text = "OK";
+            this.ok.AutoSize = true;
+            this.ok.MinimumSize = new Size(110, 30);
+            this.ok.Click += delegate { this.Accept(); };
+            buttons.Controls.Add(cancel);
+            buttons.Controls.Add(this.ok);
             this.CancelButton = cancel;
 
             this.Controls.Add(this.list);
-            this.Controls.Add(bottom);
+            if (options != null)
+            {
+                this.Controls.Add(options);
+            }
+            this.Controls.Add(buttons);
             this.Controls.Add(top);
+            this.MinimumSize = new Size(Math.Min(this.Width, 480), 360);
             this.BackColor = ForzaTheme.Background;
             ForzaTheme.Apply(this);
+            // the main action in Forza red, the rest stays grey
+            this.ok.BackColor = ForzaTheme.Red;
+            this.ok.FlatAppearance.BorderColor = ForzaTheme.Red;
+            this.ok.FlatAppearance.MouseOverBackColor = ForzaTheme.RedDark;
+            this.ok.Font = ForzaTheme.Bold;
             this.Filter();
+            this.SelectionChanged += delegate { this.UpdateAcceptButton(); };
+            this.UpdateAcceptButton();
+        }
+
+        private readonly Button ok;
+        private Func<int, string> acceptLabel;
+
+        // The main button's text for n rows picked, e.g. n => n == 1 ? "Copy part" : "Copy " + n + " parts".
+        public Func<int, string> AcceptLabel
+        {
+            get { return this.acceptLabel; }
+            set
+            {
+                this.acceptLabel = value;
+                this.UpdateAcceptButton();
+            }
+        }
+
+        private void UpdateAcceptButton()
+        {
+            int count = this.SelectedCount;
+            this.ok.Enabled = count > 0 && (this.list.MultiSelect || count == 1);
+            this.ok.Text = (this.acceptLabel != null) ? this.acceptLabel(Math.Max(count, 1)) : "OK";
+            this.ok.BackColor = this.ok.Enabled ? ForzaTheme.Red : ForzaTheme.Raised;
+            this.ok.ForeColor = this.ok.Enabled ? Color.White : ForzaTheme.TextDim;
         }
 
         private static int Sum(int[] values)
@@ -112,15 +160,79 @@ namespace ForzaStudio
 
         public object SelectedKey { get; private set; }
 
+        // Every row picked (in list order) when MultiSelect is on; one row otherwise.
+        public readonly List<object> SelectedKeys = new List<object>();
+
+        // Several rows at once: a tick box on every row (user 2026-11-11: Ctrl + click was not found), also
+        // Ctrl / Shift + click. Ticked rows win over the highlighted ones.
+        public bool MultiSelect
+        {
+            get { return this.list.MultiSelect; }
+            set
+            {
+                this.list.MultiSelect = value;
+                this.list.CheckBoxes = value;
+            }
+        }
+
+        // The rows picked now changed (to enable the extra fields that only fit one row).
+        public event EventHandler SelectionChanged;
+
+        // The ticked rows, kept here: ListViewItem.Checked asks the list for the row's state and throws (index -1) for
+        // a row the list is adding (handle creation, search filter) - the crash of 2026-11-11.
+        private readonly List<ListViewItem> ticked = new List<ListViewItem>();
+        private bool filling = true;   // rows being (re)added: their tick events are not the user's
+
+        private void OnItemCheck(object sender, ItemCheckEventArgs e)
+        {
+            if (this.filling || e.Index < 0 || e.Index >= this.list.Items.Count)
+            {
+                return;
+            }
+            ListViewItem item = this.list.Items[e.Index];
+            this.ticked.Remove(item);
+            if (e.NewValue == CheckState.Checked)
+            {
+                this.ticked.Add(item);
+            }
+            this.RaiseSelectionChanged();
+        }
+
+        private void RaiseSelectionChanged()
+        {
+            if (this.SelectionChanged != null)
+            {
+                this.SelectionChanged(this, EventArgs.Empty);
+            }
+        }
+
+        private List<ListViewItem> Ticked()
+        {
+            // in list order
+            return this.items.FindAll(delegate(ListViewItem item) { return this.ticked.Contains(item); });
+        }
+
+        public int SelectedCount
+        {
+            get
+            {
+                int ticked = this.list.CheckBoxes ? this.Ticked().Count : 0;
+                return (ticked > 0) ? ticked : this.list.SelectedItems.Count;
+            }
+        }
+
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            this.filling = false;
             this.search.Focus();
         }
 
         private void Filter()
         {
             string find = this.search.Text.Trim();
+            bool wasFilling = this.filling;
+            this.filling = true;
             this.list.BeginUpdate();
             this.list.Items.Clear();
             List<ListViewItem> shown = new List<ListViewItem>();
@@ -138,15 +250,29 @@ namespace ForzaStudio
             }
             this.list.Items.AddRange(shown.ToArray());
             this.list.EndUpdate();
+            this.filling = wasFilling;
         }
 
         private void Accept()
         {
-            if (this.list.SelectedItems.Count != 1)
+            List<ListViewItem> picked = this.list.CheckBoxes ? this.Ticked() : new List<ListViewItem>();
+            if (picked.Count == 0)
+            {
+                foreach (ListViewItem item in this.list.SelectedItems)
+                {
+                    picked.Add(item);
+                }
+            }
+            if (picked.Count == 0 || (!this.list.MultiSelect && picked.Count != 1))
             {
                 return;
             }
-            this.SelectedKey = this.list.SelectedItems[0].Tag;
+            this.SelectedKey = picked[0].Tag;
+            this.SelectedKeys.Clear();
+            foreach (ListViewItem item in picked)
+            {
+                this.SelectedKeys.Add(item.Tag);
+            }
             this.DialogResult = DialogResult.OK;
             this.Close();
         }

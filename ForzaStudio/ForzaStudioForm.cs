@@ -169,6 +169,10 @@ namespace ForzaStudio
         public ForzaStudioForm()
         {
             this.InitializeComponent();
+            if (ForzaTheme.AppIcon != null)
+            {
+                this.Icon = ForzaTheme.AppIcon;   // the FS icon, not the designer's
+            }
             this.BindCameraSpeeds();
             this.BindUVset();
             SetDoubleBuffered(this.pnlTextureDisplay);

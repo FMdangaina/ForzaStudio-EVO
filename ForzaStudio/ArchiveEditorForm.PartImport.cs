@@ -620,11 +620,13 @@ namespace ForzaStudio
             }
             using (PickDialog dialog = new PickDialog(title, new string[] { "Car" }, new int[] { 420 }, rows, null))
             {
+                dialog.AcceptLabel = delegate(int n) { return "Use this car"; };
                 return (dialog.ShowDialog(this) == DialogResult.OK) ? (string) dialog.SelectedKey : null;
             }
         }
 
-        // The car to take a part from: another car of the pack zip being edited, a car zip, a pack zip with several cars
+        // The car to take a part from: first the editor's list (PickKnownCar: this pack, the game folders, the installed
+        // packages); its "(another file...)" row opens a file dialog for a car zip, a pack zip with several cars
         // (media/cars/<car>/, e.g. FM4 disc 2's 0002_pri_65.zip), an Xbox 360 DLC package (the car is read from it to a
         // cached copy, the package is never written) or an uncompressed car folder. label: for the window and status.
         private bool PickPartSource(out ForzaZip source, out string sourceFolder, out string label)
@@ -632,25 +634,51 @@ namespace ForzaStudio
             source = null;
             sourceFolder = "";
             label = null;
-            const string OtherFile = "(another file: car zip, pack zip or DLC package...)";
             string own = this.ModelFolder.TrimEnd('/');
             own = own.Substring(own.LastIndexOf('/') + 1);
             List<string> packCars = PackZipCars(this.zip);
             packCars.RemoveAll(delegate(string c) { return c.Equals(own, StringComparison.OrdinalIgnoreCase); });
-            if (packCars.Count > 0)
+            // The editor's own list of the cars it knows (games, installed packages, this pack); a file only on request.
+            CarSource known = this.PickKnownCar("Copy Part From Another Car", packCars);
+            if (known == null)
             {
-                string car = this.PickSourceCar("Copy Part From: another car of this pack, or a file", packCars, OtherFile);
-                if (car == null)
+                return false;
+            }
+            try
+            {
+                switch (known.Kind)
                 {
-                    return false;
+                    case CarSourceKind.ThisPack:
+                        source = this.zip;
+                        sourceFolder = "media/cars/" + known.Media + "/";
+                        label = known.Media;
+                        return true;
+                    case CarSourceKind.GameZip:
+                        source = new ForzaZip(known.Path);
+                        label = known.Media + " (" + known.Game + ")";
+                        return true;
+                    case CarSourceKind.Package:
+                        Cursor.Current = Cursors.WaitCursor;
+                        this.SetStatus("Reading " + known.Media + " from the package " + known.PackageTitle + "...");
+                        string carZip = PackageCarZip(null, known.Path, known.Media);
+                        if (carZip == null)
+                        {
+                            MessageBox.Show(this, known.Media + " was not found in the package " + known.PackageTitle + ".", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return false;
+                        }
+                        source = new ForzaZip(carZip);
+                        label = known.Media + " (" + known.Game + ", " + known.PackageTitle + ")";
+                        return true;
                 }
-                if (car != OtherFile)
-                {
-                    source = this.zip;
-                    sourceFolder = "media/cars/" + car + "/";
-                    label = car;
-                    return true;
-                }
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return false;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
             }
             string file;
             using (OpenFileDialog open = new OpenFileDialog())
@@ -776,7 +804,7 @@ namespace ForzaStudio
 
             // Options under the part list.
             Panel extra = new Panel();
-            extra.Size = new Size(520, 104);
+            extra.Size = new Size(620, 126);
             Label replaceLabel = new Label();
             replaceLabel.Text = "Replace in this car:";
             replaceLabel.AutoSize = true;
@@ -820,42 +848,75 @@ namespace ForzaStudio
             regions.Checked = true;
             regions.AutoSize = true;
             regions.Location = new System.Drawing.Point(0, 84);
-            extra.Controls.AddRange(new Control[] { replaceLabel, replace, nameLabel, name, align, regions });
+            Label multiNote = new Label();
+            multiNote.Text = "Several parts (tick them): each keeps its name and replaces this car's part of the same name, if any.";
+            multiNote.AutoSize = true;
+            multiNote.Location = new System.Drawing.Point(0, 106);
+            extra.Controls.AddRange(new Control[] { replaceLabel, replace, nameLabel, name, align, regions, multiNote });
 
-            string part;
-            string newName;
-            string replaced;
+            // part (source) -> its name in this car and the part it replaces (null = added)
+            List<string[]> plan = new List<string[]>();
             bool alignChecked;
             bool regionsChecked;
             using (PickDialog pick = new PickDialog("Import Part From " + sourceLabel, new string[] { "Part", "Materials", "Damage" }, new int[] { 160, 260, 90 }, rows, extra))
             {
+                pick.MultiSelect = true;
+                pick.AcceptLabel = delegate(int n) { return (n == 1) ? "Copy part" : "Copy " + n + " parts"; };
+                pick.SelectionChanged += delegate
+                {
+                    bool one = pick.SelectedCount <= 1;
+                    replace.Enabled = one;
+                    name.Enabled = one;
+                };
                 if (pick.ShowDialog(this) != DialogResult.OK)
                 {
                     return;
                 }
-                part = (string) pick.SelectedKey;
-                newName = name.Text.Trim();
-                replaced = (replace.SelectedIndex > 0) ? (string) replace.SelectedItem : null;
+                if (pick.SelectedKeys.Count == 1)
+                {
+                    string part = (string) pick.SelectedKey;
+                    string newName = name.Text.Trim();
+                    plan.Add(new string[] { part, (newName.Length == 0) ? part : newName, (replace.SelectedIndex > 0) ? (string) replace.SelectedItem : null });
+                }
+                else
+                {
+                    foreach (object key in pick.SelectedKeys)
+                    {
+                        string part = (string) key;
+                        plan.Add(new string[] { part, part, targetNames.Contains(part) ? part : null });
+                    }
+                }
                 alignChecked = align.Checked;
                 regionsChecked = regions.Checked;
             }
-            if (newName.Length == 0)
+            List<string> newNames = new List<string>();
+            foreach (string[] step in plan)
             {
-                newName = part;
-            }
-            if (newName != replaced && targetNames.Contains(newName))
-            {
-                MessageBox.Show(this, "This car already has a part named " + newName + ": choose it in \"Replace\" or use another name.", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
+                if (step[1] != step[2] && targetNames.Contains(step[1]))
+                {
+                    MessageBox.Show(this, "This car already has a part named " + step[1] + ": choose it in \"Replace\" or use another name.", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (newNames.Contains(step[1]))
+                {
+                    MessageBox.Show(this, "Two parts would be named " + step[1] + " in this car.", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                newNames.Add(step[1]);
             }
 
-            // One placement for every file: source part center -> replaced part center (main files).
-            Matrix move = Matrix.Identity;
-            CarbinModel.Section from = sourceMain.Find(part);
-            CarbinModel.Section to = (replaced != null) ? targetMain.Find(replaced) : null;
-            if (alignChecked && to != null)
+            // One placement per part for every file: source part center -> replaced part center (main files).
+            List<Matrix> moves = new List<Matrix>();
+            foreach (string[] step in plan)
             {
-                move = Matrix.CreateTranslation(new Vector3(to.Bounds[0] - from.Bounds[0], to.Bounds[1] - from.Bounds[1], to.Bounds[2] - from.Bounds[2]));
+                Matrix move = Matrix.Identity;
+                CarbinModel.Section from = sourceMain.Find(step[0]);
+                CarbinModel.Section to = (step[2] != null) ? targetMain.Find(step[2]) : null;
+                if (alignChecked && from != null && to != null)
+                {
+                    move = Matrix.CreateTranslation(new Vector3(to.Bounds[0] - from.Bounds[0], to.Bounds[1] - from.Bounds[1], to.Bounds[2] - from.Bounds[2]));
+                }
+                moves.Add(move);
             }
 
             List<string> report = new List<string>();
@@ -870,19 +931,33 @@ namespace ForzaStudio
                         continue;
                     }
                     CarbinModel sourceModel = new CarbinModel(source.Read(sourceEntry));
-                    if (sourceModel.Find(part) == null)
+                    CarbinModel model = null;
+                    for (int i = 0; i < plan.Count; i++)
+                    {
+                        string part = plan[i][0];
+                        string newName = plan[i][1];
+                        string replaced = plan[i][2];
+                        if (sourceModel.Find(part) == null)
+                        {
+                            continue;
+                        }
+                        if (model == null)
+                        {
+                            model = new CarbinModel(this.zip.Read(pair.Value));
+                        }
+                        if (replaced != null && model.Find(replaced) != null)
+                        {
+                            model.RemoveSection(replaced);
+                        }
+                        model.ImportSection(sourceModel, part, newName, regionsChecked);
+                        if (moves[i] != Matrix.Identity)
+                        {
+                            model.TransformSection(newName, moves[i]);
+                        }
+                    }
+                    if (model == null)
                     {
                         continue;
-                    }
-                    CarbinModel model = new CarbinModel(this.zip.Read(pair.Value));
-                    if (replaced != null && model.Find(replaced) != null)
-                    {
-                        model.RemoveSection(replaced);
-                    }
-                    model.ImportSection(sourceModel, part, newName, regionsChecked);
-                    if (move != Matrix.Identity)
-                    {
-                        model.TransformSection(newName, move);
                     }
                     this.zip.Replace(pair.Value, model.ToBytes());
                     this.RefreshEntryNode(pair.Value);
@@ -900,7 +975,12 @@ namespace ForzaStudio
             }
             this.editSection = null;
             this.ReloadModelKeepingView();
-            this.SetStatus(string.Format("{0} from {1} -> {2} in {3} (pending: Save to write the archive)", part, sourceLabel, newName, string.Join(", ", report.ToArray())));
+            List<string> done = new List<string>();
+            foreach (string[] step in plan)
+            {
+                done.Add((step[0] == step[1]) ? step[0] : step[0] + " -> " + step[1]);
+            }
+            this.SetStatus(string.Format("{0} from {1} in {2} (pending: Save to write the archive)", string.Join(", ", done.ToArray()), sourceLabel, string.Join(", ", report.ToArray())));
         }
     }
 }

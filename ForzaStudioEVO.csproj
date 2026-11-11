@@ -328,6 +328,7 @@
     <Compile Include="ForzaStudio\ObjMesh.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.PartEdit.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.PartImport.cs" />
+    <Compile Include="ForzaStudio\ArchiveEditorForm.CarSources.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.AddFile.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.DashCopy.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.UvMap.cs" />
