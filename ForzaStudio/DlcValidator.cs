@@ -991,7 +991,8 @@ namespace ForzaStudio
                 if (path.StartsWith(folder, StringComparison.OrdinalIgnoreCase) && path.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
                 {
                     carbins++;
-                    lod0 = lod0 || path.EndsWith("_lod0.carbin", StringComparison.OrdinalIgnoreCase) || path.IndexOf("lod0", StringComparison.OrdinalIgnoreCase) >= 0;
+                    lod0 = lod0 || path.EndsWith("_lod0.carbin", StringComparison.OrdinalIgnoreCase) || path.IndexOf("lod0", StringComparison.OrdinalIgnoreCase) >= 0
+                        || (cx.Report.Game == ForzaGame.Motorsport2 && path.EndsWith("/" + car + ".carbin", StringComparison.OrdinalIgnoreCase));   // FM2: one <car>.carbin, no LOD files
                 }
             }
             if (carbins == 0 && cx.Source.MountedSize("Media/cars/" + car + ".zip") < 0)
@@ -1055,7 +1056,8 @@ namespace ForzaStudio
         private static void CarRows(Context cx, string car, long id)
         {
             SqliteDatabase merge = cx.Merge;
-            object modelId = merge.Scalar("SELECT ModelId FROM Data_Car WHERE Id = ?", id);
+            bool hasModelId = DbIds.Schema(merge)["Data_Car"].Exists(delegate(string c) { return string.Equals(c, "ModelId", StringComparison.OrdinalIgnoreCase); });   // FM2's Data_Car has none
+            object modelId = hasModelId ? merge.Scalar("SELECT ModelId FROM Data_Car WHERE Id = ?", id) : null;
             if (modelId != null && Convert.ToInt64(modelId, CultureInfo.InvariantCulture) != id)
             {
                 cx.Add(Error, car, "Data_Car.ModelId " + Convert.ToString(modelId, CultureInfo.InvariantCulture) + " is not the car's Id " + id.ToString(CultureInfo.InvariantCulture) + ".");

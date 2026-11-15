@@ -35,6 +35,27 @@ namespace ForzaStudio
             return Value(text, ref at);
         }
 
+        // The largest Data_Car.Id of the base game alone (byArchive "base"), without the DLC; -1 when the file has none.
+        public static long MaxCarBase(ForzaGame game)
+        {
+            Dictionary<string, object> columns = Columns(game, "Data_Car");
+            if (columns == null)
+            {
+                return -1;
+            }
+            foreach (KeyValuePair<string, object> pair in columns)
+            {
+                Dictionary<string, object> info = pair.Value as Dictionary<string, object>;
+                Dictionary<string, object> archives = (info != null && string.Equals(pair.Key, "Id", StringComparison.OrdinalIgnoreCase)) ? Child(info, "byArchive") : null;
+                object max;
+                if (archives != null && archives.TryGetValue("base", out max) && max is long)
+                {
+                    return (long) max;
+                }
+            }
+            return -1;
+        }
+
         // The largest Id of table.column in the game, or -1 when the file does not know the column.
         public static long Max(ForzaGame game, string table, string column)
         {
@@ -56,6 +77,47 @@ namespace ForzaStudio
                 }
             }
             return -1;
+        }
+
+        // The largest car Id of the game counting the keys car * 1000 + n of every table, not only Data_Car.Id: an FM4
+        // DLC has List_AeroPhysics 1640403 while Data_Car stops at 1637, so a new car 1638 got aero 1638903, at or
+        // below FM4's largest, and Duplicate refused it (#15 ARX-01b, 2026-11-13). -1 when the file has no Data_Car.Id.
+        public static long MaxCar(ForzaGame game)
+        {
+            long car = Max(game, "Data_Car", "Id");
+            Dictionary<string, object> one = Load(game);
+            Dictionary<string, object> tables = (one != null) ? Child(one, "tables") : null;
+            if (car <= 0 || tables == null)
+            {
+                return car;
+            }
+            long top = car;
+            foreach (object table in tables.Values)
+            {
+                Dictionary<string, object> t = table as Dictionary<string, object>;
+                Dictionary<string, object> columns = (t != null) ? Child(t, "columns") : null;
+                if (columns == null)
+                {
+                    continue;
+                }
+                foreach (object column in columns.Values)
+                {
+                    Dictionary<string, object> info = column as Dictionary<string, object>;
+                    object key;
+                    object max;
+                    if (info == null || !info.TryGetValue("key", out key) || !(key is bool) || !(bool) key || !info.TryGetValue("max", out max) || !(max is long))
+                    {
+                        continue;
+                    }
+                    // Only keys in the car * 1000 + n range (not engine ids, not offer ids).
+                    long m = (long) max;
+                    if (m >= car * 1000 && m < car * 2000)
+                    {
+                        top = Math.Max(top, m / 1000);
+                    }
+                }
+            }
+            return top;
         }
 
         private static Dictionary<string, object> Columns(ForzaGame game, string table)

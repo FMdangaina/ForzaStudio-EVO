@@ -296,18 +296,6 @@ namespace ForzaStudio
             this.reference = null;
         }
 
-        private static bool XeniaRunning()
-        {
-            foreach (string name in new string[] { "xenia_canary", "xenia" })
-            {
-                if (Process.GetProcessesByName(name).Length > 0)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         private void OpenGameFolder()
         {
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
@@ -816,9 +804,8 @@ namespace ForzaStudio
 
         private void FixModels(List<CarRow> fixable, EnginePreview preview)
         {
-            if (XeniaRunning())
+            if (!XeniaGuard.Confirm(this, this.Text, "the game's or the DLC files"))
             {
-                MessageBox.Show(this, "Close Xenia first: it keeps the game and DLC files in use and reads them when it starts.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             try
@@ -1223,9 +1210,8 @@ namespace ForzaStudio
                 this.ApplyWithFiles(target, donor, convertOn, place);
                 return;
             }
-            if (this.standalone && XeniaRunning())
+            if (this.standalone && !XeniaGuard.Confirm(this, this.Text, "the game's or the DLC files"))
             {
-                MessageBox.Show(this, "Close Xenia first: it keeps the game and DLC files in use and reads them when it starts.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (this.db.ReadOnly)
@@ -1306,9 +1292,8 @@ namespace ForzaStudio
         // engine's MediaName = the car's), and / or the car's CMT for the engine position picked (1 front, 2 mid, 3 rear). See SoundConvert.
         private void ApplyWithFiles(CarRow target, CarRow donor, bool convertOn, int place)
         {
-            if (XeniaRunning())
+            if (!XeniaGuard.Confirm(this, this.Text, "the game's or the DLC files"))
             {
-                MessageBox.Show(this, "Close Xenia first: it keeps the game and DLC files in use and reads them when it starts.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (!target.Own)

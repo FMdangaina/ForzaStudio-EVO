@@ -700,27 +700,14 @@ namespace ForzaStudio
             this.UpdateButtons();
         }
 
-        private static bool XeniaRunning()
-        {
-            foreach (string name in new string[] { "xenia_canary", "xenia" })
-            {
-                if (Process.GetProcessesByName(name).Length > 0)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         private void SaveThumbnails()
         {
             if (this.root == null)
             {
                 return;
             }
-            if (XeniaRunning())
+            if (!XeniaGuard.Confirm(this, this.Text, "the DLC or the game's files"))
             {
-                MessageBox.Show(this, "Close Xenia first: it keeps the DLC and game files in use and reads them when it starts.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             try

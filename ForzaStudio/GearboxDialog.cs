@@ -19,7 +19,8 @@ namespace ForzaStudio
 
         public GearboxSpec Result;
 
-        public GearboxDialog(string target, long carId, GearboxSpec initial)
+        // database: the game's database with the source's package rows; null = the game's
+        public GearboxDialog(string target, long carId, GearboxSpec initial, byte[] database = null)
         {
             this.AutoScaleMode = AutoScaleMode.None;
             this.Text = "Gearbox of the copy";
@@ -30,18 +31,32 @@ namespace ForzaStudio
             this.ShowInTaskbar = false;
             this.StartPosition = FormStartPosition.CenterParent;
 
+            // FM2 has no drivetrain table: the gearbox is the car's own List_UpgradeTransmission rows, 7 forward gears at most.
+            bool fm2 = GameInfo.Detect(target) == ForzaGame.Motorsport2;
+            int most = fm2 ? 7 : 8;
             GearboxSpec start = initial;
             if (start == null)
             {
-                using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarMake.DatabasePath(target))))
+                using (SqliteDatabase db = SqliteDatabase.FromBytes(database ?? File.ReadAllBytes(CarMake.DatabasePath(target))))
                 {
-                    long drivetrain = CarGearbox.StockDrivetrain(db, carId);
-                    start = (drivetrain < 0) ? null : CarGearbox.Read(db, drivetrain);
+                    if (fm2)
+                    {
+                        start = CarGearbox.ReadFm2(db, carId);
+                    }
+                    else
+                    {
+                        long drivetrain = CarGearbox.StockDrivetrain(db, carId);
+                        start = (drivetrain < 0) ? null : CarGearbox.Read(db, drivetrain);
+                    }
                 }
             }
             if (start == null)
             {
                 throw new InvalidOperationException("The car has no stock gearbox.");
+            }
+            if (fm2)
+            {
+                this.Text = "Gearbox of the copy (FM2: the copy's own transmission levels, 7 gears at most)";
             }
 
             Label hint = new Label();
@@ -49,7 +64,7 @@ namespace ForzaStudio
             hint.Text = "A copy of the source car's drivetrain with the gearbox below (stock level; the upgrade levels keep their shape). Choose the number of forward gears, then a ratio for each: 1st gear is the highest number. The last column is the overall ratio (gear x final drive).";
             this.Controls.Add(hint);
 
-            this.count = this.Number(12, 74, 0, 1, 8, 0, "Forward gears");
+            this.count = this.Number(12, 74, 0, 1, most, 0, "Forward gears");
             this.finalDrive = this.Number(180, 74, 3, 0.5, 9.999, 3, "Final drive");
             this.reverse = this.Number(348, 74, 3, 0.5, 9.999, 3, "Reverse (as a positive number)");
 
@@ -68,7 +83,7 @@ namespace ForzaStudio
             this.finalDrive.ValueChanged += delegate { this.Refresh2(); };
             this.count.ValueChanged += delegate { this.Refresh2(); };
 
-            this.count.Value = Math.Max(1, Math.Min(8, start.Forward.Length));
+            this.count.Value = Math.Max(1, Math.Min(most, start.Forward.Length));
             this.finalDrive.Value = (decimal) start.FinalDrive;
             this.reverse.Value = (decimal) Math.Abs(start.Reverse);
             for (int i = 0; i < 8; i++)

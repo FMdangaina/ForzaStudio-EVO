@@ -41,6 +41,13 @@ namespace ForzaStudio
 
         public List<Entry> Entries = new List<Entry>();
         private byte[] preamble = new byte[0];
+        // Text inside the root that is no <technique>...</technique> block, kept as it is and written back before the
+        // entry it stood before (key = that entry's index; Entries.Count = at the end). 4 of the 246 FM3 stock files have
+        // some (ST-01, fm4dev\ST01\st01.exe, 2026-11-13): a stray closing tag (CAD_8_CTSV_08 </tail_light>,
+        // LOT_Elise111S_05 </DebugSpecular2>) or a whole block whose closing tag is misspelt (LR_RangeRover_08
+        // <cockpit_guage_needle>...</cockpit_gauge_needle>, TOY_Altezza_04 <tail_light_lod0>...</tail_lightlod0>).
+        // Before, they were dropped on every write. What the game makes of them is unknown: they are not edited, only kept.
+        private readonly List<KeyValuePair<int, string>> unparsed = new List<KeyValuePair<int, string>>();
         // Text after </ShaderSettings>, written back as it is: FM4's DOD_126_ViperGTSR_03 has a
         // lights_glass element there (outside the root, so probably ignored by the game).
         private string trailer = "";
@@ -72,8 +79,12 @@ namespace ForzaStudio
             {
                 this.trailer = text.Substring(root.Index + root.Length);
             }
-            foreach (Match section in Regex.Matches(root.Success ? root.Groups[1].Value : text, "<(\\w+)>(.*?)</\\1>", RegexOptions.Singleline))
+            string body = root.Success ? root.Groups[1].Value : text;
+            int last = 0;
+            foreach (Match section in Regex.Matches(body, "<(\\w+)>(.*?)</\\1>", RegexOptions.Singleline))
             {
+                this.KeepUnparsed(body.Substring(last, section.Index - last));
+                last = section.Index + section.Length;
                 Entry entry = new Entry();
                 entry.Name = section.Groups[1].Value;
                 foreach (Match value in Regex.Matches(section.Groups[2].Value, "<(\\w+)\\b[^>]*/>"))
@@ -82,14 +93,54 @@ namespace ForzaStudio
                 }
                 this.Entries.Add(entry);
             }
+            if (root.Success)
+            {
+                this.KeepUnparsed(body.Substring(last));
+            }
+        }
+
+        private void KeepUnparsed(string gap)
+        {
+            string kept = gap.Trim();
+            if (kept.Length > 0)
+            {
+                this.unparsed.Add(new KeyValuePair<int, string>(this.Entries.Count, kept));
+            }
+        }
+
+        // The text blocks the parser did not understand (kept and written back as they are).
+        public List<string> Unparsed
+        {
+            get
+            {
+                List<string> list = new List<string>();
+                foreach (KeyValuePair<int, string> block in this.unparsed)
+                {
+                    list.Add(block.Value);
+                }
+                return list;
+            }
+        }
+
+        private void WriteUnparsed(StringBuilder xml, int before, bool atEnd)
+        {
+            foreach (KeyValuePair<int, string> block in this.unparsed)
+            {
+                if (block.Key == before || (atEnd && block.Key > before))
+                {
+                    xml.Append("  " + block.Value + "\r\n");
+                }
+            }
         }
 
         // The layout the port writes (and FM4 files use): two-space indent, CRLF.
         public byte[] ToBytes()
         {
             StringBuilder xml = new StringBuilder("<ShaderSettings>\r\n");
-            foreach (Entry entry in this.Entries)
+            for (int i = 0; i < this.Entries.Count; i++)
             {
+                Entry entry = this.Entries[i];
+                this.WriteUnparsed(xml, i, false);
                 xml.Append("  <" + entry.Name + ">\r\n");
                 foreach (Parameter p in entry.Parameters)
                 {
@@ -97,6 +148,7 @@ namespace ForzaStudio
                 }
                 xml.Append("  </" + entry.Name + ">\r\n");
             }
+            this.WriteUnparsed(xml, this.Entries.Count, true);
             xml.Append("</ShaderSettings>\r\n");
             if (this.trailer.Length > 0)
             {

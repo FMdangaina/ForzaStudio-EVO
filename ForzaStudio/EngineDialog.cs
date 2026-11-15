@@ -27,6 +27,7 @@ namespace ForzaStudio
         }
 
         private readonly StringTable names;
+        private readonly ForzaGame game;               // the open folder's game: FM4, FM3 (FM4's tables) or FM2 (CarEngine.CloneFm2)
         private readonly TextBox name;
         private readonly ComboBox sound;
         private readonly ComboBox layout;
@@ -65,10 +66,12 @@ namespace ForzaStudio
         public EngineSpec Result;
 
         // initial = what was designed before (the wizard reopens the dialog with it), or null for the source's stock engine.
-        public EngineDialog(string target, StringTable names, long carId, EngineSpec initial)
+        // database: the game's database with the source's package rows (a DLC car's engine is in its merge); null = the game's
+        public EngineDialog(string target, StringTable names, long carId, EngineSpec initial, byte[] database = null)
         {
             this.names = names;
             this.target = target;
+            this.game = GameInfo.Detect(target);
             this.AutoScaleMode = AutoScaleMode.None;
             this.Text = "Engine of the copy";
             this.ClientSize = new Size(780, 740);
@@ -82,7 +85,7 @@ namespace ForzaStudio
             List<Choice> cylinderChoices = new List<Choice>();
             List<Choice> aspirations = new List<Choice>();
             List<Choice> sounds = new List<Choice>();
-            using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarMake.DatabasePath(target))))
+            using (SqliteDatabase db = SqliteDatabase.FromBytes(database ?? File.ReadAllBytes(CarMake.DatabasePath(target))))
             {
                 foreach (object[] row in db.Query("SELECT ConfigID, EngineConfig, DisplayName FROM List_EngineConfig ORDER BY ConfigID").Rows)
                 {
@@ -247,7 +250,7 @@ namespace ForzaStudio
             }
             this.redline.ValueChanged += delegate { this.Rebuild(); };
             this.aspiration.SelectedIndexChanged += delegate { this.Rebuild(); this.SuggestName(); this.TurboControls(); };
-            this.TurboControls();
+            this.GameLimits();
             this.layout.SelectedIndexChanged += delegate { this.SuggestName(); };
             this.cylinders.SelectedIndexChanged += delegate { this.SuggestName(); };
             this.name.TextChanged += delegate { if (!this.filling) { this.nameAuto = false; } };
@@ -292,13 +295,53 @@ namespace ForzaStudio
             return (sample == null || sample.Id <= 0) ? null : "BlowOff_L" + (sample.Id / 10) + "_" + (sample.Id % 10) + "_" + loudness;
         }
 
-        // The turbo sound controls are for a turbocharged engine (single, twin, quad).
+        // The turbo sound controls are for a turbocharged engine (single, twin, quad). FM3's engine tuning has a TurboVolume but no
+        // blow-off slots; FM2 has no engine tuning file at all (its sound goes by the car's name).
         private void TurboControls()
         {
             Choice picked = this.aspiration.SelectedItem as Choice;
             bool turbo = picked != null && picked.Id >= 2 && picked.Id <= 4;
-            this.turboVolume.Enabled = turbo;
-            this.bov.Enabled = turbo;
+            this.turboVolume.Enabled = turbo;     // FM2: the TurboVolume of every upgrade level of the DSPTuning file
+            this.bov.Enabled = turbo && this.game == ForzaGame.Motorsport4;
+        }
+
+        private bool SourceFlag(string column)
+        {
+            return this.source.ContainsKey(column) && this.source[column] != null && !(this.source[column] is DBNull) && Convert.ToInt64(this.source[column], CultureInfo.InvariantCulture) != 0;
+        }
+
+        // What the game's tables allow (ST-02): FM2 has no Diesel / Carburettor / Rotary columns (a rotary is Layout Rotary +
+        // rotor Cylinders) and no per-engine sound: its sound is a car's DSPTuning file, picked here by the car (the engine's
+        // MediaName is its car's). Aspiration and boost: CarEngine.ConvertAspirationFm2 (2026-11-15). FM3 has no blow-off slots.
+        private void GameLimits()
+        {
+            if (this.game == ForzaGame.Motorsport2)
+            {
+                this.diesel.Enabled = false;
+                this.carbureted.Enabled = false;
+                this.rotary.Enabled = false;
+                new ToolTip().SetToolTip(this.rotary, "FM2: choose Layout Rotary and a rotor count in Cylinders.");
+                // Aspiration 7 (turbo + supercharger) has no FM2 engine to take the parts from.
+                for (int i = this.aspiration.Items.Count - 1; i >= 0; i--)
+                {
+                    Choice item = this.aspiration.Items[i] as Choice;
+                    if (item != null && item.Id > 6)
+                    {
+                        this.aspiration.Items.RemoveAt(i);
+                    }
+                }
+                this.Text = "Engine of the copy (FM2: every upgrade level copied; sound = the DSP tuning of the car chosen)";
+            }
+            else if (this.game == ForzaGame.Motorsport3)
+            {
+                this.Text = "Engine of the copy (FM3)";
+            }
+            this.TurboControls();
+        }
+
+        private string CamTable
+        {
+            get { return (this.game == ForzaGame.Motorsport2) ? CarEngine.Fm2CamTable : "List_UpgradeEngineCamshaft"; }
         }
 
         private string Lookup(string table, string column, string value)
@@ -412,32 +455,34 @@ namespace ForzaStudio
             {
                 this.stockDisplacement = Real(db.Scalar("SELECT Disp FROM List_UpgradeEngineDisplacement WHERE EngineID = ? AND IsStock = 1 ORDER BY Level LIMIT 1", engine));
             }
-            if (DbIds.HasTable(db, "List_UpgradeEngineCamshaft"))
+            else if (this.source.ContainsKey("Disp_cc"))
             {
-                SqliteDatabase.Result cam = db.Query("SELECT RedlineRPM, TorqueCurveMaxRPM, StallRPM, TorqueCurveFullThrottleID FROM List_UpgradeEngineCamshaft WHERE EngineID = ? AND IsStock = 1 ORDER BY Level LIMIT 1", engine);
-                if (cam.Rows.Count > 0)
+                this.stockDisplacement = Real(this.source["Disp_cc"]);     // FM2: the displacement is the engine's own column
+            }
+            if (DbIds.HasTable(db, this.CamTable))
+            {
+                SqliteDatabase.Result cam = db.Query("SELECT RedlineRPM, TorqueCurveMaxRPM, StallRPM, TorqueCurveFullThrottleID FROM " + this.CamTable + " WHERE EngineID = ? AND IsStock = 1 ORDER BY Level LIMIT 1", engine);
+                double scale;
+                double[] listedValues;
+                if (cam.Rows.Count > 0 && CarEngine.CurveRow(db, Convert.ToInt64(cam.Rows[0][3], CultureInfo.InvariantCulture), out scale, out listedValues) && listedValues.Length > 0)
                 {
                     this.stockRedline = Real(cam.Rows[0][0]);
                     this.stockIdle = Real(cam.Rows[0][2]);
                     double maxRpm = Real(cam.Rows[0][1]);
-                    SqliteDatabase.Result curve = db.Query("SELECT * FROM List_TorqueCurve WHERE TorqueCurveID = ?", Convert.ToInt64(cam.Rows[0][3], CultureInfo.InvariantCulture));
-                    if (curve.Rows.Count > 0)
+                    // The listed values end with the marker (-2.63) at the curve's max rpm: it is not part of the curve. By column
+                    // name: FM3 / FM2 keep an EngineID before TorqueScale.
+                    this.stockScale = scale;
+                    int listed = listedValues.Length;
+                    int real = Math.Max(1, listed - 1);
+                    double step = (listed > 1 && maxRpm > 0) ? maxRpm / (listed - 1) : 100.0;
+                    int grid = (int) Math.Floor((real - 1) * step / 100.0) + 1;
+                    this.stockBase = new double[grid];
+                    for (int i = 0; i < grid; i++)
                     {
-                        // The listed values end with FM4's marker (-2.63) at the curve's max rpm: it is not part of the curve.
-                        object[] values = curve.Rows[0];
-                        this.stockScale = Real(values[1]);
-                        int listed = Math.Min((int) Real(values[2]), values.Length - 4);
-                        int real = Math.Max(1, listed - 1);
-                        double step = (listed > 1 && maxRpm > 0) ? maxRpm / (listed - 1) : 100.0;
-                        int grid = (int) Math.Floor((real - 1) * step / 100.0) + 1;
-                        this.stockBase = new double[grid];
-                        for (int i = 0; i < grid; i++)
-                        {
-                            double p = i * 100.0 / step;
-                            int j = Math.Min(real - 1, (int) p);
-                            double next = Real(values[3 + Math.Min(real - 1, j + 1)]);
-                            this.stockBase[i] = (Real(values[3 + j]) + ((next - Real(values[3 + j])) * (p - j))) * this.stockScale;
-                        }
+                        double p = i * 100.0 / step;
+                        int j = Math.Min(real - 1, (int) p);
+                        double next = listedValues[Math.Min(real - 1, j + 1)];
+                        this.stockBase[i] = (listedValues[j] + ((next - listedValues[j]) * (p - j))) * this.stockScale;
                     }
                 }
             }
@@ -449,6 +494,12 @@ namespace ForzaStudio
             this.name.Text = Convert.ToString(this.source["EngineName"], CultureInfo.InvariantCulture);
             int dash = this.name.Text.IndexOf('-');
             this.nameTail = (dash >= 0) ? this.name.Text.Substring(dash + 1).Trim() : this.name.Text.Trim();
+            // The name follows the choices only when the source's is in FM4's form ("V8    -   Ford Mustang '05"): FM2's are
+            // "5.4 S/C V8", "2JZ-GTE" or empty (257 of 321 engines, the Mustang GT's too), and stay as the source has them.
+            if (this.name.Text.IndexOf("   -   ", StringComparison.Ordinal) < 0)
+            {
+                this.nameAuto = false;
+            }
             Select(this.layout, Convert.ToInt64(this.source["ConfigID"], CultureInfo.InvariantCulture));
             Select(this.cylinders, Convert.ToInt64(this.source["CylinderID"], CultureInfo.InvariantCulture));
             Select(this.aspiration, Convert.ToInt64(this.source["AspirationID_Stock"], CultureInfo.InvariantCulture));
@@ -458,9 +509,9 @@ namespace ForzaStudio
             Set(this.displacement, this.stockDisplacement);
             Set(this.idle, this.stockIdle);
             Set(this.redline, this.stockRedline);
-            this.diesel.Checked = Convert.ToInt64(this.source["Diesel"], CultureInfo.InvariantCulture) != 0;
-            this.carbureted.Checked = Convert.ToInt64(this.source["Carbureted"], CultureInfo.InvariantCulture) != 0;
-            this.rotary.Checked = Convert.ToInt64(this.source["Rotary"], CultureInfo.InvariantCulture) != 0;
+            this.diesel.Checked = this.SourceFlag("Diesel");
+            this.carbureted.Checked = this.SourceFlag("Carbureted");
+            this.rotary.Checked = this.SourceFlag("Rotary");
             this.shape = this.StockCurve(this.Points());
             this.filling = false;
             this.Rebuild();
@@ -763,7 +814,8 @@ namespace ForzaStudio
         {
             EngineSpec spec = new EngineSpec();
             string text = this.name.Text.Trim();
-            if (text.Length == 0)
+            // Empty only as the source's is (FM2: most engines have no name); never a name the source does not have.
+            if (text.Length == 0 && Convert.ToString(this.source["EngineName"], CultureInfo.InvariantCulture).Trim().Length > 0)
             {
                 MessageBox.Show(this, "Give the engine a name.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
@@ -784,7 +836,11 @@ namespace ForzaStudio
                 return;
             }
             Choice picked = this.sound.SelectedItem as Choice;
-            if (picked != null && picked.Media != null && picked.Media != Convert.ToString(this.source["MediaName"], CultureInfo.InvariantCulture))
+            if (picked != null && picked.Media != null && picked.Media != Convert.ToString(this.source["MediaName"], CultureInfo.InvariantCulture) && this.game == ForzaGame.Motorsport2)
+            {
+                spec.Data["MediaName"] = picked.Media;      // FM2: the car whose DSPTuning file the copy takes (CarDuplicate)
+            }
+            else if (picked != null && picked.Media != null && picked.Media != Convert.ToString(this.source["MediaName"], CultureInfo.InvariantCulture))
             {
                 List<string> soundProblems = new EnginePreview(null, this.target).Diagnose(picked.Media);
                 if (soundProblems.Count > 0
@@ -857,6 +913,10 @@ namespace ForzaStudio
 
         private void Flag(EngineSpec spec, string column, CheckBox box)
         {
+            if (!this.source.ContainsKey(column))
+            {
+                return;     // FM2's Data_Engine has no Diesel / Carbureted / Rotary
+            }
             if ((Convert.ToInt64(this.source[column], CultureInfo.InvariantCulture) != 0) != box.Checked)
             {
                 spec.Data[column] = box.Checked ? 1L : 0L;

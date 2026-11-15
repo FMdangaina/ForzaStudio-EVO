@@ -13,15 +13,17 @@ namespace ForzaStudio
     {
         private void ShowModPacks()
         {
-            string content = InstalledDlc.ContentFolder(ForzaGame.Motorsport4);
+            // the game of the open game folder (FM4 when none): FM2, FM3 and FM4 have mod packs (ST-02 2026-11-15)
+            ForzaGame game = ModPack.GameOf(this.GameRoot);
+            string content = InstalledDlc.ContentFolder(game);
             if (content == null)
             {
-                MessageBox.Show(this, "The Xenia content folder of FM4 is not set (Tools > Settings > Folders).", "Mod Packs", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "The Xenia content folder of " + GameInfo.Tag(game) + " is not set (Tools > Settings > Folders).", "Mod Packs", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             using (Form form = new Form())
             {
-                form.Text = "Mod Packs (FM4)";
+                form.Text = "Mod Packs (" + GameInfo.Tag(game) + ")";
                 form.StartPosition = FormStartPosition.CenterParent;
                 form.Size = new Size(860, 420);
                 form.MinimumSize = new Size(560, 260);
@@ -112,9 +114,8 @@ namespace ForzaStudio
 
         private bool UninstallModPacks(IWin32Window owner, ListView.SelectedListViewItemCollection selected)
         {
-            if (CarPortForm.XeniaRunning())
+            if (!XeniaGuard.Confirm(owner, "Mod Packs", "the mod packs"))
             {
-                MessageBox.Show(owner, "Xenia is open and keeps the packages in use. Close Xenia, then Uninstall again.", "Mod Packs", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return false;
             }
             List<string> files = new List<string>();

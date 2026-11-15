@@ -1,0 +1,222 @@
+# Relations of the FM3 gamedb.slt (the database declares none), measured on the stock database by
+# fm4dev\ST02\relmap.exe, 2026-11-14. strict 1: every value of the stock game is in the target; 0: the stock game
+# already has values outside it (cut cars...), so the game tolerates them. Format: table, column, target, targetColumn, strict, note.
+AES_Tip_Overrides	EventId	Events	Id	1	FM4 map
+AILineChoices	AISkills_id	AISkills	id	1	FM4 map
+AIPlayerColors	PlayerId	AIPlayers	Id	1	FM4 map
+AIPlayers	CountryId	List_Country	CountryID	1	FM4 map
+AIPlayers	FavoriteColorClassId	List_ColorClass	ColorClassId	1	FM4 map
+AIRubberbandModeChoices	AIRubberbands_id	AIRubberbands	id	1	FM4 map
+AISkills	Rubberbands_id	AIRubberbands	id	1	FM4 map
+ArcadeCarList	CarId	Data_Car	Id	0	car column; 1 of 215 values of the stock game are not in the target (416)
+CameraOverrides	CarId	Data_Car	Id	0	car column; 6 of 421 values of the stock game are not in the target (1114 1128 1134 1160 1211 1214)
+CarExceptions	CarID	Data_Car	Id	0	car column; 2 of 211 values of the stock game are not in the target (416 1160)
+CarPartPositions	Ordinal	Data_Car	Id	0	car column; 67 of 482 values of the stock game are not in the target (271 272 274 277 284 288)
+CarTrackOffsets	Id	Data_Car	Id	1	FM4 map
+ChampSeries	EventId	Events	Id	1	FM4 map
+Combo_Colors	ColorClassId	List_ColorClass	ColorClassId	1	FM4 map
+Combo_Colors	Ordinal	Data_Car	Id	1	car column
+Combo_Colors_Exceptions	Ordinal	Data_Car	Id	1	car column
+Combo_Engines	Ordinal	Data_Car	Id	0	car column; 68 of 311 values of the stock game are not in the target (256 250 259 270 271 272)
+Combo_TireBrandCompound	TireBrandId	List_PartManufacturer	Id	1	FM4 map
+Combo_TireBrandCompound	TireCompoundId	List_TireCompound	TireCompoundID	1	FM4 map
+Data_Car	AspirationTypeId	List_Aspiration	AspirationID	1	FM4 map
+Data_Car	CarTypeID	List_CarType	Id	1	FM4 map
+Data_Car	ClassID	CarClasses	Id	1	FM4 map
+Data_Car	CountryID	List_Country	CountryID	1	FM4 map
+Data_Car	CylinderID	List_Cylinders	CylinderID	1	FM4 map
+Data_Car	DriveTypeID	List_DriveType	ID	1	FM4 map
+Data_Car	EngineConfigID	List_EngineConfig	ConfigID	1	FM4 map
+Data_Car	EnginePlacementID	List_EnginePlacement	ID	1	FM4 map
+Data_Car	FamilyBodyID	List_FamilyBody	Id	1	FM4 map
+Data_Car	FamilyModelID	List_FamilyModel	Id	1	FM4 map
+Data_Car	FamilySpecialID	List_FamilySpecial	FamilySpecialID	1	FM4 map
+Data_Car	GaugeID	List_DigitalGauges	GaugeID	1	FM4 map
+Data_Car	MakeID	List_CarMake	ID	1	FM4 map
+Data_Car	MaterialTypeID	List_MaterialType	MaterialTypeID	1	FM4 map
+Data_Car	PowertrainID	Powertrains	Id	1	FM4 map
+Data_Car	RegionID	List_Region	Id	1	FM4 map
+Data_Car	StockWheelID	List_Wheels	ID	1	FM4 map
+Data_Drivetrain	DrivetypeID	List_DriveType	ID	1	FM4 map
+Data_Engine	AspirationID_Stock	List_Aspiration	AspirationID	1	FM4 map
+Data_Engine	ConfigID	List_EngineConfig	ConfigID	1	FM4 map
+Data_Engine	CylinderID	List_Cylinders	CylinderID	1	FM4 map
+Data_Engine	VariableTimingID	List_VariableTiming	VariableTimingID	1	FM4 map
+Demo_CarList	Id	Data_Car	Id	0	FM4 map; 3 of 12 values of the stock game are not in the target (393 416 465)
+Environments	CountryId	List_Country	CountryID	1	FM4 map
+EventParticipants	EventID	Events	Id	0	FM4 map; 10 of 231 values of the stock game are not in the target (46 671 672 673 674 675)
+EventParticipants	Ordinal	Data_Car	Id	1	car column
+EventRestrictions	EventID	Events	Id	0	FM4 map; 2 of 222 values of the stock game are not in the target (504 564)
+Events	AISkillEasy	AISkills	id	1	FM4 map
+Events	AISkillHard	AISkills	id	1	FM4 map
+Events	AISkillMed	AISkills	id	1	FM4 map
+Events	AITemperamentEasy	AITemperaments	id	1	FM4 map
+Events	AITemperamentHard	AITemperaments	id	1	FM4 map
+Events	AITemperamentMed	AITemperaments	id	1	FM4 map
+Events	CareerTypeId	CareerEventTypes	id	1	FM4 map
+Events	Level	PlayerLevelDef	Id	1	FM4 map
+Events	PittingProfileID	PittingProfiles	id	1	FM4 map
+Events	ScoringID	EventScoring	ScoringID	1	FM4 map
+Events	TargetClass	CarClasses	Id	1	FM4 map
+GameOptionCategoryMap	CatId	GameOptionCategories	Id	1	FM4 map
+GameOptionCategoryMap	GroupId	GameOptionGroups	Id	1	FM4 map
+GameOptionCategoryMap	OptionId	GameOptions	Id	0	FM4 map; 4 of 121 values of the stock game are not in the target (9 128 129 130)
+GameOptionGroupMap	CatId	GameOptionCategories	Id	1	FM4 map
+GameOptionGroupMap	GroupId	GameOptionGroups	Id	1	FM4 map
+GameOptionMap	OptionId	GameOptions	Id	0	FM4 map; 1 of 61 values of the stock game are not in the target (13)
+GameOptionMap	ValueId	GameOptionValues	Id	1	FM4 map
+GraffitiPoints	TrackId	Tracks	id	0	FM4 map; 3 of 100 values of the stock game are not in the target (76 196 197)
+HopperRaces	TrackId	Tracks	id	1	FM4 map
+IECars	CarId	Data_Car	Id	1	car column
+List_AntiSwayPhysics	Ordinal	Data_Car	Id	1	car column
+List_Aspiration	KeyPartEnum	UpgradeTypes	PartEnum	0	FM4 map; 1 of 6 values of the stock game are not in the target (25)
+List_CarMake	CountryID	List_Country	CountryID	1	FM4 map
+List_Country	RegionID	List_Region	Id	1	FM4 map
+List_PartAttribute	ManufacturerID	List_PartManufacturer	Id	0	FM4 map; 1 of 52 values of the stock game are not in the target (30)
+List_SpringDamperPhysics	Ordinal	Data_Car	Id	1	car column
+List_SpringDamperPhysics	SuspensionPhysicsTypeID	List_SuspensionPhysicsType	SuspensionPhysicsTypeID	1	FM4 map
+List_TireCompound	AffectCurveCamberAffectLatFrictionID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveCamberAffectLongFrictionID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveLoadAffectAlignTorqueID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveNormSlipAngleAffectAlignTorqueID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveNormSlipRatioAffectAlignTorqueID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurvePressureAffectFrictionID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurvePressureAffectWearID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveSpeedAffectFrictionID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveStartPressureAffectPeakSASRID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveTempAffectFrictionID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveTempAffectWearID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	AffectCurveWearAffectFrictionID	List_TireAffectCurve	AffectCurveID	1	FM4 map
+List_TireCompound	FrictionMultiCurveLateralID	List_TireFrictionMultiCurve	FrictionMultiCurveID	1	FM4 map
+List_TireCompound	FrictionMultiCurveLongitudinalID	List_TireFrictionMultiCurve	FrictionMultiCurveID	1	FM4 map
+List_TireFrictionMultiCurve	TireFrictionCurveID0	List_TireFrictionCurve	FrictionCurveID	1	FM4 map
+List_TireFrictionMultiCurve	TireFrictionCurveID1	List_TireFrictionCurve	FrictionCurveID	1	FM4 map
+List_TorqueCurve	EngineID	Data_Engine	EngineID	0	FM4 map; 2 of 433 values of the stock game are not in the target (346 354)
+List_UpgradeAntiSwayFront	AntiSwayPhysicsID	List_AntiSwayPhysics	AntiSwayPhysicsID	1	FM4 map
+List_UpgradeAntiSwayFront	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeAntiSwayFront	Ordinal	Data_Car	Id	1	car column
+List_UpgradeAntiSwayRear	AntiSwayPhysicsID	List_AntiSwayPhysics	AntiSwayPhysicsID	1	FM4 map
+List_UpgradeAntiSwayRear	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeAntiSwayRear	Ordinal	Data_Car	Id	1	car column
+List_UpgradeBrakes	DamageModDefID	List_DamageModDef	DamageModDefID	1	FM4 map
+List_UpgradeBrakes	FrontBrakeTypeID	List_BrakeType	BrakeTypeID	1	FM4 map
+List_UpgradeBrakes	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeBrakes	Ordinal	Data_Car	Id	1	car column
+List_UpgradeBrakes	RearBrakeTypeID	List_BrakeType	BrakeTypeID	1	FM4 map
+List_UpgradeCarBody	CarBodyID	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBody	Ordinal	Data_Car	Id	1	car column
+List_UpgradeCarBodyChassisStiffness	CarbodyId	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBodyChassisStiffness	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeCarBodyChassisStiffness	PartsStringID	List_PartsStrings	Id	1	FM4 map
+List_UpgradeCarBodyFrontBumper	AeroPhysicsID	List_AeroPhysics	AeroPhysicsID	1	FM4 map
+List_UpgradeCarBodyFrontBumper	CarBodyID	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBodyFrontBumper	ManufacturerId	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeCarBodyHood	CarBodyID	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBodyHood	ManufacturerId	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeCarBodyRearBumper	CarBodyID	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBodyRearBumper	ManufacturerId	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeCarBodySideSkirt	CarBodyID	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBodySideSkirt	ManufacturerId	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeCarBodyTireWidthFront	CarBodyId	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBodyTireWidthRear	CarBodyId	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBodyWeight	CarBodyId	Data_CarBody	Id	1	FM4 map
+List_UpgradeCarBodyWeight	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeCarBodyWeight	PartsStringID	List_PartsStrings	Id	1	FM4 map
+List_UpgradeDrivetrain	DrivetrainID	Data_Drivetrain	DrivetrainID	1	FM4 map
+List_UpgradeDrivetrain	ManufacturerId	List_CarMake	ID	1	FM4 map
+List_UpgradeDrivetrain	Ordinal	Data_Car	Id	1	car column
+List_UpgradeDrivetrain	PowertrainId	Powertrains	Id	1	FM4 map
+List_UpgradeDrivetrainClutch	DrivetrainID	Data_Drivetrain	DrivetrainID	1	FM4 map
+List_UpgradeDrivetrainClutch	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeDrivetrainDifferential	DrivetrainID	Data_Drivetrain	DrivetrainID	1	FM4 map
+List_UpgradeDrivetrainDifferential	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeDrivetrainDriveline	DrivetrainId	Data_Drivetrain	DrivetrainID	1	FM4 map
+List_UpgradeDrivetrainDriveline	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeDrivetrainTransmission	DrivetrainID	Data_Drivetrain	DrivetrainID	1	FM4 map
+List_UpgradeDrivetrainTransmission	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngine	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngine	ManufacturerID	List_CarMake	ID	1	FM4 map
+List_UpgradeEngine	Ordinal	Data_Car	Id	1	car column
+List_UpgradeEngineCSC	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineCSC	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineCamshaft	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineCamshaft	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineCamshaft	TorqueCurveFullThrottleID	List_TorqueCurve	TorqueCurveID	1	FM4 map
+List_UpgradeEngineCamshaft	TorqueCurveZeroThrottleID	List_TorqueCurve	TorqueCurveID	1	FM4 map
+List_UpgradeEngineDSC	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineDSC	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineDisplacement	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineDisplacement	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineExhaust	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineExhaust	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineFlywheel	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineFlywheel	ManufacturerId	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineFuelSystem	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineFuelSystem	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineIgnition	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineIgnition	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineIntake	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineIntake	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineIntercooler	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineIntercooler	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineManifold	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineManifold	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineOilCooling	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineOilCooling	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEnginePistonsCompression	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEnginePistonsCompression	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineRestrictorPlate	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineRestrictorPlate	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineTurboSingle	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineTurboSingle	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineTurboTwin	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineTurboTwin	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeEngineValves	EngineID	Data_Engine	EngineID	1	FM4 map
+List_UpgradeEngineValves	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeRearWing	AeroPhysicsID	List_AeroPhysics	AeroPhysicsID	1	FM4 map
+List_UpgradeRearWing	ManufacturerId	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeRearWing	Ordinal	Data_Car	Id	1	car column
+List_UpgradeRimSizeFront	Ordinal	Data_Car	Id	1	car column
+List_UpgradeRimSizeRear	Ordinal	Data_Car	Id	1	car column
+List_UpgradeSpringDamper	FrontSpringDamperPhysicsID	List_SpringDamperPhysics	SpringDamperPhysicsID	1	FM4 map
+List_UpgradeSpringDamper	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeSpringDamper	Ordinal	Data_Car	Id	1	car column
+List_UpgradeSpringDamper	RearSpringDamperPhysicsID	List_SpringDamperPhysics	SpringDamperPhysicsID	1	FM4 map
+List_UpgradeSpringDamper	SuspensionDamageModDefID	List_DamageModDef	DamageModDefID	1	FM4 map
+List_UpgradeSpringDamper	TiresDamageModDefID	List_DamageModDef	DamageModDefID	1	FM4 map
+List_UpgradeTireCompound	ManufacturerID	List_PartManufacturer	Id	1	FM4 map
+List_UpgradeTireCompound	Ordinal	Data_Car	Id	1	car column
+List_UpgradeTireCompound	TireCompoundID	List_TireCompound	TireCompoundID	1	FM4 map
+List_Wheels	PartManufacturerID	List_PartManufacturer	Id	1	FM4 map
+Livery_DecalsSortOrder	Livery_DecalID	Livery_Decals	ID	1	FM4 map
+Livery_DecalsSortOrder	MakeID	List_CarMake	ID	0	FM4 map; 6 of 59 values of the stock game are not in the target (5 12 15 33 37 40)
+Livery_VinylsDecals	Category	Livery_Categories	ID	0	FM4 map; 1 of 20 values of the stock game are not in the target (20)
+MPAIDifficultyMap	AISkill	AISkills	id	1	FM4 map
+MPAIDifficultyMap	AITemperament	AITemperaments	id	1	FM4 map
+Powertrains	DrivetrainId	List_DriveType	ID	1	FM4 map
+Powertrains	EnginePlacementId	List_EnginePlacement	ID	1	FM4 map
+Races	EventId	Events	Id	1	FM4 map
+Races	TrackId	Tracks	id	1	FM4 map
+Rewards_CarPartDiscounts	BrandId	List_PartManufacturer	Id	1	FM4 map
+Rewards_CarPartDiscounts	CarMakeId	List_CarMake	ID	1	FM4 map
+Rewards_CarPartDiscounts	PartEnumId	UpgradeTypes	PartEnum	1	FM4 map
+Rewards_DriverLevelv3	DriverLevel	PlayerLevelDef	Id	1	FM4 map
+Rewards_DriverLevelv3	InitialCar	Data_Car	Id	1	FM4 map
+Rewards_DriverLevelv3	RewardCarId	Data_Car	Id	1	FM4 map
+SplitPoints	TrackId	Tracks	id	0	FM4 map; 21 of 127 values of the stock game are not in the target (10 11 12 13 14 15)
+TireMod_FrictionScale	Ordinal	Data_Car	Id	0	car column; 1 of 10 values of the stock game are not in the target (288)
+TrackPittingZones	Tracks_id	Tracks	id	0	FM4 map; 2 of 64 values of the stock game are not in the target (33 34)
+TrackSpecificAI	AIDiff_id	AIDiff	id	1	FM4 map
+TrackSpecificAI	Tracks_id	Tracks	id	1	FM4 map
+TrackStartingMerges	Tracks_id	Tracks	id	0	FM4 map; 9 of 110 values of the stock game are not in the target (71 76 77 104 105 196)
+Tracks	DefaultStartGridPositionsId	StartGridPositions	id	1	FM4 map
+Tracks	EnvironmentId	Environments	Id	1	FM4 map
+Tracks	FlyingStartPosId	FlyingStartPositions	id	0	FM4 map; 9 of 30 values of the stock game are not in the target (100 120 121 140 141 160)
+Tracks	MPPitProfile	PittingProfiles	id	0	FM4 map; 1 of 13 values of the stock game are not in the target (200)
+UpgradeTypes	AreaId	UpgradeAreas	id	1	FM4 map
+UpgradeWizardParts	PartEnum	UpgradeTypes	PartEnum	1	FM4 map
+UpgradeWizardPartsRemoval	PartEnum	UpgradeTypes	PartEnum	1	FM4 map
+UpgradeWizardPowerRemoval	PartEnum	UpgradeTypes	PartEnum	1	FM4 map
+VolatileHostOptions	OptionId	GameOptions	Id	1	FM4 map
+WheelExceptions	WheelID	List_Wheels	ID	1	FM4 map
+WheelNormOffsets	Id	List_Wheels	ID	1	FM4 map

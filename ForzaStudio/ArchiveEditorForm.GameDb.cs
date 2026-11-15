@@ -131,9 +131,13 @@ namespace ForzaStudio
                 bar.Items.Add(this.btnDbSections[i]);
             }
             bar.Items.Add(new ToolStripSeparator());
-            bar.Items.Add(new ToolStripLabel("Search:"));
+            // The search sits right above the list it filters.
+            ToolStrip searchBar = new ToolStrip();
+            searchBar.GripStyle = ToolStripGripStyle.Hidden;
+            searchBar.Dock = DockStyle.Top;
+            searchBar.Items.Add(new ToolStripLabel("Search:"));
             this.txtDbSearch = new ToolStripTextBox();
-            this.txtDbSearch.Width = 180;
+            this.txtDbSearch.Width = 250;
             this.txtDbSearch.TextChanged += delegate
             {
                 if (this.dbSearchRestoring)
@@ -143,7 +147,7 @@ namespace ForzaStudio
                 this.dbSearches[this.dbSection] = this.txtDbSearch.Text;
                 this.FilterDbList();
             };
-            bar.Items.Add(this.txtDbSearch);
+            searchBar.Items.Add(this.txtDbSearch);
             this.btnDbChanges = new ToolStripDropDownButton("No changes");
             this.btnDbChanges.Alignment = ToolStripItemAlignment.Right;
             bar.Items.Add(this.btnDbChanges);
@@ -212,7 +216,11 @@ namespace ForzaStudio
             this.lvDb.DrawColumnHeader += new DrawListViewColumnHeaderEventHandler(this.lvDb_DrawColumnHeader);
             this.lvDb.DrawItem += delegate(object sender, DrawListViewItemEventArgs e) { };
             this.lvDb.DrawSubItem += new DrawListViewSubItemEventHandler(this.lvDb_DrawSubItem);
+            // Last column fills the width: no white header strip after it.
+            this.lvDb.Resize += delegate { this.StretchLastDbColumn(); };
             split.Panel1.Controls.Add(this.lvDb);
+            split.Panel1.Controls.Add(searchBar);
+            this.lvDb.BringToFront();
 
             this.pnlDbContent = new Panel();
             this.pnlDbContent.Dock = DockStyle.Fill;
@@ -1274,8 +1282,35 @@ namespace ForzaStudio
                 }
             }
             this.lvDb.Items.AddRange(shown.ToArray());
+            this.StretchLastDbColumn();
             this.lvDb.EndUpdate();
             this.dbFilling = false;
+        }
+
+        private void StretchLastDbColumn()
+        {
+            int count = this.lvDb.Columns.Count;
+            if (count == 0)
+            {
+                return;
+            }
+            int used = 0;
+            for (int i = 0; i < count - 1; i++)
+            {
+                used += this.lvDb.Columns[i].Width;
+            }
+            ColumnHeader last = this.lvDb.Columns[count - 1];
+            // Keep the column's own width when the list is narrower.
+            if (last.Tag == null)
+            {
+                last.Tag = last.Width;
+            }
+            int room = this.lvDb.ClientSize.Width - used;
+            int wanted = Math.Max((int) last.Tag, room);
+            if (last.Width != wanted)
+            {
+                last.Width = wanted;
+            }
         }
 
         private class DbListSorter : IComparer
@@ -1516,7 +1551,7 @@ namespace ForzaStudio
             this.btnCarDelete.AutoSize = true;
             this.btnCarDelete.Enabled = false;
             this.btnCarDelete.Click += delegate { this.DeleteCar(); };
-            this.carHeaderTip.SetToolTip(this.btnCarDelete, "Takes a car that was added to this game (ported or duplicated) out of it: rows, strings and files. Cars of FM4 itself cannot be deleted.");
+            this.carHeaderTip.SetToolTip(this.btnCarDelete, "Takes a car that was added to this game (ported or duplicated) out of it: rows, strings and files. Cars of the game itself cannot be deleted.");
             header.Controls.Add(this.btnCarDelete);
             header.Layout += delegate
             {
@@ -1574,7 +1609,13 @@ namespace ForzaStudio
                 (car != null) ? car.Substring(root.Length).TrimStart('\\') : "Media\\Cars\\" + media + " not found (.zip or folder)");
             this.carHeaderTip.SetToolTip(this.lblCarFiles, this.lblCarFiles.Text);
             this.btnCarFiles.Enabled = car != null;
-            this.btnCarDelete.Enabled = car != null && id > GameIdLimits.Max(ForzaGame.Motorsport4, "Data_Car", "Id");
+            ForzaGame rootGame = GameInfo.Detect(root);   // FM2/FM3 folders: their own Id limit (CarUninstall.Copy.cs)
+            // Added cars only: FM2 = its free car Ids (659-1000, 1025+; DbIds), FM3 = above the base game (CarUninstall.Copy.cs:
+            // a port may keep its official DLC Id), FM4 = above the game's + official DLC's largest.
+            bool added = (rootGame == ForzaGame.Motorsport2) ? DbIds.Fm2UsableCarId(id)
+                : (rootGame == ForzaGame.Motorsport3) ? id > GameIdLimits.MaxCarBase(rootGame)
+                : id > GameIdLimits.Max(ForzaGame.Motorsport4, "Data_Car", "Id");
+            this.btnCarDelete.Enabled = car != null && added;
         }
 
         private static void SetPicture(PictureBox box, Bitmap image)
@@ -1981,9 +2022,8 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (CarPortForm.XeniaRunning())
+            if (!XeniaGuard.Confirm(this, "Delete Car", "the game's files"))
             {
-                MessageBox.Show(this, "Close Xenia first: it keeps the game's files open.", "Delete Car", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             try

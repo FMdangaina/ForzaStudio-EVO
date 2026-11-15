@@ -88,6 +88,48 @@ namespace ForzaStudio
             return entries;
         }
 
+        // The choices for a material of an FM2 / FM3 model (ST-01): first what the game's own cars give the part(s) in this
+        // kind of file and LOD (green, with the number of cars), then every other material the game's cars use there, most
+        // used first. Only the game's own names: FM2 and FM3 have no shader library the editor can read for other choices.
+        // FM4 and FH models keep For(...).
+        public static List<Entry> ForGame(ShaderProfile game, string material, string fileName, string list, List<string> parts)
+        {
+            List<Entry> entries = new List<Entry>();
+            string tag = ShaderProfiles.Tag(game);
+            Dictionary<string, int> total = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (string part in parts ?? new List<string>())
+            {
+                foreach (KeyValuePair<string, int> use in ShaderProfiles.PartMaterials(game, list, part))
+                {
+                    int cars;
+                    total.TryGetValue(use.Key, out cars);
+                    total[use.Key] = cars + use.Value;
+                }
+            }
+            List<KeyValuePair<string, int>> order = new List<KeyValuePair<string, int>>(total);
+            order.Sort(delegate(KeyValuePair<string, int> a, KeyValuePair<string, int> b)
+            {
+                int c = b.Value.CompareTo(a.Value);
+                return (c != 0) ? c : string.CompareOrdinal(a.Key, b.Key);
+            });
+            string on = string.Join(" ", (parts ?? new List<string>()).ToArray());
+            foreach (KeyValuePair<string, int> use in order)
+            {
+                if (use.Key != material)
+                {
+                    Add(entries, use.Key, Group.Recommended, use.Value + " " + tag + " cars on " + on, fileName);
+                }
+            }
+            foreach (KeyValuePair<string, int> use in ShaderProfiles.PartMaterials(game, list, null))
+            {
+                if (use.Key != material)
+                {
+                    Add(entries, use.Key, Group.Common, use.Value + " " + tag + " cars", fileName);
+                }
+            }
+            return entries;
+        }
+
         // The materials FM4 car models give the part(s) in this kind of file (Fm4MaterialUse.PartMaterials), most used
         // first, as green suggestions; nothing is chosen for the user.
         private static void AddPartUse(List<Entry> entries, string material, string fileName, List<string> parts)

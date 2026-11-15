@@ -32,7 +32,21 @@ namespace ForzaStudio
             return (value == null || value == DBNull.Value) ? 0 : Convert.ToDouble(value, CultureInfo.InvariantCulture);
         }
 
+        // null when the car cannot be simulated, also when the game's tables are not FM4's / FM3's (FM2: no DriveTypeID, its
+        // camshaft and gearbox tables are others): the caller then keeps the source's numbers.
         public static PerfResult Simulate(SqliteDatabase db, long carId)
+        {
+            try
+            {
+                return SimulateCore(db, carId);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static PerfResult SimulateCore(SqliteDatabase db, long carId)
         {
             SqliteDatabase.Result car = db.Query("SELECT CurbWeight, WeightDistribution, DriveTypeID, BodyAeroLongitudinalDrag, FrontTireWidthMM, FrontTireAspect, FrontWheelDiameterIN, RearTireWidthMM, RearTireAspect, RearWheelDiameterIN FROM Data_Car WHERE Id = ?", carId);
             if (car.Rows.Count == 0)
@@ -64,14 +78,13 @@ namespace ForzaStudio
                 return null;
             }
             double redline = Real(cam.Rows[0][0]), maxRpm = Real(cam.Rows[0][1]), stall = Real(cam.Rows[0][2]);
-            SqliteDatabase.Result curve = db.Query("SELECT * FROM List_TorqueCurve WHERE TorqueCurveID = ?", Convert.ToInt64(cam.Rows[0][3], CultureInfo.InvariantCulture));
-            if (curve.Rows.Count == 0 || redline <= 0 || maxRpm <= 0)
+            double scale;
+            double[] values;   // by column name: FM3's curve has an EngineID before TorqueScale
+            if (!CarEngine.CurveRow(db, Convert.ToInt64(cam.Rows[0][3], CultureInfo.InvariantCulture), out scale, out values) || redline <= 0 || maxRpm <= 0)
             {
                 return null;
             }
-            object[] values = curve.Rows[0];
-            double scale = Real(values[1]);
-            int count = Math.Min((int) Real(values[2]), values.Length - 3);
+            int count = values.Length;
             if (count < 2)
             {
                 return null;
@@ -83,7 +96,7 @@ namespace ForzaStudio
             double[] torque = new double[count];
             for (int i = 0; i < count; i++)
             {
-                torque[i] = Real(values[3 + i]) * all;
+                torque[i] = values[i] * all;
             }
             double inertia = Real(db.Scalar("SELECT MomentInertia FROM Data_Engine WHERE EngineID = ?", engine));
 

@@ -240,7 +240,13 @@ namespace ForzaStudio
                         section.Vertices[m].texture1.Y = 1f - ((section.Vertices[m].texture1.Y * section.YUV2Scale) + section.YUV2Offset);
                     }
                 }
-                section.Indices = Utilities.GenerateTriangleList(section.Indices, section.FaceCount);
+                // A few FM2 meshes are triangle lists (primitive 4: 5 meshes in 5 cars, ST-01 2026-11-13), not strips: read as
+                // strips they gave wrong faces and, in for_mustanggt_05 (skirtLd, LOD4), an IndexOutOfRange that kept the
+                // car from opening. A list is already what the viewer draws.
+                if (section.IndexType != IndexType.TriList)
+                {
+                    section.Indices = Utilities.GenerateTriangleList(section.Indices, section.FaceCount);
+                }
             }
         }
     }

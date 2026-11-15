@@ -349,6 +349,15 @@ namespace ForzaStudio
 
         private List<Entry> templates;
 
+        // A model archive for new string zips cut down to the game's own compression: LZX where the game has LZX entries
+        // (FM4, FM3), else deflate (FM2: every zip of the game and of its official packs is deflate; an LZX zip of a pack made
+        // FM2 hang on its loading screen, 2026-11-14).
+        public static void KeepGameMethod(ForzaZip model)
+        {
+            int method = model.Entries.Exists(delegate(Entry entry) { return entry.Method == MethodLzx; }) ? MethodLzx : MethodDeflate;
+            model.Entries.RemoveAll(delegate(Entry entry) { return entry.Method != method; });
+        }
+
         public void Remove(Entry entry)
         {
             this.Entries.Remove(entry);

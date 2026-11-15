@@ -23,7 +23,7 @@ namespace ForzaStudio
     // the torque curves its camshafts point at. FM4 numbers the rows of an engine EngineID * 1000 + n (camshaft
     // Id = its torque curve's id), kept here; the copy's ids are above every id of FM4 and its DLC (the first
     // free EngineID, which is above 933). Run inside the caller's transaction, before the integrity check.
-    public static class CarEngine
+    public static partial class CarEngine
     {
         // The stock engine's id of a car, or -1.
         public static long StockEngine(SqliteDatabase db, long carId)
@@ -34,7 +34,19 @@ namespace ForzaStudio
 
         public static long Clone(SqliteDatabase db, long carId, EngineSpec spec, List<string> plan)
         {
-            ForzaGame game = ForzaGame.Motorsport4;
+            return Clone(db, carId, spec, plan, ForzaGame.Motorsport4);
+        }
+
+        // game: FM4 or FM3 (FM3's engine tables are FM4's, ST-02 2026-11-14): its Id limits; FM3's torque curves are counters
+        // (TorqueCurveID 1-2444, an EngineID column, a zero-throttle curve per camshaft level, 151 values at most), so the
+        // copy's curves get the next free ids and its EngineID; the columns of a curve are found by name.
+        public static long Clone(SqliteDatabase db, long carId, EngineSpec spec, List<string> plan, ForzaGame game)
+        {
+            if (game != ForzaGame.Motorsport3)
+            {
+                game = ForzaGame.Motorsport4;
+            }
+            curveEngine = -1;
             long old = StockEngine(db, carId);
             if (old < 0)
             {
@@ -261,11 +273,13 @@ namespace ForzaStudio
                             long newCurve;
                             if (!curves.TryGetValue(oldCurve, out newCurve))
                             {
-                                newCurve = (oldCurve == oldKey) ? newKey : (id * 1000) + 900 + curves.Count;
+                                newCurve = (game != ForzaGame.Motorsport4) ? DbIds.Next(db, "List_TorqueCurve", "TorqueCurveID", game)   // FM3: counters
+                                    : (oldCurve == oldKey) ? newKey : (id * 1000) + 900 + curves.Count;
                                 if (Convert.ToInt64(db.Scalar("SELECT count(*) FROM List_TorqueCurve WHERE TorqueCurveID = ?", newCurve), CultureInfo.InvariantCulture) > 0)
                                 {
                                     newCurve = DbIds.Next(db, "List_TorqueCurve", "TorqueCurveID", game);
                                 }
+                                curveEngine = id;
                                 CopyCurve(db, oldCurve, newCurve, 1.0, null, null, false, 1.0);       // rebuilt on FM4's grid by RebuildCurves
                                 curves[oldCurve] = newCurve;
                             }
@@ -325,7 +339,7 @@ namespace ForzaStudio
             }
             if (curvePlan != null)
             {
-                RebuildCurves(db, id, curvePlan, plan);
+                RebuildCurves(db, id, curvePlan, plan, game);
             }
 
             // The car's stock engine row points at the copy; the swap engines stay as they are.
@@ -346,7 +360,7 @@ namespace ForzaStudio
                     plan.Add("engine: Data_Car.Displacement = " + Convert.ToString(disp, CultureInfo.InvariantCulture) + " cc (what the showroom shows)");
                 }
             }
-            UpdateSimulation(db, schema, carId, id, plan);
+            UpdateSimulation(db, schema, carId, id, plan, "List_UpgradeEngineCamshaft", (game == ForzaGame.Motorsport4) ? -1 : old);
             return id;
         }
 
@@ -667,6 +681,14 @@ namespace ForzaStudio
         // SimPeakTorque and SimPeakPower are N.m and W divided by 100, the angular velocities rad/s.
         private static void UpdateSimulation(SqliteDatabase db, Dictionary<string, List<string>> schema, long carId, long engine, List<string> plan)
         {
+            UpdateSimulation(db, schema, carId, engine, plan, "List_UpgradeEngineCamshaft", -1);
+        }
+
+        // camTable: the camshaft levels (FM4 / FM3 List_UpgradeEngineCamshaft, FM2 List_UpgradeEngineCamValves). sourceEngine -1:
+        // the numbers by FM4's law (fitted on FM4's cars); otherwise (FM3, FM2: the law is not fitted there) the copy keeps the
+        // source's numbers times the change the same computation gives between the source's engine and the copy's own.
+        private static void UpdateSimulation(SqliteDatabase db, Dictionary<string, List<string>> schema, long carId, long engine, List<string> plan, string camTable, long sourceEngine)
+        {
             string[] columns = { "SimPeakTorque", "SimPeakTorqueAngVel", "SimPeakPower", "SimPeakAngVel", "SimRedlineAngVel" };
             foreach (string column in columns)
             {
@@ -675,24 +697,56 @@ namespace ForzaStudio
                     return;
                 }
             }
-            SqliteDatabase.Result cam = db.Query("SELECT RedlineRPM, TorqueCurveMaxRPM, NumRPMEntriesArray, TorqueCurveFullThrottleID FROM List_UpgradeEngineCamshaft WHERE EngineID = ? AND IsStock = 1 ORDER BY Level LIMIT 1", engine);
-            if (cam.Rows.Count == 0)
+            double[] now = Peaks(db, engine, camTable);
+            if (now == null)
             {
                 return;
+            }
+            double[] written = new double[] { now[0] / 100, now[1], now[2] / 100, now[3], now[4] };
+            string how = "";
+            if (sourceEngine >= 0)
+            {
+                double[] was = Peaks(db, sourceEngine, camTable);
+                object[] kept = db.Query("SELECT SimPeakTorque, SimPeakTorqueAngVel, SimPeakPower, SimPeakAngVel, SimRedlineAngVel FROM Data_Car WHERE Id = ?", carId).Rows[0];
+                if (was == null)
+                {
+                    return;
+                }
+                double[] ours = new double[] { now[0], now[1], now[2], now[3], now[4] };
+                for (int i = 0; i < written.Length; i++)
+                {
+                    written[i] = (was[i] > 0) ? Real(kept[i]) * ours[i] / was[i] : Real(kept[i]);
+                }
+                how = " (the source's numbers times the change of the engine)";
+            }
+            db.Execute("UPDATE Data_Car SET SimPeakTorque = ?, SimPeakTorqueAngVel = ?, SimPeakPower = ?, SimPeakAngVel = ?, SimRedlineAngVel = ? WHERE Id = ?",
+                written[0], written[1], written[2], written[3], written[4], carId);
+            plan.Add(string.Format(CultureInfo.InvariantCulture, "engine: Data_Car Sim numbers: peak torque {0:0} N.m at {1:0} rpm, peak power {2:0} kW at {3:0} rpm, redline {4:0} rpm{5}",
+                now[0], now[1] * 60 / (2 * Math.PI), now[2] / 1000, now[3] * 60 / (2 * Math.PI), now[4] * 60 / (2 * Math.PI), how));
+        }
+
+        // An engine's stock peaks from its stock curve: torque N.m, its speed rad/s, power W, its speed, the redline's speed; or null.
+        private static double[] Peaks(SqliteDatabase db, long engine, string camTable)
+        {
+            SqliteDatabase.Result cam = db.Query("SELECT RedlineRPM, TorqueCurveMaxRPM, NumRPMEntriesArray, TorqueCurveFullThrottleID FROM " + SqliteDatabase.Quote(camTable) + " WHERE EngineID = ? AND IsStock = 1 ORDER BY Level LIMIT 1", engine);
+            if (cam.Rows.Count == 0)
+            {
+                return null;
             }
             double redline = Real(cam.Rows[0][0]);
             double maxRpm = Real(cam.Rows[0][1]);
             SqliteDatabase.Result curve = db.Query("SELECT * FROM List_TorqueCurve WHERE TorqueCurveID = ?", Convert.ToInt64(cam.Rows[0][3], CultureInfo.InvariantCulture));
             if (curve.Rows.Count == 0)
             {
-                return;
+                return null;
             }
             object[] values = curve.Rows[0];
-            double scale = Real(values[1]);
-            int count = Math.Min((int) Real(values[2]), values.Length - 3);
+            CurveColumns at = new CurveColumns(curve.Columns);
+            double scale = Real(values[at.Scale]);
+            int count = Math.Min((int) Real(values[at.Count]), at.Values);
             if (count < 2)
             {
-                return;
+                return null;
             }
             double factor, boost;
             StockMultipliers(db, engine, out factor, out boost);
@@ -708,7 +762,7 @@ namespace ForzaStudio
                 {
                     break;
                 }
-                double torque = Real(values[3 + i]) * scale * factor * boost;
+                double torque = Real(values[at.First + i]) * scale * factor * boost;
                 double speed = rpm * 2 * Math.PI / 60;
                 if (torque > bestTorque)
                 {
@@ -721,10 +775,7 @@ namespace ForzaStudio
                     powerSpeed = speed;
                 }
             }
-            db.Execute("UPDATE Data_Car SET SimPeakTorque = ?, SimPeakTorqueAngVel = ?, SimPeakPower = ?, SimPeakAngVel = ?, SimRedlineAngVel = ? WHERE Id = ?",
-                bestTorque / 100, torqueSpeed, bestPower / 100, powerSpeed, redline * 2 * Math.PI / 60, carId);
-            plan.Add(string.Format(CultureInfo.InvariantCulture, "engine: Data_Car Sim numbers: peak torque {0:0} N.m at {1:0} rpm, peak power {2:0} kW at {3:0} rpm, redline {4:0} rpm",
-                bestTorque, torqueSpeed * 60 / (2 * Math.PI), bestPower / 1000, powerSpeed * 60 / (2 * Math.PI), redline));
+            return new double[] { bestTorque, torqueSpeed, bestPower, powerSpeed, redline * 2 * Math.PI / 60 };
         }
 
         // What the game multiplies the stock torque curve by to show the car's torque: factor = the TorqueScale of the
@@ -791,13 +842,78 @@ namespace ForzaStudio
                 return null;
             }
             object[] row = curve.Rows[0];
-            int count = Math.Min((int) Real(row[2]), row.Length - 3);
+            CurveColumns at = new CurveColumns(curve.Columns);
+            int count = Math.Min((int) Real(row[at.Count]), at.Values);
             double[] values = new double[Math.Max(0, count)];
             for (int i = 0; i < values.Length; i++)
             {
-                values[i] = Real(row[3 + i]);
+                values[i] = Real(row[at.First + i]);
             }
             return values;
+        }
+
+        // The engine the curves being copied belong to (FM3's List_TorqueCurve.EngineID), set by Clone; -1 = keep the source's.
+        [ThreadStatic]
+        private static long curveEngine;
+
+        // Where a List_TorqueCurve row keeps what (FM4: TorqueCurveID, TorqueScale, NumTorqueValues, v0..v184,
+        // ZeroThrottleTorqueScale; FM3 / FM2: TorqueCurveID, EngineID, TorqueScale, NumTorqueValues, v0..v150).
+        private sealed class CurveColumns
+        {
+            public readonly int Scale, Count, First, Values, Zero, Engine;
+
+            public CurveColumns(string[] columns)
+            {
+                this.Scale = Find(columns, "TorqueScale");
+                this.Count = Find(columns, "NumTorqueValues");
+                this.First = Find(columns, "v0");
+                this.Zero = Find(columns, "ZeroThrottleTorqueScale");
+                this.Engine = Find(columns, "EngineID");
+                int end = this.First;
+                while (end < columns.Length && columns[end].Length > 1 && (columns[end][0] == 'v' || columns[end][0] == 'V') && char.IsDigit(columns[end][1]))
+                {
+                    end++;
+                }
+                this.Values = end - this.First;
+                if (this.Scale < 0 || this.Count < 0 || this.First < 0)
+                {
+                    throw new InvalidOperationException("List_TorqueCurve has no TorqueScale / NumTorqueValues / v0 column.");
+                }
+            }
+
+            private static int Find(string[] columns, string name)
+            {
+                return Array.FindIndex(columns, delegate(string c) { return string.Equals(c, name, StringComparison.OrdinalIgnoreCase); });
+            }
+        }
+
+        // A curve's TorqueScale and its listed values (NumTorqueValues of them, the end marker included), any game's layout.
+        internal static bool CurveRow(SqliteDatabase db, long curveId, out double scale, out double[] values)
+        {
+            scale = 0;
+            values = null;
+            SqliteDatabase.Result curve = db.Query("SELECT * FROM List_TorqueCurve WHERE TorqueCurveID = ?", curveId);
+            if (curve.Rows.Count == 0)
+            {
+                return false;
+            }
+            object[] row = curve.Rows[0];
+            CurveColumns at = new CurveColumns(curve.Columns);
+            scale = Real(row[at.Scale]);
+            int count = Math.Max(0, Math.Min((int) Real(row[at.Count]), at.Values));
+            values = new double[count];
+            for (int i = 0; i < count; i++)
+            {
+                values[i] = Real(row[at.First + i]);
+            }
+            return true;
+        }
+
+        // The number of values a List_TorqueCurve row can hold (FM4 185, FM3 / FM2 151).
+        private static int CurveCapacity(SqliteDatabase db)
+        {
+            SqliteDatabase.Result one = db.Query("SELECT * FROM List_TorqueCurve LIMIT 1");
+            return new CurveColumns(one.Columns).Values;
         }
 
         // The stock level's curve is the drawn shape; the upgrade levels' curves are changed by the same ratio point by point.
@@ -876,18 +992,18 @@ namespace ForzaStudio
                 throw new InvalidOperationException("List_TorqueCurve has no curve " + curveId + ".");
             }
             object[] row = curve.Rows[0];
+            CurveColumns at = new CurveColumns(curve.Columns);
             OldCurve result = new OldCurve();
-            result.Scale = Real(row[1]);
-            int listed = Math.Min((int) Real(row[2]), row.Length - 4);
+            result.Scale = Real(row[at.Scale]);
+            int listed = Math.Min((int) Real(row[at.Count]), at.Values);
             int count = Math.Max(1, listed - 1);
             result.Values = new double[count];
             for (int i = 0; i < count; i++)
             {
-                result.Values[i] = Real(row[3 + i]);
+                result.Values[i] = Real(row[at.First + i]);
             }
             result.Step = (listed > 1 && maxRpm > 0) ? maxRpm / (listed - 1) : 100.0;
-            int zero = Array.FindIndex(curve.Columns, delegate(string c) { return string.Equals(c, "ZeroThrottleTorqueScale", StringComparison.OrdinalIgnoreCase); });
-            result.ZeroThrottleRatio = (zero >= 0 && result.Scale != 0) ? Real(row[zero]) / result.Scale : 0.4;
+            result.ZeroThrottleRatio = (at.Zero >= 0 && result.Scale != 0) ? Real(row[at.Zero]) / result.Scale : 0.4;
             return result;
         }
 
@@ -895,18 +1011,19 @@ namespace ForzaStudio
         // the designed one; an upgrade level's is it times the TorqueScale ratio the generic rules gave that level (Curve.TorqueScale
         // of Upgrades.ini). Each runs to the end of the grid (like all of FM4's, no zero above the level's own redline); then the marker (-2.63); TorqueScale = the peak, the
         // values normalised to it. NumRPMEntriesArray and TorqueCurveMaxRPM of every level follow the highest redline.
-        private static void RebuildCurves(SqliteDatabase db, long engine, CurvePlan plan, List<string> report)
+        private static void RebuildCurves(SqliteDatabase db, long engine, CurvePlan plan, List<string> report, ForzaGame game, string camTable = "List_UpgradeEngineCamshaft")
         {
-            SqliteDatabase.Result cams = db.Query("SELECT Id, IsStock, RedlineRPM, TorqueCurveFullThrottleID FROM List_UpgradeEngineCamshaft WHERE EngineID = ? ORDER BY Level", engine);
+            SqliteDatabase.Result cams = db.Query("SELECT Id, IsStock, RedlineRPM, TorqueCurveFullThrottleID FROM " + SqliteDatabase.Quote(camTable) + " WHERE EngineID = ? ORDER BY Level", engine);
             double highest = 0;
             foreach (object[] cam in cams.Rows)
             {
                 highest = Math.Max(highest, Real(cam[2]));
             }
             int points = (int) Math.Ceiling((highest + plan.Margin) / 100.0) + 1;
-            if (points + 1 > 186)
+            int capacity = CurveCapacity(db);       // FM4 185 values, FM3 151
+            if (points + 1 > capacity + 1)
             {
-                throw new InvalidOperationException("The redline is too high for a torque curve (at most 18500 rpm).");
+                throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "The redline is too high for a torque curve of this game (at most {0} rpm with the margin).", (capacity - 1) * 100));
             }
             double[] stock = plan.NewStock(points);
             double stockScale = 0;
@@ -936,9 +1053,92 @@ namespace ForzaStudio
                     absolute[i] = stock[i] * multiplier;
                 }
                 WriteCurve(db, curveId, absolute, points, zeroRatio);
-                db.Execute("UPDATE List_UpgradeEngineCamshaft SET NumRPMEntriesArray = ?, TorqueCurveMaxRPM = ? WHERE Id = ?", (long) (points + 1), points * 100.0, Convert.ToInt64(cam[0], CultureInfo.InvariantCulture));
+                db.Execute("UPDATE " + SqliteDatabase.Quote(camTable) + " SET NumRPMEntriesArray = ?, TorqueCurveMaxRPM = ? WHERE Id = ?", (long) (points + 1), points * 100.0, Convert.ToInt64(cam[0], CultureInfo.InvariantCulture));
             }
             report.Add(string.Format(CultureInfo.InvariantCulture, "engine: {0} torque curves of {1} values (0 - {2:0} rpm, 100 rpm apart, end marker -2.63), torque kept above 0 to the end of the grid as FM4 does (highest redline + {3:0} rpm)", cams.Rows.Count, points + 1, points * 100.0, plan.Margin));
+
+            // FM2 / FM3: the zero-throttle curve is a row of its own (TorqueCurveZeroThrottleID). In both games every camshaft level
+            // has its own, with as many values as the level's NumRPMEntriesArray (10 cars per game checked 2026-11-15, no
+            // exception). Left at the source's length, a longer grid read zeros past the old end: no engine braking above the old
+            // top rpm, the "glitch when the revs go up" (user, FM3 RS6 V12 and FM2 Mustang 9000). Each level gets its own curve,
+            // the source's stretched to the new grid.
+            bool zeroRows = db.Query("PRAGMA table_info(" + SqliteDatabase.Quote(camTable) + ")").Rows.Exists(c => string.Equals(Convert.ToString(c[1], CultureInfo.InvariantCulture), "TorqueCurveZeroThrottleID", StringComparison.OrdinalIgnoreCase));
+            if (zeroRows)
+            {
+                HashSet<long> used = new HashSet<long>();
+                int made = 0;
+                foreach (object[] cam in db.Query("SELECT Id, TorqueCurveZeroThrottleID FROM " + SqliteDatabase.Quote(camTable) + " WHERE EngineID = ? ORDER BY Level", engine).Rows)
+                {
+                    if (cam[1] == null || cam[1] == DBNull.Value)
+                    {
+                        continue;
+                    }
+                    long zero = Convert.ToInt64(cam[1], CultureInfo.InvariantCulture);
+                    long target = used.Add(zero) ? zero : DbIds.Next(db, "List_TorqueCurve", "TorqueCurveID", game);
+                    StretchZeroCurve(db, zero, target, points + 1, engine);
+                    if (target != zero)
+                    {
+                        db.Execute("UPDATE " + SqliteDatabase.Quote(camTable) + " SET TorqueCurveZeroThrottleID = ? WHERE Id = ?", target, Convert.ToInt64(cam[0], CultureInfo.InvariantCulture));
+                        used.Add(target);
+                        made++;
+                    }
+                }
+                report.Add(string.Format(CultureInfo.InvariantCulture, "engine: zero-throttle curves stretched to {0} values, one per camshaft level ({1} new)", points + 1, made));
+            }
+        }
+
+        // An FM2 / FM3 zero-throttle curve on a grid of count values: v0..v8 (up to 800 rpm, the same in every curve of both games)
+        // kept, the rest (down to the -2.63 at the end) stretched from the source's length. Writes it under the id to.
+        private static void StretchZeroCurve(SqliteDatabase db, long from, long to, int count, long engine)
+        {
+            SqliteDatabase.Result curve = db.Query("SELECT * FROM List_TorqueCurve WHERE TorqueCurveID = ?", from);
+            if (curve.Rows.Count == 0)
+            {
+                throw new InvalidOperationException("List_TorqueCurve has no curve " + from + ".");
+            }
+            object[] row = (object[]) curve.Rows[0].Clone();
+            CurveColumns at = new CurveColumns(curve.Columns);
+            count = Math.Min(count, at.Values);
+            int n = Math.Min((int) Real(row[at.Count]), at.Values);
+            double[] old = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                old[i] = Real(row[at.First + i]);
+            }
+            const int head = 8;
+            for (int i = 0; i < at.Values; i++)
+            {
+                double v = 0.0;
+                if (i < count)
+                {
+                    if (i <= head || n <= head + 1)
+                    {
+                        v = old[Math.Min(i, n - 1)];
+                    }
+                    else
+                    {
+                        double pos = head + ((double) (i - head) / (count - 1 - head)) * (n - 1 - head);
+                        int lo = Math.Min((int) Math.Floor(pos), n - 1);
+                        int hi = Math.Min(lo + 1, n - 1);
+                        v = old[lo] + ((old[hi] - old[lo]) * (pos - lo));
+                    }
+                }
+                row[at.First + i] = v;
+            }
+            row[at.Count] = (long) count;
+            for (int i = 0; i < curve.Columns.Length; i++)
+            {
+                if (string.Equals(curve.Columns[i], "TorqueCurveID", StringComparison.OrdinalIgnoreCase))
+                {
+                    row[i] = to;
+                }
+                else if (i == at.Engine)
+                {
+                    row[i] = engine;
+                }
+            }
+            db.Execute("DELETE FROM List_TorqueCurve WHERE TorqueCurveID = ?", to);
+            Insert(db, "List_TorqueCurve", curve.Columns, row);
         }
 
         // Writes one curve (the row keeps its id): TorqueScale = the peak, the values normalised, the marker after the last.
@@ -955,8 +1155,10 @@ namespace ForzaStudio
             }
             SqliteDatabase.Result curve = db.Query("SELECT * FROM List_TorqueCurve WHERE TorqueCurveID = ?", curveId);
             object[] row = (object[]) curve.Rows[0].Clone();
-            int first = Array.FindIndex(curve.Columns, delegate(string c) { return string.Equals(c, "v0", StringComparison.OrdinalIgnoreCase); });
-            int zero = Array.FindIndex(curve.Columns, delegate(string c) { return string.Equals(c, "ZeroThrottleTorqueScale", StringComparison.OrdinalIgnoreCase); });
+            CurveColumns at = new CurveColumns(curve.Columns);
+            int first = at.First;
+            int zero = at.Zero;
+            int end = at.First + at.Values;     // FM3 has no ZeroThrottleTorqueScale after the values (its zero-throttle curve is a row of its own)
             for (int i = 0; i < curve.Columns.Length; i++)
             {
                 string column = curve.Columns[i];
@@ -968,11 +1170,11 @@ namespace ForzaStudio
                 {
                     row[i] = (long) (points + 1);
                 }
-                else if (i == zero)
+                else if (zero >= 0 && i == zero)
                 {
                     row[i] = zeroRatio * peak;
                 }
-                else if (first >= 0 && i >= first && i < zero)
+                else if (first >= 0 && i >= first && i < end)
                 {
                     int n = i - first;
                     row[i] = (n < points) ? absolute[n] / peak : (n == points) ? -2.63 : 0.0;
@@ -992,30 +1194,36 @@ namespace ForzaStudio
                 throw new InvalidOperationException("List_TorqueCurve has no curve " + from + ".");
             }
             object[] row = (object[]) curve.Rows[0].Clone();
+            CurveColumns at = new CurveColumns(curve.Columns);
             for (int i = 0; i < curve.Columns.Length; i++)
             {
+                int v = i - at.First;
                 if (string.Equals(curve.Columns[i], "TorqueCurveID", StringComparison.OrdinalIgnoreCase))
                 {
                     row[i] = to;
                 }
-                else if (string.Equals(curve.Columns[i], "TorqueScale", StringComparison.OrdinalIgnoreCase) && row[i] is double)
+                else if (i == at.Engine && curveEngine > 0)
+                {
+                    row[i] = curveEngine;       // FM3: the curve names its engine
+                }
+                else if (i == at.Scale && row[i] is double)
                 {
                     row[i] = (double) row[i] * scale;
                 }
-                else if (shape != null && stockShape != null && i >= 3 && i - 3 < shape.Length && row[i] is double)
+                else if (shape != null && stockShape != null && v >= 0 && v < at.Values && v < shape.Length && row[i] is double)
                 {
                     double was = (double) row[i];
-                    row[i] = stockLevel ? shape[i - 3] : ((stockShape[i - 3] > 0.02) ? was * shape[i - 3] / stockShape[i - 3] : was);
+                    row[i] = stockLevel ? shape[v] : ((stockShape[v] > 0.02) ? was * shape[v] / stockShape[v] : was);
                 }
             }
-            int entries = Math.Min((int) Real(row[2]), row.Length - 3);
+            int entries = Math.Min((int) Real(row[at.Count]), at.Values);
             if (keep > 0 && keep < 1 && entries > 1)
             {
                 for (int i = 0; i < entries; i++)
                 {
-                    if ((double) i / (entries - 1) > keep + 1e-9 && row[3 + i] is double)
+                    if ((double) i / (entries - 1) > keep + 1e-9 && row[at.First + i] is double)
                     {
-                        row[3 + i] = 0.0;
+                        row[at.First + i] = 0.0;
                     }
                 }
             }

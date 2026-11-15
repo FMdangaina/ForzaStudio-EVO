@@ -93,7 +93,8 @@ namespace ForzaStudio
                 uint num6 = this.Stream.ReadUInt32();
                 stream.Seek(340L, SeekOrigin.Begin);
                 uint num7 = this.Stream.ReadUInt32();
-                if (((num2 == 1) && (num3 == 0x2ca)) || ((num2 == 2) && (num6 == 0x2ca)))
+                // FM2 ModelSettings version 714 (0x2CA), or 713 on one wheel (por_550_56, same layout: Fm2CarbinModel).
+                if (((num2 == 1) && (num3 == 0x2ca || num3 == 0x2c9)) || ((num2 == 2) && (num6 == 0x2ca || num6 == 0x2c9)))
                 {
                     unknown = ForzaVersion.Two;
                 }
@@ -123,7 +124,8 @@ namespace ForzaStudio
             {
                 case ForzaVersion.Two:
                     this.TypeId = this.Stream.ReadUInt32();
-                    if (this.Stream.ReadUInt32() != 0x2ca)
+                    uint settings = this.Stream.ReadUInt32();
+                    if (settings != 0x2ca && settings != 0x2c9)
                     {
                         if (this.TypeId != 2)
                         {

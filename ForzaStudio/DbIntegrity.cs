@@ -104,7 +104,7 @@ namespace ForzaStudio
                     result.Errors.Add("the table " + name + " did not exist: tables are not created");
                     continue;
                 }
-                TableChange change = Diff(before, after, name, schema[name]);
+                TableChange change = Diff(before, after, name, schema[name], game);
                 if (change.Added.Count > 0 || change.Removed.Count > 0)
                 {
                     changes.Add(change);
@@ -116,7 +116,7 @@ namespace ForzaStudio
                 Keys(result, before, after, change, game, referencesBlock);
                 result.Summary.Add(Describe(change));
             }
-            References(result, before, after, changes, referencesBlock);
+            References(result, before, after, changes, referencesBlock, game);
             Cars(result, after, changes);
             return result;
         }
@@ -210,11 +210,11 @@ namespace ForzaStudio
 
         // The rows of a table that are in one copy and not in the other (a row counted as many times as it
         // is repeated). An UPDATE is a removed row and an added one.
-        private static TableChange Diff(SqliteDatabase before, SqliteDatabase after, string table, List<string> columns)
+        private static TableChange Diff(SqliteDatabase before, SqliteDatabase after, string table, List<string> columns, ForzaGame game)
         {
             TableChange change = new TableChange();
             change.Table = table;
-            change.Key = DbIds.KeyColumn(after, table, columns);
+            change.Key = DbIds.KeyColumn(after, table, columns, game);
             string select = "SELECT * FROM " + SqliteDatabase.Quote(table);
             SqliteDatabase.Result was = before.Query(select);
             SqliteDatabase.Result now = after.Query(select);
@@ -336,11 +336,11 @@ namespace ForzaStudio
                 if (had == 0)
                 {
                     change.NewKeys.Add(pair.Key);
-                    if (limit >= 0 && !IdFromOffer(change.Table, change.Key) && pair.Key <= limit && reported++ < 5)
+                    if (limit >= 0 && !IdFromOffer(change.Table, change.Key) && pair.Key <= limit && !Fm2FreeCarKey(game, change.Table, change.Key, pair.Key) && reported++ < 5)
                     {
                         (block ? result.Errors : result.Warnings).Add(string.Format(CultureInfo.InvariantCulture,
-                            "{0}.{1} = {2} is not above FM4's largest ({3}, base game and every DLC): use {4} or more (the next free one is {5})",
-                            change.Table, change.Key, pair.Key, limit, limit + 1, DbIds.Next(after, change.Table, change.Key, game)));
+                            "{0}.{1} = {2} is not above {6}'s largest ({3}, base game and every DLC): use {4} or more (the next free one is {5})",
+                            change.Table, change.Key, pair.Key, limit, limit + 1, DbIds.Next(after, change.Table, change.Key, game), GameInfo.Tag(game)));
                     }
                 }
                 if (unique && pair.Value > had && pair.Value > 1)
@@ -349,6 +349,24 @@ namespace ForzaStudio
                 }
             }
             change.NewKeys.Sort();
+        }
+
+        // FM2 new cars live in 659-1000 (DbIds.Fm2FreeWindow), below the DLC's largest: the car Id in car columns and its
+        // car * 1000 + n keys in that window are not "below the largest", no official row has them. Counters stay checked.
+        private static bool Fm2FreeCarKey(ForzaGame game, string table, string column, long key)
+        {
+            if (game != ForzaGame.Motorsport2)
+            {
+                return false;
+            }
+            if (key >= DbIds.Fm2FirstFreeCarId * 1000)
+            {
+                return DbIds.Fm2UsableCarId(key / 1000);
+            }
+            bool carColumn = (string.Equals(table, "Data_Car", StringComparison.OrdinalIgnoreCase) && string.Equals(column, "Id", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(column, "Ordinal", StringComparison.OrdinalIgnoreCase) || string.Equals(column, "CarId", StringComparison.OrdinalIgnoreCase)
+                || ((string.Equals(table, "StockGarage", StringComparison.OrdinalIgnoreCase) || string.Equals(table, "CarTrackOffsets", StringComparison.OrdinalIgnoreCase)) && string.Equals(column, "Id", StringComparison.OrdinalIgnoreCase));
+            return carColumn && DbIds.Fm2UsableCarId(key);
         }
 
         // ContentOffers.OfferId is built from the pack's offer number (0x4D530910FF000000 + the number, the
@@ -360,7 +378,7 @@ namespace ForzaStudio
 
         // References: the dangling rows of every strict relation that touches a changed table must not
         // grow; the loose ones are only reported.
-        private static void References(Result result, SqliteDatabase before, SqliteDatabase after, List<TableChange> changes, bool block)
+        private static void References(Result result, SqliteDatabase before, SqliteDatabase after, List<TableChange> changes, bool block, ForzaGame game)
         {
             Dictionary<string, bool> touched = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             foreach (TableChange change in changes)
@@ -371,7 +389,7 @@ namespace ForzaStudio
             {
                 return;
             }
-            foreach (GameDbSchema.Relation relation in GameDbSchema.Relations)
+            foreach (GameDbSchema.Relation relation in GameDbSchema.For(game))
             {
                 if (!touched.ContainsKey(relation.Table) && !touched.ContainsKey(relation.Target))
                 {

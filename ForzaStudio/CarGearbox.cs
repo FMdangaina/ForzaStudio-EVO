@@ -18,7 +18,7 @@ namespace ForzaStudio
     // and Data_Car.NumGears the forward gears only. The upgrade levels keep their own shape: with the same number of
     // gears each gear (and the final drive) is the source level's scaled by the change of the stock one, with another
     // number they take the ratios asked for. Run inside the caller's transaction, before the integrity check.
-    public static class CarGearbox
+    public static partial class CarGearbox
     {
         public static long StockDrivetrain(SqliteDatabase db, long carId)
         {
@@ -52,7 +52,16 @@ namespace ForzaStudio
 
         public static long Clone(SqliteDatabase db, long carId, GearboxSpec spec, List<string> plan)
         {
-            ForzaGame game = ForzaGame.Motorsport4;
+            return Clone(db, carId, spec, plan, ForzaGame.Motorsport4);
+        }
+
+        // game: FM4 or FM3 (FM3's drivetrain tables are FM4's: Data_Drivetrain, List_UpgradeDrivetrain*): its Id limits.
+        public static long Clone(SqliteDatabase db, long carId, GearboxSpec spec, List<string> plan, ForzaGame game)
+        {
+            if (game != ForzaGame.Motorsport3)
+            {
+                game = ForzaGame.Motorsport4;
+            }
             if (spec.Forward == null || spec.Forward.Length < 1 || spec.Forward.Length > 8)
             {
                 throw new InvalidOperationException("A gearbox has 1 to 8 forward gears.");

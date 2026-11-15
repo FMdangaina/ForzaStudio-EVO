@@ -99,38 +99,19 @@ namespace ForzaStudio
             {
                 files.AddRange(Directory.GetFiles(strings, "*.zip"));
             }
-            List<string> busy = new List<string>();
-            foreach (string file in files)
-            {
-                if (!File.Exists(file))
-                {
-                    continue;
-                }
-                try
-                {
-                    using (new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-                    {
-                    }
-                }
-                catch (IOException)
-                {
-                    busy.Add(this.Relative(file));
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    busy.Add(this.Relative(file));
-                }
-            }
             // Xenia keeps Media\UI\Textures.zip open while it runs: the port goes on without the thumbnail
             // (a later port of the same car with the emulator closed adds it).
-            string textures = this.Relative(Path.Combine(Path.Combine(media, "UI"), "Textures.zip"));
-            if (busy.Remove(textures))
+            string textures = Path.Combine(Path.Combine(media, "UI"), "Textures.zip");
+            files.RemoveAll(delegate(string file) { return string.Equals(file, textures, StringComparison.OrdinalIgnoreCase); });
+            if (File.Exists(textures) && FileLocks.WhyNotWritable(textures) != null)
             {
                 this.skipThumbnail = true;
             }
+            // read-only files are made writable; the others name the process that keeps them (FileLocks)
+            List<string> busy = FileLocks.Busy(files, this.Relative);
             if (busy.Count > 0)
             {
-                throw new IOException("Files in use (close the game or the emulator first): " + string.Join(", ", busy.ToArray()));
+                throw new IOException(FileLocks.Message(busy));
             }
         }
 

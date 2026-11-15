@@ -204,12 +204,9 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (CarPortForm.XeniaRunning())
+            if (!XeniaGuard.Confirm(this, "Fix DLC package", "this DLC package"))
             {
-                if (MessageBox.Show(this, "Xenia is running. Close it before the package is changed (it may keep the file open), then press OK.\n\nContinue anyway?", "Fix DLC package", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
-                {
-                    return;
-                }
+                return;
             }
             Cursor previous = this.Cursor;
             this.Cursor = Cursors.WaitCursor;

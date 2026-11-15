@@ -19,7 +19,7 @@ namespace ForzaStudio
     //             model tuning and thumbnail; zipmanifest.xml lines removed or updated.
     // Harmonic tunings and sound banks the port brought stay: other tunings may play them.
     // Plan() lists everything without writing; Run() does it, every file backed up first.
-    public class CarUninstall
+    public partial class CarUninstall
     {
         public string TargetRoot;
         public string MediaName;
@@ -39,6 +39,11 @@ namespace ForzaStudio
         public void Run()
         {
             this.Execute(true);
+            ForzaGame game = GameInfo.Detect(this.TargetRoot);
+            if (game == ForzaGame.Motorsport2 || game == ForzaGame.Motorsport3 || game == ForzaGame.Motorsport4)
+            {
+                DlcPackage.RefreshNamesPack(game, this.TargetRoot, null, this.Report);   // the names pack follows the game folder's tables
+            }
         }
 
         private string Media
@@ -49,14 +54,18 @@ namespace ForzaStudio
         private List<string> Execute(bool apply)
         {
             this.stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
+            ForzaGame folderGame = GameInfo.Detect(this.TargetRoot);
+            if (folderGame == ForzaGame.Motorsport2 || folderGame == ForzaGame.Motorsport3)
+            {
+                return this.ExecuteCopy(apply, folderGame);   // CarUninstall.Copy.cs: by the game's relation map and Id limits
+            }
             List<string> plan = new List<string>();
             string carZipPath = Path.Combine(Path.Combine(this.Media, "cars"), this.MediaName + ".zip");
-            if (!File.Exists(carZipPath))
-            {
-                throw new InvalidOperationException("The FM4 folder has no " + this.MediaName + ".zip.");
-            }
-            ForzaZip carZip = new ForzaZip(carZipPath);
-            ForzaZip.Entry logEntry = carZip.Find("port_log.txt");
+            // A port whose zip was deleted by hand while its rows stayed in gamedb.slt (UF-001): the rows still go, found by
+            // the car's Id as for a copy without log (the Id must be above FM4's, checked below); the zip is not listed.
+            bool zipExists = File.Exists(carZipPath);
+            ForzaZip carZip = zipExists ? new ForzaZip(carZipPath) : null;
+            ForzaZip.Entry logEntry = zipExists ? carZip.Find("port_log.txt") : null;
             // A ported car has the port's log; a car made by Duplicate Car has none (its rows are found by its Id, its own engine by
             // an EngineID above FM4's). Either way only a car above FM4's own ids goes (checked below).
             bool ported = logEntry != null;
@@ -77,7 +86,11 @@ namespace ForzaStudio
                 long carId = Convert.ToInt64(idValue);
                 if (!ported && carId <= GameIdLimits.Max(ForzaGame.Motorsport4, "Data_Car", "Id"))
                 {
-                    throw new InvalidOperationException(this.MediaName + " has no port_log.txt and its Id " + carId + " is not above FM4's: it is a car of the game itself, so it is not deleted.");
+                    throw new InvalidOperationException(this.MediaName + (zipExists ? " has no port_log.txt" : " has no zip") + " and its Id " + carId + " is not above FM4's: it is a car of the game itself, so it is not deleted.");
+                }
+                if (!zipExists)
+                {
+                    plan.Add("no Media\\cars\\" + this.MediaName + ".zip (deleted by hand): only the rows and files left are removed");
                 }
                 plan.Add(string.Format(CultureInfo.InvariantCulture, "car {0}, id {1}", this.MediaName, carId));
 
@@ -121,9 +134,13 @@ namespace ForzaStudio
                 {
                     List<string> columns = Columns(db, table);
                     string where = null;
-                    if (table == "Data_Car")
+                    if (table == "Data_Car" || table == Fm2StockGarage.Table)
                     {
-                        where = "Id = " + carId;
+                        where = "Id = " + carId;   // FM2's StockGarage: one row per car shown in the game (Fm2StockGarage)
+                    }
+                    else if (table == Fm2StockGarage.ArcadeTable)
+                    {
+                        where = "CarId = " + carId;   // FM2's Arcade garage: the editor's cars are always in it
                     }
                     else if (table.StartsWith("List_UpgradeCarBody", StringComparison.Ordinal) && columns.Count > 0 && columns[0] == "Id" && !Has(columns, "Ordinal"))
                     {
@@ -341,8 +358,15 @@ namespace ForzaStudio
                     rulesText = MakeTitles.RemoveRule(File.ReadAllText(rulesPath), titleBase);
                     plan.Add(rulesText == null ? "  no Drive_" + titleBase + " rule in " + MakeTitles.RulesFile : "file Media\\GameTunableSettings\\BadgesAndTitles\\" + MakeTitles.RulesFile + " (the Drive_" + titleBase + " rule)");
                 }
-                deleted.Add(carZipPath);
-                plan.Add("file Media\\cars\\" + Path.GetFileName(carZipPath));
+                if (zipExists)
+                {
+                    deleted.Add(carZipPath);
+                    plan.Add("file Media\\cars\\" + Path.GetFileName(carZipPath));
+                }
+                else
+                {
+                    plan.Add("zipmanifest.xml: the line of Media\\cars\\" + this.MediaName + ".zip, if still there");
+                }
                 // the car's own tire models (Media\wheels\TireA/B/C<car>.zip, D-16) go with the car
                 foreach (Match zip in Regex.Matches(log, @"^tire zip: (Media\\wheels\\[^ \r\n]+\.zip)", RegexOptions.Multiline))
                 {
@@ -429,6 +453,10 @@ namespace ForzaStudio
                     File.Delete(path);
                     ZipManifest.Remove(manifest, ZipManifest.GamePath(this.TargetRoot, path));
                     this.Line("deleted {0}", this.Relative(path));
+                }
+                if (!zipExists && ZipManifest.Remove(manifest, ZipManifest.GamePath(this.TargetRoot, carZipPath)))
+                {
+                    this.Line("zipmanifest.xml: line of the missing {0}.zip removed", this.MediaName);
                 }
                 this.Line("zipmanifest.xml: {0} lines updated, {1} removed", changed.Count, deleted.Count);
             }
@@ -632,31 +660,11 @@ namespace ForzaStudio
             files.Add(ZipManifest.PathFor(this.TargetRoot));
             files.Add(Path.Combine(Path.Combine(this.Media, "UI"), "Textures.zip"));
             files.AddRange(Directory.GetFiles(Path.Combine(this.Media, "StringTables"), "*.zip"));
-            List<string> busy = new List<string>();
-            foreach (string file in files)
-            {
-                if (!File.Exists(file))
-                {
-                    continue;
-                }
-                try
-                {
-                    using (new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-                    {
-                    }
-                }
-                catch (IOException)
-                {
-                    busy.Add(this.Relative(file));
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    busy.Add(this.Relative(file));
-                }
-            }
+            // read-only files are made writable; the others name the process that keeps them (FileLocks)
+            List<string> busy = FileLocks.Busy(files, this.Relative);
             if (busy.Count > 0)
             {
-                throw new IOException("Files in use (close the game or the emulator first): " + string.Join(", ", busy.ToArray()));
+                throw new IOException(FileLocks.Message(busy));
             }
         }
 

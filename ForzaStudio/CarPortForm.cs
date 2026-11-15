@@ -102,6 +102,7 @@ namespace ForzaStudio
         private readonly TextBox targetBox;
         private readonly TextBox search;
         private readonly CheckBox showInFm4;
+        private readonly ToolTip showInFmTip = new ToolTip();
         private readonly CheckBox includeDlc;
         private readonly ListView cars;
         private readonly ComboBox donors;
@@ -172,6 +173,7 @@ namespace ForzaStudio
             public string Dlc;          // the DLC package the car comes from, empty for the game itself
             public bool InFm4Database;  // an FM4 car whose rows are in the FM4 folder's gamedb.slt (the game's and disc 2's cars)
             public string PortedAs;    // an FM4 car also ported beside FM4's own, under this MediaName (for tests), or null
+            public bool MadeHere;       // in the target's database but not in Fm4CarList: made or ported by this program, never one of FM4's own
         }
 
         private class DonorChoice : IRecommended
@@ -225,9 +227,12 @@ namespace ForzaStudio
             this.packOfferBox = new TextBox();
             this.packFirstCarBox = new TextBox();
             this.Text = (mode == PortMode.Dlc) ? "Create DLC Package" : "Import Car From Another Forza";
-            this.Size = new Size(1360, 900);
             this.MinimumSize = new Size(1100, 720);
-            this.StartPosition = FormStartPosition.CenterParent;
+            // Most of the screen (user 2026-11-13: at 1360 x 900 the car list's columns, ~1090 px, and the pack's
+            // scrolled sideways); never below the minimum, never above the screen's working area.
+            Rectangle work = Screen.FromPoint(Cursor.Position).WorkingArea;
+            this.Size = new Size(Math.Max(1100, Math.Min(1900, work.Width - 40)), Math.Max(720, Math.Min(1080, work.Height - 40)));
+            this.StartPosition = FormStartPosition.CenterScreen;
             this.Font = ForzaTheme.Regular;
             try
             {
@@ -792,7 +797,8 @@ namespace ForzaStudio
                 body.SplitterDistance = Math.Max(200, body.Height - 230);
                 if (mode == PortMode.Dlc)
                 {
-                    top.SplitterDistance = Math.Max(400, top.Width - 380 - 112);
+                    // The pack panel wide enough for its three columns (Car, Donor, Review) without a side scroll bar.
+                    top.SplitterDistance = Math.Max(400, top.Width - 470 - 112);
                 }
             };
 
@@ -1663,7 +1669,7 @@ namespace ForzaStudio
                 {
                     this.packOfferBox.Text = DlcPackage.FreeOffer(target, content).ToString(CultureInfo.InvariantCulture);
                 }
-                if (force || this.packFirstCar <= GameIdLimits.Max(ForzaGame.Motorsport4, "Data_Car", "Id"))
+                if (force || this.packFirstCar <= GameIdLimits.MaxCar(ForzaGame.Motorsport4))
                 {
                     using (SqliteDatabase game = SqliteDatabase.FromBytes(File.ReadAllBytes(CarMake.DatabasePath(target))))
                     {
@@ -1865,18 +1871,6 @@ namespace ForzaStudio
             });
         }
 
-        internal static bool XeniaRunning()
-        {
-            foreach (string name in new string[] { "xenia_canary", "xenia", "xenia_edge" })
-            {
-                if (Process.GetProcessesByName(name).Length > 0)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         private void BuildPack()
         {
             string content = this.XeniaContent();
@@ -1887,9 +1881,8 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (XeniaRunning())
+            if (!XeniaGuard.Confirm(this, this.Text, "the DLC packages"))
             {
-                MessageBox.Show(this, "Close Xenia first: the game reads the DLC packages when it starts.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             int offer = this.packOffer;
@@ -1989,9 +1982,8 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (XeniaRunning())
+            if (!XeniaGuard.Confirm(this, this.Text, "the DLC packages"))
             {
-                MessageBox.Show(this, "Close Xenia first: the game keeps the DLC packages open.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             string file;
@@ -2087,20 +2079,22 @@ namespace ForzaStudio
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
             {
                 dialog.Description = "Folder for the Xbox 360 package file (saved directly in it)";
-                string last = AppSettings.Get("CarPort.XboxOut", "");
-                if (last.IndexOf("4D53084D", StringComparison.OrdinalIgnoreCase) >= 0)
+                string start = DlcPackage.PackageOutputStart("CarPort.XboxOut", DlcPackage.TitleId);   // never another game's folder
+                if (start != null)
                 {
-                    last = "";      // the FM3 folder (title 4D53084D) kept before FM3 had its own setting: an FM4 package goes to the FM4 title folder
-                }
-                if (Directory.Exists(last))
-                {
-                    dialog.SelectedPath = last;
+                    dialog.SelectedPath = start;
                 }
                 if (dialog.ShowDialog(this) != DialogResult.OK)
                 {
                     return;
                 }
                 output = dialog.SelectedPath;
+            }
+            string foreign = DlcPackage.ForeignTitleFolder(output, DlcPackage.TitleId);
+            if (foreign != null)
+            {
+                MessageBox.Show(this, output + " is the content folder of another game (title " + foreign + ").\n\nThis is a Forza Motorsport 4 package (title " + DlcPackage.TitleId + "): choose its own folder.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                return;
             }
             AppSettings.Set("CarPort.XboxOut", output);
             int offer = this.packOffer;
@@ -2197,9 +2191,8 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (XeniaRunning())
+            if (!XeniaGuard.Confirm(this, this.Text, "this pack"))
             {
-                MessageBox.Show(this, "Close Xenia first.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (MessageBox.Show(this, string.Format("Remove the pack (offer {0}) from Xenia?\n\n{1}", this.packOffer, DlcPackage.PackagePath(content, this.packOffer)),
@@ -2799,6 +2792,7 @@ namespace ForzaStudio
                 if (!known.ContainsKey(car.MediaName))
                 {
                     car.InFm4Database = true;
+                    car.MadeHere = true;
                     cars.Add(car);
                 }
             }
@@ -2934,6 +2928,15 @@ namespace ForzaStudio
                             ported.Add(same);
                             notes.AppendLine(string.Format("Donor {0} ({1}) left out: the {2} car {3} counts as ported over it (build number or port_log.txt)", same.MediaName, same.Name, sourceName, car.MediaName));
                         }
+                        else if (same.MadeHere)
+                        {
+                            // UF-001: the target's database still has the rows of an earlier port whose zip is gone (or is another
+                            // build). Not an FM4 car: it was taken for one, hidden, and a new port went beside it as a renamed copy.
+                            car.State = Status.Ported;
+                            car.Note = "ported earlier, its files are incomplete (id " + same.Id + "): install rewrites it, Uninstall removes what is left";
+                            ported.Add(same);
+                            notes.AppendLine(string.Format("{0}: rows of an earlier port in the target's database (id {1}) without its matching car zip", car.MediaName, same.Id));
+                        }
                         else
                         {
                             car.State = Status.InFm4;
@@ -3027,6 +3030,8 @@ namespace ForzaStudio
             this.cars.BeginUpdate();
             this.cars.Items.Clear();
             List<ListViewItem> shown = new List<ListViewItem>();
+            // UF-001: the cars the default filter hides, by reason, so a car never just disappears from the list.
+            int hiddenPorted = 0, hiddenInFm4 = 0, hiddenInPack = 0, hiddenNoFiles = 0;
             foreach (ListViewItem item in this.items)
             {
                 bool match = find.Length == 0;
@@ -3040,7 +3045,27 @@ namespace ForzaStudio
                 {
                     shown.Add(item);
                 }
+                else if (match)
+                {
+                    switch (state)
+                    {
+                        case Status.Ported: hiddenPorted++; break;
+                        case Status.InFm4: hiddenInFm4++; break;
+                        case Status.InPack: hiddenInPack++; break;
+                        default: hiddenNoFiles++; break;
+                    }
+                }
             }
+            List<string> why = new List<string>();
+            if (hiddenPorted > 0) { why.Add(hiddenPorted + " ported"); }
+            if (hiddenInPack > 0) { why.Add(hiddenInPack + " in a Xenia pack"); }
+            if (hiddenInFm4 > 0) { why.Add(hiddenInFm4 + " FM4's own"); }
+            if (hiddenNoFiles > 0) { why.Add(hiddenNoFiles + " without files"); }
+            // Short on the box (the line is narrow: the long text pushed "Include the game's DLC" out), the reasons in the tooltip.
+            int hidden = hiddenPorted + hiddenInFm4 + hiddenInPack + hiddenNoFiles;
+            this.showInFm4.Text = "Also show cars already in target" + ((hidden > 0) ? " (" + hidden + " hidden)" : "");
+            this.showInFmTip.SetToolTip(this.showInFm4, (why.Count > 0) ? "Hidden now: " + string.Join(", ", why.ToArray()) + ".\nTick to show them (a car's note says why it is in the target)." : "No car hidden.");
+            this.includeDlc.Left = Math.Max(620, this.showInFm4.Right + 16);
             if (this.sortColumn >= 0)
             {
                 int column = this.sortColumn;
@@ -3324,16 +3349,26 @@ namespace ForzaStudio
                             car.State = Status.Ported;
                             car.Note = "ported (install updates it)";
                         }
-                        foreach (ListViewItem item in this.items)
-                        {
-                            if (item.Tag == car)
-                            {
-                                item.SubItems[8].Text = car.Note;
-                            }
-                        }
+                        this.RefreshCarRow(car);
                     }
                 };
             });
+        }
+
+        // A car's row after an install / uninstall: its note and its colour (grey when in the target, else yellow / blue / plain
+        // as drawn by the list), without reloading the list (user 2026-11-13: after Uninstall the row stayed grey until the
+        // window was reopened). The row stays where it is, so the car can be uninstalled / installed again at once.
+        private void RefreshCarRow(Car car)
+        {
+            foreach (ListViewItem item in this.items)
+            {
+                if (item.Tag == car)
+                {
+                    item.SubItems[8].Text = car.Note;
+                    item.ForeColor = (car.State != Status.New) ? ForzaTheme.TextDim : this.cars.ForeColor;
+                }
+            }
+            this.cars.Invalidate();
         }
 
         // Takes a ported car out of the FM4 folder (CarUninstall): the plan into the report first, then
@@ -3363,9 +3398,8 @@ namespace ForzaStudio
                         this.report.Text += "\r\ncancelled, nothing changed\r\n";
                         return;
                     }
-                    if (XeniaRunning())
+                    if (!XeniaGuard.Confirm(this, this.Text, "the game's files"))
                     {
-                        MessageBox.Show(this, "Close Xenia first: it keeps the game's files open.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
                     this.Background(delegate
@@ -3387,13 +3421,7 @@ namespace ForzaStudio
                                 car.State = Status.New;
                                 car.Note = "uninstalled";
                             }
-                            foreach (ListViewItem item in this.items)
-                            {
-                                if (item.Tag == car)
-                                {
-                                    item.SubItems[8].Text = car.Note;
-                                }
-                            }
+                            this.RefreshCarRow(car);
                             this.details.Text = car.Name + " is out of the FM4 folder: it can go into a DLC pack now.";
                             this.OnGameChanged();
                         };

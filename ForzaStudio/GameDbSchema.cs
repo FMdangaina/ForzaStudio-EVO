@@ -82,6 +82,109 @@ namespace ForzaStudio
             return Relations.FindAll(delegate(Relation r) { return string.Equals(r.Table, table, StringComparison.OrdinalIgnoreCase); });
         }
 
+        // ---- per game (ST-02, 2026-11-14) ----
+        // FM4, FH1 and FH2 use the map above (measured on FM4; FH2 has all of FM4's tables). FM2 and FM3 have their own,
+        // measured the same way on their stock databases (fm4dev\ST02\relmap.exe, reviewed): docs\<FM2|FM3>\DbRelations.tsv
+        // (FM2 163 relations, FM3 219), and the keys of their tables that declare none, docs\<FM2|FM3>\DbKeys.tsv (FM2: the
+        // counters of the physics, aero, torque curve, price and engine tables; FM3: 4 tables).
+
+        private static readonly Dictionary<ForzaGame, List<Relation>> gameRelations = new Dictionary<ForzaGame, List<Relation>>();
+        private static readonly Dictionary<ForzaGame, Dictionary<string, string>> gameKeys = new Dictionary<ForzaGame, Dictionary<string, string>>();
+
+        private static string Tag(ForzaGame game)
+        {
+            return (game == ForzaGame.Motorsport2) ? "FM2" : (game == ForzaGame.Motorsport3) ? "FM3" : null;
+        }
+
+        private static List<string[]> ReadResource(string name)
+        {
+            List<string[]> rows = new List<string[]>();
+            using (System.IO.Stream stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(name))
+            {
+                if (stream == null)
+                {
+                    throw new InvalidOperationException("The program has no " + name + " (database map of the game).");
+                }
+                using (System.IO.StreamReader reader = new System.IO.StreamReader(stream))
+                {
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (line.Length > 0 && !line.StartsWith("#"))
+                        {
+                            rows.Add(line.Split('\t'));
+                        }
+                    }
+                }
+            }
+            return rows;
+        }
+
+        // The relations of a game's database.
+        public static List<Relation> For(ForzaGame game)
+        {
+            string tag = Tag(game);
+            if (tag == null)
+            {
+                return Relations;
+            }
+            lock (gameRelations)
+            {
+                List<Relation> list;
+                if (!gameRelations.TryGetValue(game, out list))
+                {
+                    list = new List<Relation>();
+                    foreach (string[] row in ReadResource("DbRelations_" + tag + ".tsv"))
+                    {
+                        if (row.Length >= 5)
+                        {
+                            list.Add(new Relation(row[0], row[1], row[2], row[3], row[4] == "1", (row.Length > 5) ? row[5] : null));
+                        }
+                    }
+                    gameRelations[game] = list;
+                }
+                return list;
+            }
+        }
+
+        public static List<Relation> Into(ForzaGame game, string table)
+        {
+            return For(game).FindAll(delegate(Relation r) { return string.Equals(r.Target, table, StringComparison.OrdinalIgnoreCase); });
+        }
+
+        public static List<Relation> From(ForzaGame game, string table)
+        {
+            return For(game).FindAll(delegate(Relation r) { return string.Equals(r.Table, table, StringComparison.OrdinalIgnoreCase); });
+        }
+
+        // The key column of a table that declares none, for FM2 / FM3 (DbKeys); null for the other games or tables.
+        public static string LogicalKey(ForzaGame game, string table)
+        {
+            string tag = Tag(game);
+            if (tag == null)
+            {
+                return null;
+            }
+            lock (gameKeys)
+            {
+                Dictionary<string, string> keys;
+                if (!gameKeys.TryGetValue(game, out keys))
+                {
+                    keys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (string[] row in ReadResource("DbKeys_" + tag + ".tsv"))
+                    {
+                        if (row.Length >= 2)
+                        {
+                            keys[row[0]] = row[1];
+                        }
+                    }
+                    gameKeys[game] = keys;
+                }
+                string key;
+                return keys.TryGetValue(table, out key) ? key : null;
+            }
+        }
+
         private static void R(string table, string column, string target, string targetColumn)
         {
             Relations.Add(new Relation(table, column, target, targetColumn, true, null));

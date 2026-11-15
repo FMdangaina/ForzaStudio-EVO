@@ -27,7 +27,7 @@ namespace ForzaStudio
         // CarId then skips every Id the target, the source and the installed packs use. No ini override any more.
         public static long InstallFirstCar
         {
-            get { return Math.Max(1, GameIdLimits.Max(ForzaGame.Motorsport4, "Data_Car", "Id") + 1); }
+            get { return Math.Max(1, GameIdLimits.MaxCar(ForzaGame.Motorsport4) + 1); }
         }
 
         // In the other tables a car's Id is one of these columns (as CarPort.PortDatabase copies them).
@@ -118,7 +118,7 @@ namespace ForzaStudio
                 // Xenia keeps a package as one STFS file: its merge database is taken out once (cached by size and date).
                 foreach (string file in Directory.GetFiles(content, "*", SearchOption.AllDirectories))
                 {
-                    string extracted = StfsMerge(file);
+                    string extracted = file.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ? ZipMerge(file) : StfsMerge(file);
                     if (extracted != null)
                     {
                         found.Add(extracted);
@@ -135,6 +135,47 @@ namespace ForzaStudio
         }
 
         private static readonly Dictionary<string, string> stfsMerges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // The merge database inside a layer zip of a folder package (FM2: DLC<offer>_pri_65.zip, the game reads no loose layer),
+        // as a file in the temp folder, or null. Only <name>_pri_<n>.zip layers, not the string zips.
+        private static string ZipMerge(string file)
+        {
+            string name = Path.GetFileName(file);
+            if (name.IndexOf("_pri_", StringComparison.OrdinalIgnoreCase) < 0 || name.IndexOf("Overrides", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.StartsWith("StringTables", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            FileInfo info = new FileInfo(file);
+            string key = info.FullName + "|" + info.Length.ToString(CultureInfo.InvariantCulture) + "|" + info.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture);
+            string cached;
+            if (stfsMerges.TryGetValue(key, out cached) && (cached.Length == 0 || File.Exists(cached)))
+            {
+                return cached.Length > 0 ? cached : null;
+            }
+            string result = string.Empty;
+            try
+            {
+                ForzaZip zip = new ForzaZip(file);
+                foreach (ForzaZip.Entry entry in zip.Entries)
+                {
+                    if (entry.Name.EndsWith("_merge.slt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string folder = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "PackMerges");
+                        Directory.CreateDirectory(folder);
+                        result = Path.Combine(folder, Math.Abs((long) key.GetHashCode()).ToString(CultureInfo.InvariantCulture) + "_" + name + "_merge.slt");
+                        File.WriteAllBytes(result, zip.Read(entry));
+                        break;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                result = string.Empty;
+            }
+            stfsMerges[key] = result;
+            return result.Length > 0 ? result : null;
+        }
 
         // The merge database of an STFS package as a file in the temp folder, or null (not a package, or no merge).
         private static string StfsMerge(string file)
@@ -179,7 +220,7 @@ namespace ForzaStudio
         // database (cars installed in it) and of the packs already in Xenia's content folder.
         public static long FirstPackCar(SqliteDatabase target, string content)
         {
-            long max = GameIdLimits.Max(ForzaGame.Motorsport4, "Data_Car", "Id");
+            long max = GameIdLimits.MaxCar(ForzaGame.Motorsport4);
             object own = target.Scalar("SELECT max(Id) FROM Data_Car");
             if (own != null && own != DBNull.Value)
             {
@@ -264,6 +305,122 @@ namespace ForzaStudio
             }
         }
 
+        // The Ids of the cars of the installed packs (their merge databases).
+        public static Dictionary<long, string> PackCarIds(List<string> packs)
+        {
+            Dictionary<long, string> ids = new Dictionary<long, string>();
+            foreach (string pack in packs)
+            {
+                try
+                {
+                    using (SqliteDatabase merge = SqliteDatabase.FromBytes(File.ReadAllBytes(pack)))
+                    {
+                        if (!HasTable(merge, "Data_Car"))
+                        {
+                            continue;
+                        }
+                        foreach (object[] row in merge.Query("SELECT Id, MediaName FROM Data_Car").Rows)
+                        {
+                            if (row[0] is long)
+                            {
+                                ids[(long) row[0]] = (row[1] as string) ?? Path.GetFileName(pack);
+                            }
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                }
+            }
+            return ids;
+        }
+
+        // The largest car Id the user may choose: car * 1000 + 999 still fits the int keys of the car's rows.
+        public const long MaxChosenCarId = 2147482;
+
+        // FM2 car Ids (2026-11-14, checked in game): every official car is at most 1024 (base 247-617, DLC 620-658 and 1001-1024,
+        // DLCBeta 626 / 1001); a copy at 659 was usable, copies at 1025 / 1026 were shown (StockGarage) but always LOCKED. New
+        // cars take 659-1000 first. 2026-11-14 a copy at 1025 showed and drove in game (the lock was the source car's), so
+        // when 659-1000 is full (user 2026-11-15) a copy goes on from 1025 with a warning; 1001-1024 stay the official DLC's.
+        public const long Fm2FirstFreeCarId = 659;
+        public const long Fm2LastFreeCarId = 1000;
+        public const long Fm2LastCarId = 1024;
+
+        // A FM2 car Id in the preferred window 659-1000.
+        public static bool Fm2FreeWindow(long id)
+        {
+            return id >= Fm2FirstFreeCarId && id <= Fm2LastFreeCarId;
+        }
+
+        // A FM2 car Id the editor may use: from 659 on, out of the official DLC ids 1001-1024.
+        public static bool Fm2UsableCarId(long id)
+        {
+            return id >= Fm2FirstFreeCarId && !(id > Fm2LastFreeCarId && id <= Fm2LastCarId);
+        }
+
+        // The first FM2 car Id to try after 'id' when 'id' falls in the official DLC ids.
+        public static long Fm2SkipDlcIds(long id)
+        {
+            return (id > Fm2LastFreeCarId && id <= Fm2LastCarId) ? Fm2LastCarId + 1 : id;
+        }
+
+        // A warning for a FM2 car Id above the preferred window, or null.
+        public static string Fm2CarIdWarning(long id)
+        {
+            return (id > Fm2LastFreeCarId)
+                ? string.Format(CultureInfo.InvariantCulture, "FM2 car Id {0} is above {1} (659-{1} has no free Id left, {2}-{3} are the official DLC's): a copy at 1025 worked in game, but check this car in game.", id, Fm2LastFreeCarId, Fm2LastFreeCarId + 1, Fm2LastCarId)
+                : null;
+        }
+
+        // Why a car Id chosen by the user cannot be used, or null when it can: it must be above every car of FM4 and
+        // its DLC (GameIdLimits.MaxCar, car * 1000 + n keys included) and free in the game database and in the
+        // installed packs. db may be null (only the limits and the packs are checked).
+        public static string ChosenCarIdProblem(SqliteDatabase db, long id, Dictionary<long, string> packCars)
+        {
+            return ChosenCarIdProblem(db, id, packCars, ForzaGame.Motorsport4);
+        }
+
+        // game: whose largest car Id (GameIdLimits.MaxCar) the Id must be above; FM4 for FM4, FH1, FH2.
+        public static string ChosenCarIdProblem(SqliteDatabase db, long id, Dictionary<long, string> packCars, ForzaGame game)
+        {
+            ForzaGame limits = (game == ForzaGame.Motorsport2 || game == ForzaGame.Motorsport3) ? game : ForzaGame.Motorsport4;
+            long top = GameIdLimits.MaxCar(limits);
+            if (game == ForzaGame.Motorsport2)
+            {
+                if (!Fm2UsableCarId(id))
+                {
+                    return string.Format(CultureInfo.InvariantCulture, "Car Id {0}: FM2 takes {1} to {2}, or {3} and above ({4}-{5} and below {1} are the base game's and the official DLC's).", id, Fm2FirstFreeCarId, Fm2LastFreeCarId, Fm2LastCarId + 1, Fm2LastFreeCarId + 1, Fm2LastCarId);
+                }
+                top = 0;
+            }
+            if (id <= top)
+            {
+                return string.Format(CultureInfo.InvariantCulture, "Car Id {0} is not above {3}'s largest ({1}, base game and every DLC): use {2} or more.", id, top, top + 1, GameInfo.Tag(limits));
+            }
+            if (id > MaxChosenCarId)
+            {
+                return string.Format(CultureInfo.InvariantCulture, "Car Id {0} is too large (at most {1}).", id, MaxChosenCarId);
+            }
+            string pack;
+            if (packCars != null && packCars.TryGetValue(id, out pack))
+            {
+                return string.Format(CultureInfo.InvariantCulture, "Car Id {0} is used by {1} of an installed DLC pack.", id, pack);
+            }
+            if (db != null)
+            {
+                object name = db.Scalar("SELECT MediaName FROM Data_Car WHERE Id = ?", id);
+                if (name != null || Taken(db, id))
+                {
+                    return string.Format(CultureInfo.InvariantCulture, "Car Id {0} is already used in the game database{1}.", id, (name != null) ? " by " + name : "");
+                }
+                if (UsedByCarColumn(db, CarColumns(Schema(db), game), id))
+                {
+                    return string.Format(CultureInfo.InvariantCulture, "Car Id {0} is named by rows of the game database (a car column): choose another.", id);
+                }
+            }
+            return null;
+        }
+
         // True when any car column of the database (CarColumns) holds the Id.
         private static bool UsedByCarColumn(SqliteDatabase db, List<string[]> columns, long id)
         {
@@ -302,13 +459,19 @@ namespace ForzaStudio
         // database of an FM2 car is a copy of the target): its rows, by car column and by car * 1000 + n key, go first.
         public static List<string> RenumberCar(SqliteDatabase db, long from, long to, bool replaceExisting)
         {
+            return RenumberCar(db, from, to, replaceExisting, ForzaGame.Motorsport4);
+        }
+
+        // game: whose relation map and keys (GameDbSchema.For / LogicalKey); FM4's for FM4, FH1, FH2.
+        public static List<string> RenumberCar(SqliteDatabase db, long from, long to, bool replaceExisting, ForzaGame game)
+        {
             List<string> lines = new List<string>();
             if (from == to)
             {
                 return lines;
             }
             Dictionary<string, List<string>> schema = Schema(db);
-            List<string[]> carColumns = CarColumns(schema);
+            List<string[]> carColumns = CarColumns(schema, game);
             long low = from * 1000;
             long high = low + 999;
 
@@ -321,7 +484,7 @@ namespace ForzaStudio
                 {
                     owners.Add(car[0]);
                 }
-                string key = KeyColumn(db, car[0], schema[car[0]]);
+                string key = KeyColumn(db, car[0], schema[car[0]], game);
                 if (key == null || string.Equals(key, car[1], StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -342,7 +505,7 @@ namespace ForzaStudio
             }
             foreach (string owner in owners)
             {
-                foreach (GameDbSchema.Relation relation in GameDbSchema.From(owner))
+                foreach (GameDbSchema.Relation relation in GameDbSchema.From(game, owner))
                 {
                     List<string> targetColumns;
                     if (relation.IsComposite || !Has(schema[owner], relation.Column) || !schema.TryGetValue(relation.Target, out targetColumns) || !Has(targetColumns, relation.TargetColumn))
@@ -382,7 +545,7 @@ namespace ForzaStudio
                         throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "{0}.{1}: id {2} (car {3}) is already used, the car cannot take id {4}.", table, column, now, from, to));
                     }
                     db.Execute("UPDATE " + t + " SET " + c + " = ? WHERE " + c + " = ?", now, old);
-                    foreach (GameDbSchema.Relation relation in GameDbSchema.Into(table))
+                    foreach (GameDbSchema.Relation relation in GameDbSchema.Into(game, table))
                     {
                         List<string> columns;
                         if (relation.IsComposite || !string.Equals(relation.TargetColumn, column, StringComparison.OrdinalIgnoreCase)
@@ -426,6 +589,11 @@ namespace ForzaStudio
         // C3: the car's rows in the target before anything is written. Errors name the table and column.
         public static List<string> CheckCar(SqliteDatabase db, long car, long sourceId, string mediaName)
         {
+            return CheckCar(db, car, sourceId, mediaName, ForzaGame.Motorsport4);
+        }
+
+        public static List<string> CheckCar(SqliteDatabase db, long car, long sourceId, string mediaName, ForzaGame game)
+        {
             List<string> errors = new List<string>();
             Dictionary<string, List<string>> schema = Schema(db);
             long byId = Convert.ToInt64(db.Scalar("SELECT count(*) FROM Data_Car WHERE Id = ?", car));
@@ -446,9 +614,9 @@ namespace ForzaStudio
             {
                 errors.Add(string.Format(CultureInfo.InvariantCulture, "Data_CarBody.Id: no row {0} (car * 1000)", car * 1000));
             }
-            foreach (string[] column in CarColumns(schema))
+            foreach (string[] column in CarColumns(schema, game))
             {
-                string key = KeyColumn(db, column[0], schema[column[0]]);
+                string key = KeyColumn(db, column[0], schema[column[0]], game);
                 if (key == null || string.Equals(key, column[1], StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -516,6 +684,11 @@ namespace ForzaStudio
         // Every table.column holding a car's Id: the car columns by name, plus the relations into Data_Car.
         public static List<string[]> CarColumns(Dictionary<string, List<string>> schema)
         {
+            return CarColumns(schema, ForzaGame.Motorsport4);
+        }
+
+        public static List<string[]> CarColumns(Dictionary<string, List<string>> schema, ForzaGame game)
+        {
             List<string[]> found = new List<string[]>();
             foreach (KeyValuePair<string, List<string>> table in schema)
             {
@@ -531,7 +704,7 @@ namespace ForzaStudio
                     }
                 }
             }
-            foreach (GameDbSchema.Relation relation in GameDbSchema.Into("Data_Car"))
+            foreach (GameDbSchema.Relation relation in GameDbSchema.Into(game, "Data_Car"))
             {
                 List<string> columns;
                 if (relation.IsComposite || relation.Table == "Data_Car" || !schema.TryGetValue(relation.Table, out columns) || !Has(columns, relation.Column)
@@ -542,6 +715,12 @@ namespace ForzaStudio
                 found.Add(new string[] { relation.Table, relation.Column });
             }
             return found;
+        }
+
+        // The same, then for FM2 / FM3 the key the game's map names for a table that declares none (GameDbSchema.LogicalKey).
+        public static string KeyColumn(SqliteDatabase db, string table, List<string> columns, ForzaGame game)
+        {
+            return KeyColumn(db, table, columns) ?? GameDbSchema.LogicalKey(game, table);
         }
 
         // The table's single-column key (PRAGMA pk), else a first column named Id; null otherwise.

@@ -25,9 +25,15 @@ namespace ForzaStudio
         // The highest key that no FM4 package uses and no given file holds (FFFF ends the key list).
         public static int Free(string table, IEnumerable<StrFile> files)
         {
+            return Free(table, files, null);
+        }
+
+        // also: keys taken elsewhere (the installed DLC's tables of FM2 / FM3, which the FM4 list does not know).
+        public static int Free(string table, IEnumerable<StrFile> files, ICollection<int> also)
+        {
             for (int candidate = 0xFFFE; candidate > 0; candidate--)
             {
-                bool used = Used(table, candidate);
+                bool used = Used(table, candidate) || (also != null && also.Contains(candidate));
                 foreach (StrFile file in files)
                 {
                     used = used || file.Contains(candidate);

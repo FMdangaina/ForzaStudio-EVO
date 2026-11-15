@@ -395,7 +395,7 @@ namespace ForzaStudio
                 vertices += mesh.VertexCount;
                 faces += mesh.FaceCount;
             }
-            this.lblModelInfo.Text = string.Format("{0:N0} vertices, {1:N0} faces", vertices, faces)
+            this.lblModelInfo.Text = this.modelGameText + string.Format("{0:N0} vertices, {1:N0} faces", vertices, faces)
                 + (this.gameLodMeshes.Count > 0 ? string.Format(" + {0:N0} faces of the other files", this.gameLodFaces) : "") + this.gameLodNote
                 // Ticked parts stay hidden while the PART tab shows one part alone: say so.
                 + ((this.chkSoloPart != null && this.chkSoloPart.Checked && this.editSection != null) ? "   [Show only this part: on]" : "");

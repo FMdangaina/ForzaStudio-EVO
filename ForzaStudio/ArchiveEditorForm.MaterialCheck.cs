@@ -16,6 +16,7 @@ namespace ForzaStudio
         private string materialFile = "";                        // file name and kind of the shown model, for Fm4MaterialUse
         private bool materialWheels;
         private ShaderProfile shaderProfile = ShaderProfile.Unknown;   // game of the shown model (ShaderProfiles.Detect)
+        private string modelGameText = "";      // "Forza Motorsport 4 file   " in the model info line, or empty (ModelGameText)
         private readonly List<string> unknownMaterials = new List<string>();
 
         private ToolStripLabel BuildMaterialWarning()
@@ -33,6 +34,33 @@ namespace ForzaStudio
             return this.lblMaterialWarning;
         }
 
+        // The game the shown model file comes from, for the info line over the viewport: by the file's layout
+        // (shaderProfile). FH1 and FH2 write the same files, so the folder the archive is in tells them apart; a file
+        // whose layout is another game's than the folder's says both (e.g. an FH file in an FM4 folder).
+        private string ModelGameText()
+        {
+            if (this.shaderProfile == ShaderProfile.Unknown)
+            {
+                return "";
+            }
+            ForzaGame folder = (this.GameRoot != null) ? GameInfo.Detect(this.GameRoot) : ForzaGame.Unknown;
+            string name;
+            if (this.shaderProfile == ShaderProfile.Horizon)
+            {
+                name = (folder == ForzaGame.Horizon1 || folder == ForzaGame.Horizon2) ? GameInfo.Name(folder) : "Forza Horizon 1/2";
+            }
+            else
+            {
+                name = ShaderProfiles.Name(this.shaderProfile);
+            }
+            string text = name + " file";
+            if (folder != ForzaGame.Unknown && ShaderProfiles.ForGame(folder) != this.shaderProfile)
+            {
+                text += " (in a " + GameInfo.Name(folder) + " folder)";
+            }
+            return text + "   ";
+        }
+
         // Colors the mesh nodes (and their part and LOD) whose material no FM4 car uses. Only FM4-format
         // files are checked: in an FH or FM3 file every game-specific name would show.
         private void MarkUnknownMaterials(byte[] data, TreeNode root)
@@ -47,6 +75,7 @@ namespace ForzaStudio
             {
                 this.shaderProfile = ShaderProfiles.ForGame(GameInfo.Detect(this.GameRoot));   // 4 of the 411 FM2 wheel files
             }
+            this.modelGameText = this.ModelGameText();
             string game = ShaderProfiles.Tag(this.shaderProfile);
             if (this.shaderProfile == ShaderProfile.Unknown)
             {
@@ -88,8 +117,7 @@ namespace ForzaStudio
             this.MarkUnknownMaterials(root.Nodes);
             if (this.unknownMaterials.Count > 0)
             {
-                this.lblMaterialWarning.Text = string.Format("{0} material{1} not in {2}{3}", this.unknownMaterials.Count, (this.unknownMaterials.Count == 1) ? "" : "s", game,
-                    (this.shaderProfile == ShaderProfile.Fm2 || this.shaderProfile == ShaderProfile.Fm3) ? " (this game's models cannot be edited)" : ": click to fix");
+                this.lblMaterialWarning.Text = string.Format("{0} material{1} not in {2}: click to fix", this.unknownMaterials.Count, (this.unknownMaterials.Count == 1) ? "" : "s", game);
                 this.lblMaterialWarning.ToolTipText = "No " + game + " car uses " + string.Join(", ", this.unknownMaterials.ToArray())
                     + ": they may render black in game.\nRed in the tree. Click here to select the first one, then Rename Material in the Part tab.";
                 this.lblMaterialWarning.Visible = true;
@@ -276,7 +304,24 @@ namespace ForzaStudio
             label.Location = new Point(0, 4);
             // Green: what FM4 cars give this part (with the number of cars), then the most similar shaders; then the common FM4 materials, then
             // ~ the unusual ones (an FM4 shader no or few FM4 cars use: for something different on purpose).
-            List<MaterialSuggestions.Entry> choices = MaterialSuggestions.For(material, this.currentEntry.Name, this.modelType, new List<string>(new string[] { section }));
+            // FM2 / FM3 models: the game's own materials (ST-01), for the LOD of the selected mesh.
+            bool otherGame = this.shaderProfile == ShaderProfile.Fm2 || this.shaderProfile == ShaderProfile.Fm3;
+            List<MaterialSuggestions.Entry> choices;
+            if (otherGame)
+            {
+                uint lod = 0;
+                TreeNode lodNode = this.tvModel.SelectedNode.Parent.Parent;
+                if (lodNode != null && lodNode.Text.StartsWith("LOD"))
+                {
+                    uint.TryParse(lodNode.Text.Substring(3), out lod);
+                }
+                string list = Fm4MaterialUse.ListName(this.materialWheels, this.currentEntry.Name, lod);
+                choices = MaterialSuggestions.ForGame(this.shaderProfile, material, this.currentEntry.Name, list, new List<string>(new string[] { section }));
+            }
+            else
+            {
+                choices = MaterialSuggestions.For(material, this.currentEntry.Name, this.modelType, new List<string>(new string[] { section }));
+            }
             ComboBox name = new ComboBox();
             name.DropDownStyle = ComboBoxStyle.DropDown;
             name.Width = 420;
@@ -329,7 +374,10 @@ namespace ForzaStudio
                 }
             };
             Label note = new Label();
-            note.Text = "green = recommended   ~ unusual: an FM4 shader few or no FM4 cars use\n\"shader N\": how close the FM4 shader is to the source game's (0-100).";
+            string tag = ShaderProfiles.Tag(this.shaderProfile);
+            note.Text = otherGame
+                ? "green = what " + tag + " cars give this part (number of cars)\nthe others: every material " + tag + " cars use in this kind of file and LOD."
+                : "green = recommended   ~ unusual: an FM4 shader few or no FM4 cars use\n\"shader N\": how close the FM4 shader is to the source game's (0-100).";
             note.ForeColor = SystemColors.GrayText;
             note.AutoSize = true;
             note.Location = new Point(0, 162);
@@ -381,10 +429,11 @@ namespace ForzaStudio
                 List<string[]> renamed = new List<string[]>();   // technique from -> to, for shadersettings.xml
                 foreach (ForzaZip.Entry entry in this.PartEditTargets(everyFile && !onlyThis))
                 {
-                    CarbinModel model;
+                    // Any game the editor can rewrite names in (FM2 and FM3 too: names only, MaterialSlots).
+                    MaterialSlots model;
                     try
                     {
-                        model = new CarbinModel(this.zip.Read(entry));
+                        model = new MaterialSlots(this.zip.Read(entry));
                     }
                     catch (NotSupportedException)
                     {
@@ -394,27 +443,27 @@ namespace ForzaStudio
                     int count = 0;
                     if (onlyThis)
                     {
-                        // The tree reads the file in the same order as CarbinModel; checked by name anyway.
-                        CarbinModel.SubSection sub = (selected.SectionIndex < model.Sections.Count && selected.SubIndex < model.Sections[selected.SectionIndex].SubSections.Count)
-                            ? model.Sections[selected.SectionIndex].SubSections[selected.SubIndex] : null;
-                        if (sub == null || model.Sections[selected.SectionIndex].Name != section || sub.Name != material)
+                        // The tree reads the file in the same order as the model; checked by name anyway.
+                        int s = selected.SectionIndex;
+                        int k = selected.SubIndex;
+                        if (s < 0 || s >= model.PartCount || k < 0 || k >= model.MeshCount(s) || model.PartName(s) != section || model.Material(s, k) != material)
                         {
                             throw new InvalidDataException("The selected mesh could not be found in the file: nothing renamed.");
                         }
-                        sub.Name = to;
+                        model.SetMaterial(s, k, to);
                         count = 1;
                     }
-                    foreach (CarbinModel.Section part in model.Sections)
+                    for (int p = 0; p < model.PartCount && !onlyThis; p++)
                     {
-                        if (onlyThis || (!everyPart && part.Name != section))
+                        if (!everyPart && model.PartName(p) != section)
                         {
                             continue;
                         }
-                        foreach (CarbinModel.SubSection sub in part.SubSections)
+                        for (int k = 0; k < model.MeshCount(p); k++)
                         {
-                            if (sub.Name == material)
+                            if (model.Material(p, k) == material)
                             {
-                                sub.Name = to;
+                                model.SetMaterial(p, k, to);
                                 count++;
                             }
                         }
@@ -426,7 +475,8 @@ namespace ForzaStudio
                     this.zip.Replace(entry, model.ToBytes());
                     this.RefreshEntryNode(entry);
                     string file = entry.Name.Substring(entry.Name.LastIndexOf('/') + 1);
-                    report.Add(string.Format("{0}: {1} -> {2} ({3})", file, material, to, count));
+                    report.Add(string.Format("{0}: {1} -> {2} ({3}){4}", file, material, to, count,
+                        (model.Fixes.Count > 0) ? ", " + string.Join(", ", model.Fixes.ToArray()) : ""));
                     string[] pair = new string[] { ShaderSettings.TechniqueName(material, entry.Name), ShaderSettings.TechniqueName(to, entry.Name) };
                     if (!renamed.Exists(delegate(string[] p) { return p[0] == pair[0] && p[1] == pair[1]; }))
                     {

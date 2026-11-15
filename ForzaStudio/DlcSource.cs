@@ -338,7 +338,8 @@ namespace ForzaStudio
                 List<string> fm2 = new List<string>();
                 foreach (KeyValuePair<string, bool> child in zips)
                 {
-                    if (!child.Value && child.Key.StartsWith("DLC", StringComparison.OrdinalIgnoreCase) && child.Key.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && child.Key.IndexOf("_pri_", StringComparison.OrdinalIgnoreCase) >= 0)
+                    // the zip (DLC7_pri_66.zip) or the loose folder beside it (DLC7_pri_66; the editor's FM2 packs have the folder only)
+                    if ((child.Value || child.Key.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) && child.Key.StartsWith("DLC", StringComparison.OrdinalIgnoreCase) && child.Key.IndexOf("_pri_", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         fm2.Add(child.Key);
                     }
@@ -409,8 +410,32 @@ namespace ForzaStudio
         // returns it; null when the package does not hold the car. The package itself is only read.
         public string ExtractCar(string car, string folder)
         {
-            string prefix = "media/cars/" + car + "/";
-            string work = Path.Combine(folder, car);
+            return this.ExtractMedia("cars", car, folder, car);
+        }
+
+        // Every file of the package by its path from the game root ('/': "media/cars/x/y.carbin", "Media/StringTables/EN/Data_Car.str"),
+        // the highest priority layer's when two layers have it. The package itself is only read.
+        public Dictionary<string, Func<byte[]>> GameFiles()
+        {
+            Dictionary<string, Func<byte[]>> all = new Dictionary<string, Func<byte[]>>(StringComparer.OrdinalIgnoreCase);
+            foreach (Layer layer in this.layers)
+            {
+                string mount = (layer.Mount.Length > 0) ? layer.Mount.Replace('\\', '/') + "/" : string.Empty;
+                foreach (LayerFile file in this.Files(layer))
+                {
+                    LayerFile one = file;
+                    all[(mount + file.Key).Replace('\\', '/')] = delegate { return one.Value(); };
+                }
+            }
+            return all;
+        }
+
+        // Writes the files of media\<kind>\<name>\ (kind "cars" or "wheels") to <folder>\<zipName>.zip as the game's zips (deflate for FM2,
+        // whose zips are all deflate; LZX for the others) and returns it; null when the package does not hold that folder.
+        public string ExtractMedia(string kind, string car, string folder, string zipName)
+        {
+            string prefix = "media/" + kind + "/" + car + "/";
+            string work = Path.Combine(folder, zipName);
             if (Directory.Exists(work))
             {
                 Directory.Delete(work, true);
@@ -437,7 +462,7 @@ namespace ForzaStudio
                 return null;
             }
             string zip = work + ".zip";
-            DlcPackage.WriteStoredZip(work, zip);
+            DlcPackage.WriteStoredZip(work, zip, null, this.Game == ForzaGame.Motorsport2);
             Directory.Delete(work, true);
             return zip;
         }
@@ -628,6 +653,12 @@ namespace ForzaStudio
                 {
                     this.TitleId = title;
                 }
+                else if (this.TitleId == 0 && this.volume.HasFolder("Media\\LicenseMasks") && DbIds.HasTable(db, "RarityPrice_Asia"))
+                {
+                    // FM2 (a pack of the editor, DlcPackage.Fm2, or DLCBeta's kind): its merge has FM2's tables (the prices per
+                    // region are FM2's only) and a licence mask, no offer table.
+                    this.TitleId = Fm2Source.TitleId;
+                }
                 else if (this.TitleId == 0 && this.volume.HasFolder("Media\\LicenseMasks"))
                 {
                     // FM3: no ContentOffers, the cars are in the merge and unlocked by
@@ -696,7 +727,10 @@ namespace ForzaStudio
             List<KeyValuePair<string, byte[]>> found = new List<KeyValuePair<string, byte[]>>();
             foreach (Layer layer in this.layers)
             {
-                if (!Path.GetFileName(layer.Path).StartsWith("StringTables", StringComparison.OrdinalIgnoreCase))
+                // FM2 packs keep "<LANG>/Data_Car.str" in their DLC<n>Overrides<k>_pri_<P>.zip instead.
+                string layerName = Path.GetFileName(layer.Path);
+                if (!layerName.StartsWith("StringTables", StringComparison.OrdinalIgnoreCase)
+                    && layerName.IndexOf("Overrides", StringComparison.OrdinalIgnoreCase) < 0)
                 {
                     continue;
                 }

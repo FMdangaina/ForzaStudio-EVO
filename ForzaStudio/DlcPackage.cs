@@ -176,7 +176,7 @@ namespace ForzaStudio
             try
             {
                 System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
-                CopyForConsole(packageFolder, stage, report, title != TitleId);
+                CopyForConsole(packageFolder, stage, report, title != TitleId, title == TitleIdFm2);
                 Time(report, watch, "console folder (zips of the _pri folders)");
                 string id = StfsPackage.Write(stage, temp, uint.Parse(title, NumberStyles.HexNumber, CultureInfo.InvariantCulture), 2, name,
                     "ForzaStudio EVO DLC pack", game, thumbnail);
@@ -208,7 +208,8 @@ namespace ForzaStudio
 
         // The package folder copied for the console: every <x>_pri_<n> folder under DLCZips as a zip.
         // keepBanksLoose (FM3): the .fsb sound banks stay loose beside the zip, as in the official FM3 packs: the game streams them from the file system, not from a compressed zip.
-        private static void CopyForConsole(string from, string to, StringBuilder report, bool keepBanksLoose)
+        // deflate (FM2): the zips in deflate, as every zip of FM2 (it has no LZX).
+        private static void CopyForConsole(string from, string to, StringBuilder report, bool keepBanksLoose, bool deflate)
         {
             Directory.CreateDirectory(to);
             foreach (string file in Directory.GetFiles(from))
@@ -220,7 +221,7 @@ namespace ForzaStudio
                 string name = Path.GetFileName(folder);
                 if (name.IndexOf("_pri_", StringComparison.OrdinalIgnoreCase) > 0 && string.Equals(Path.GetFileName(from), "DLCZips", StringComparison.OrdinalIgnoreCase))
                 {
-                    int count = WriteStoredZip(folder, Path.Combine(to, name + ".zip"), keepBanksLoose ? ".fsb" : null);
+                    int count = WriteStoredZip(folder, Path.Combine(to, name + ".zip"), keepBanksLoose ? ".fsb" : null, deflate);
                     if (keepBanksLoose)
                     {
                         foreach (string bank in Directory.GetFiles(folder, "*.fsb", SearchOption.AllDirectories))
@@ -235,7 +236,7 @@ namespace ForzaStudio
                     report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}.zip: {1} files", name, count));
                     continue;
                 }
-                CopyForConsole(folder, Path.Combine(to, name), report, keepBanksLoose);
+                CopyForConsole(folder, Path.Combine(to, name), report, keepBanksLoose, deflate);
             }
         }
 
@@ -250,6 +251,12 @@ namespace ForzaStudio
 
         // leaveOut: an extension (".fsb") of files that stay out of the zip.
         internal static int WriteStoredZip(string folder, string path, string leaveOut)
+        {
+            return WriteStoredZip(folder, path, leaveOut, false);
+        }
+
+        // deflate: method 8 (version 20) instead of LZX, for FM2, whose zips are all deflate.
+        internal static int WriteStoredZip(string folder, string path, string leaveOut, bool deflate)
         {
             List<string> files = new List<string>();
             foreach (string file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
@@ -276,16 +283,34 @@ namespace ForzaStudio
                     byte[] name = Encoding.ASCII.GetBytes(Path.GetFullPath(file).Substring(root.Length).Replace('\\', '/'));
                     byte[] raw = File.ReadAllBytes(file);
                     uint crc = ForzaZip.Crc32(raw);
-                    byte[] data = XMemLzx.Compress(raw);
-                    ushort method = ForzaZip.MethodLzx;
+                    byte[] data;
+                    ushort method;
+                    if (deflate)
+                    {
+                        using (MemoryStream packed = new MemoryStream())
+                        {
+                            using (System.IO.Compression.DeflateStream stream = new System.IO.Compression.DeflateStream(packed, System.IO.Compression.CompressionMode.Compress, true))
+                            {
+                                stream.Write(raw, 0, raw.Length);
+                            }
+                            data = packed.ToArray();
+                        }
+                        method = ForzaZip.MethodDeflate;
+                    }
+                    else
+                    {
+                        data = XMemLzx.Compress(raw);
+                        method = ForzaZip.MethodLzx;
+                    }
                     if (data.Length >= raw.Length)
                     {
                         data = raw;
                         method = ForzaZip.MethodStored;
                     }
+                    ushort version = (ushort) ((method == ForzaZip.MethodDeflate) ? 20 : 10);
                     uint offset = (uint) zip.Position;
                     writer.Write(0x04034b50);
-                    writer.Write((ushort) 10);
+                    writer.Write(version);
                     writer.Write((ushort) 0);
                     writer.Write(method);
                     writer.Write((ushort) 0);
@@ -300,8 +325,8 @@ namespace ForzaStudio
                     writer.Write(data);
                     BinaryWriter record = new BinaryWriter(central);
                     record.Write(0x02014b50);
-                    record.Write((ushort) 10);
-                    record.Write((ushort) 10);
+                    record.Write(version);
+                    record.Write(version);
                     record.Write((ushort) 0);
                     record.Write(method);
                     record.Write((ushort) 0);
@@ -371,7 +396,64 @@ namespace ForzaStudio
                     return candidate;
                 }
             }
+            // The game's title folder does not exist yet: build it at the level that was typed, not under a second "content"
+            // (Settings holds ...\content\0000000000000000, which made ...\0000000000000000\content\0000000000000000\<title>).
+            if (!Directory.Exists(root))
+            {
+                string last = Path.GetFileName(typed);
+                if (string.Equals(last, "0000000000000000", StringComparison.Ordinal))
+                {
+                    return candidates[2];
+                }
+                if (string.Equals(last, "content", StringComparison.OrdinalIgnoreCase))
+                {
+                    return candidates[1];
+                }
+            }
             return standard;
+        }
+
+        // A folder that belongs to ANOTHER game's content (a path segment that is a Microsoft Game Studios title id, 4D53xxxx,
+        // other than "title"): the title id found there, else null. A package saved there is not seen by its game and the
+        // other game may choke on it (user 2026-11-15: an FM3 pack had landed in FM4's 4D530910\00000002 and the other way round).
+        public static string ForeignTitleFolder(string folder, string title)
+        {
+            if (string.IsNullOrEmpty(folder))
+            {
+                return null;
+            }
+            uint unused;
+            foreach (string part in folder.Split('\\', '/'))
+            {
+                if (part.Length == 8 && part.StartsWith("4D53", StringComparison.OrdinalIgnoreCase)
+                    && uint.TryParse(part, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out unused)
+                    && !string.Equals(part, title, StringComparison.OrdinalIgnoreCase))
+                {
+                    return part.ToUpperInvariant();
+                }
+            }
+            return null;
+        }
+
+        // The folder an Xbox 360 package file of the game is first offered in: the last one used for THIS game (per-game
+        // setting key), else the game's Xenia content folder. Never another game's folder.
+        public static string PackageOutputStart(string key, string title)
+        {
+            string last = AppSettings.Get(key, "");
+            if (Directory.Exists(last) && ForeignTitleFolder(last, title) == null)
+            {
+                return last;
+            }
+            string xenia = AppSettings.Get("CarPort.Xenia", "");
+            if (xenia.Length > 0 && Directory.Exists(xenia))
+            {
+                string content = XeniaContent(xenia, title);
+                if (Directory.Exists(content))
+                {
+                    return content;
+                }
+            }
+            return null;
         }
 
         // The emulator's config file (xenia-canary.config.toml, or xenia.config.toml), or null.
@@ -716,7 +798,7 @@ namespace ForzaStudio
 
             // Entries <LANG>/<Table>.str, LZX like the game's tables (a stored .str of the game would be
             // the template otherwise: AIDiff.str).
-            model.Entries.RemoveAll(delegate(ForzaZip.Entry entry) { return entry.Method != ForzaZip.MethodLzx; });
+            ForzaZip.KeepGameMethod(model);
             ForzaZip archive = ForzaZip.CreateLike(model);
             foreach (KeyValuePair<string, StrFile> pair in files)
             {
@@ -755,6 +837,7 @@ namespace ForzaStudio
                     return layers;
                 }
                 Regex layerName = new Regex(@"^StringTables[^\\/]*_pri_(\d+)\.zip$", RegexOptions.IgnoreCase);
+                Regex anyLayer = new Regex(@"_pri_(\d+)\.zip$", RegexOptions.IgnoreCase);
                 foreach (string item in Directory.GetFileSystemEntries(content))
                 {
                     string label = Path.GetFileName(item);
@@ -763,11 +846,17 @@ namespace ForzaStudio
                         if (Directory.Exists(item))
                         {
                             string zips = Path.Combine(Path.Combine(item, "Media"), "DLCZips");
-                            if (Directory.Exists(zips))
+                            if (Directory.Exists(zips) && !File.Exists(Path.Combine(item, NamesMarker)))
                             {
-                                foreach (string file in Directory.GetFiles(zips, "StringTables*.zip"))
+                                string mountFile = Path.Combine(zips, "zipmount.xml");
+                                Dictionary<string, bool> mounted = StringTableZips(File.Exists(mountFile) ? File.ReadAllBytes(mountFile) : null);
+                                foreach (string file in Directory.GetFiles(zips, "*.zip"))
                                 {
                                     Match m = layerName.Match(Path.GetFileName(file));
+                                    if (!m.Success && mounted.ContainsKey(Path.GetFileName(file)))
+                                    {
+                                        m = anyLayer.Match(Path.GetFileName(file));
+                                    }
                                     if (m.Success)
                                     {
                                         layers.Add(Open(label, int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), file));
@@ -782,10 +871,21 @@ namespace ForzaStudio
                             {
                                 continue;
                             }
-                            foreach (string file in package.Files())
+                            List<string> packageFiles = package.Files();
+                            if (packageFiles.Exists(delegate(string f) { return f.Equals(NamesMarker, StringComparison.OrdinalIgnoreCase); }))
+                            {
+                                continue;   // the editor's names pack is rebuilt from the others, never a layer of its own
+                            }
+                            string mountName = packageFiles.Find(delegate(string f) { return f.Equals(@"Media\DLCZips\zipmount.xml", StringComparison.OrdinalIgnoreCase); });
+                            Dictionary<string, bool> mounted = StringTableZips((mountName != null) ? package.ReadFile(mountName) : null);
+                            foreach (string file in packageFiles)
                             {
                                 string folder = Path.GetDirectoryName(file);
                                 Match m = layerName.Match(Path.GetFileName(file));
+                                if (!m.Success && mounted.ContainsKey(Path.GetFileName(file)))
+                                {
+                                    m = anyLayer.Match(Path.GetFileName(file));   // FM2: DLC7Overrides1_pri_156.zip mounted at the string tables
+                                }
                                 if (m.Success && string.Equals(folder, @"Media\DLCZips", StringComparison.OrdinalIgnoreCase))
                                 {
                                     Directory.CreateDirectory(temp);
@@ -821,6 +921,36 @@ namespace ForzaStudio
                     layer.entries[entry.Name.Replace('\\', '/')] = entry;
                 }
                 return layer;
+            }
+
+            // The zips a zipmount.xml mounts at game:\Media\StringTables\ (by file name).
+            internal static Dictionary<string, bool> StringTableZips(byte[] zipmount)
+            {
+                Dictionary<string, bool> found = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                if (zipmount == null)
+                {
+                    return found;
+                }
+                foreach (Match m in Regex.Matches(Encoding.ASCII.GetString(zipmount), "Name=\"([^\"]+)\"\\s+Mount=\"game:\\\\Media\\\\StringTables\\\\?\"", RegexOptions.IgnoreCase))
+                {
+                    found[m.Groups[1].Value] = true;
+                }
+                return found;
+            }
+
+            // The tables this layer holds ("Data_Car.str"...), any language.
+            public List<string> Tables()
+            {
+                Dictionary<string, bool> found = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                foreach (string name in this.entries.Keys)
+                {
+                    int slash = name.IndexOf('/');
+                    if (slash > 0 && slash == name.LastIndexOf('/') && name.EndsWith(".str", StringComparison.OrdinalIgnoreCase))
+                    {
+                        found[name.Substring(slash + 1)] = true;
+                    }
+                }
+                return new List<string>(found.Keys);
             }
 
             // The keys of a table ("Data_Car.str") this layer holds in any language, with the name each carries.
@@ -1288,6 +1418,12 @@ namespace ForzaStudio
         // fm3: the pack row is a MultiDiscContentPacks one (AddFm3Offer) instead of ContentOffers + ContentOffersMapping.
         internal static byte[] BuildMerge(byte[] clean, byte[] ported, int offer, StringBuilder report, bool fm3)
         {
+            return BuildMerge(clean, ported, offer, report, fm3, true);
+        }
+
+        // offerRows false: FM2, whose packs' merges have no offer table (the official ones: the car rows only).
+        internal static byte[] BuildMerge(byte[] clean, byte[] ported, int offer, StringBuilder report, bool fm3, bool offerRows)
+        {
             using (SqliteDatabase before = SqliteDatabase.FromBytes(clean))
             using (SqliteDatabase after = SqliteDatabase.FromBytes(ported))
             using (SqliteDatabase merge = SqliteDatabase.FromBytes(new byte[0]))
@@ -1359,7 +1495,11 @@ namespace ForzaStudio
                 {
                     throw new InvalidOperationException("The ported database has no new car.");
                 }
-                if (fm3)
+                if (!offerRows)
+                {
+                    report.AppendLine("  no offer rows (FM2: the pack is not a row of the database)");
+                }
+                else if (fm3)
                 {
                     AddFm3Offer(before, merge, offer, report);
                 }

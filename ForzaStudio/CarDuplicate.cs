@@ -23,7 +23,7 @@ namespace ForzaStudio
     // The engine, drivetrain and the other shared rows stay shared with the source car; a wizard
     // step gives the copy its own engine. Plan() reports without writing, Run() does it, every file
     // backed up first.
-    public class CarDuplicate
+    public partial class CarDuplicate
     {
         public string TargetRoot;
         public string SourceMediaName;
@@ -39,7 +39,8 @@ namespace ForzaStudio
         public string BackupFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bak");
         public StringBuilder Report = new StringBuilder();
         public long NewId;
-        public EngineSpec Engine;                   // an engine of its own for the copy (CarEngine); null = the source's, shared
+        public long? ChosenId;                      // the car Id chosen by the user (DbIds.ChosenCarIdProblem); null = the first free one
+        public EngineSpec Engine;                  // an engine of its own for the copy (CarEngine); null = the source's, shared
         public GearboxSpec Gearbox;                 // a gearbox (drivetrain) of its own for the copy (CarGearbox); null = the source's, shared
 
         // A DLC pack instead of the game folder: the copy is built on a staged part of the game (the database,
@@ -54,26 +55,97 @@ namespace ForzaStudio
         public string PackageFile;                  // the package file that was written (ConsoleOutput)
 
         private string stamp;
+        private ForzaGame game = ForzaGame.Motorsport4;
+        public byte[] PlannedDatabase;              // after Plan(): the game database with the copy, as Run() would write it
+
+        // The game of TargetRoot (default.xex); a folder without one (the staged copy of a DLC pack build) is FM4's.
+        public ForzaGame Game
+        {
+            get
+            {
+                if (this.GameOverride.HasValue)
+                {
+                    return this.GameOverride.Value;     // the staged copy of a pack build is the open game's
+                }
+                ForzaGame found = (this.TargetRoot != null) ? GameInfo.Detect(this.TargetRoot) : ForzaGame.Unknown;
+                return (found == ForzaGame.Motorsport2 || found == ForzaGame.Motorsport3) ? found : ForzaGame.Motorsport4;
+            }
+        }
 
         public List<string> Plan()
         {
+            if (this.SourcePackage != null)
+            {
+                // A package car is staged (taken out of the package) only when the copy is made: the plan says what will happen.
+                List<string> outline = new List<string>();
+                outline.Add("source: " + this.SourceMediaName + " from the installed package " + Path.GetFileName(this.SourcePackage) + " (only read)");
+                outline.Add("the car, its wheel, thumbnail and sound files and its database rows are taken out of the package, then copied as a car of the game folder");
+                outline.Add("the copy keeps the package rows it points at (a shared engine...) that the game lacks; the database rules are checked before anything is written");
+                outline.Add((this.PackContent != null || this.ConsoleOutput != null) ? string.Format(CultureInfo.InvariantCulture, "destination: a new DLC pack \"{0}\" (offer {1})", this.PackName, this.PackOffer) : "destination: the game folder (backups first)");
+                if (this.Fm2ProfileNote != null)
+                {
+                    outline.Add(this.Fm2ProfileNote);
+                }
+                foreach (string line in outline)
+                {
+                    this.Report.AppendLine(line);
+                }
+                return outline;
+            }
             List<string> plan = this.Execute(false);
             if (this.PackContent != null || this.ConsoleOutput != null)
             {
                 plan.Insert(0, string.Format(CultureInfo.InvariantCulture, "destination: a new DLC pack \"{0}\" (offer {1}) {2}; the game folder is not changed", this.PackName, this.PackOffer, (this.ConsoleOutput != null) ? "as a package file in " + this.ConsoleOutput : "in " + this.PackContent));
                 this.Report.Insert(0, plan[0] + "\r\n");
             }
+            if (this.Fm2ProfileNote != null)
+            {
+                plan.Add(this.Fm2ProfileNote);
+                this.Report.AppendLine(this.Fm2ProfileNote);
+            }
             return plan;
+        }
+
+        // FM2 (user, checked in game 2026-11-15): a car added to the game folder is unlocked only in a profile made after it;
+        // an existing save keeps its own car list (game limit). DLC packs are unlocked by their licence and have no such limit.
+        private string Fm2ProfileNote
+        {
+            get
+            {
+                return (GameInfo.Detect(this.TargetRoot) == ForzaGame.Motorsport2 && this.PackContent == null && this.ConsoleOutput == null)
+                    ? "NOTE (FM2): a car added to the game folder is unlocked only in a NEW profile; an existing save keeps it locked (game limit). A DLC pack destination has no such limit."
+                    : null;
+            }
         }
 
         public void Run()
         {
+            if (this.PackContent == null && this.ConsoleOutput == null && this.SourcePackage != null)
+            {
+                this.RunFromPackageToGame();   // CarDuplicate.Package.cs
+                return;
+            }
             if (this.PackContent == null && this.ConsoleOutput == null)
             {
                 this.Execute(true);
+                if (this.RefreshNames)
+                {
+                    // The new names are in the game folder's tables; the installed DLC replace those tables (DlcPackage.Names).
+                    DlcPackage.RefreshNamesPack(this.Game, this.TargetRoot, this.NamesContent(), this.Report);
+                }
                 return;
             }
             this.RunPack();
+        }
+
+        public bool RefreshNames = true;            // false for the staged copy inside a DLC pack build
+        public ForzaGame? GameOverride;             // the staged copy (no default.xex) of a pack build: the open game's
+
+        // Xenia's content folder of the game: whose DLC string tables the names pack is built on.
+        private string NamesContent()
+        {
+            // XeniaContent is the open game's content folder (Duplicate Car window); a harness may leave it out
+            return this.XeniaContent ?? InstalledDlc.ContentFolder(this.Game);
         }
 
         private void RunPack()
@@ -89,20 +161,31 @@ namespace ForzaStudio
             string work = (this.ConsoleOutput != null) ? Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "PackFile_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture)) : null;
             string content = (work != null) ? Path.Combine(work, "00000002") : this.PackContent;      // the folder the pack is built in (a temporary one for a package file)
             string installed = (work != null) ? (this.XeniaContent ?? content) : content;           // whose strings and ids the pack is built on
-            if (work == null && Directory.Exists(DlcPackage.PackagePath(content, this.PackOffer)))
+            // FM3: DlcPackage.Fm3 (folder <title>0CCF<offer>, MultiDiscContentPacks row), checked in game 2026-11-02;
+            // FM2: DlcPackage.Fm2 (folder DLC<offer>_FS, no offer row, licence mask with StockGarage), not checked in game yet.
+            ForzaGame packGame = this.Game;
+            if (work == null && Directory.Exists(PackagePath(packGame, content, this.PackOffer)))
             {
                 if (!this.ReplacePack)
                 {
                     throw new InvalidOperationException("A package with offer " + this.PackOffer + " is already in Xenia's content folder.");
                 }
-                DlcPackage.Remove(content, this.PackOffer);
+                this.RemovePack(content, packGame);
             }
             string stage = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "DuplicatePack_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
             try
             {
+                if (this.SourcePackage != null)
+                {
+                    this.BuildStageFromPackage(stage, false);   // CarDuplicate.Package.cs: the stage as a game car's copy leaves it
+                }
+                else
+                {
                 this.Stage(stage);
                 CarDuplicate inner = new CarDuplicate();
                 inner.TargetRoot = stage;
+                inner.RefreshNames = false;
+                inner.GameOverride = packGame;
                 inner.SourceMediaName = this.SourceMediaName;
                 inner.NewMediaName = this.NewMediaName;
                 inner.XeniaContent = this.XeniaContent ?? this.PackContent ?? installed;
@@ -110,6 +193,7 @@ namespace ForzaStudio
                 inner.ModelShort = this.ModelShort;
                 inner.Year = this.Year;
                 inner.MakeId = this.MakeId;
+                inner.ChosenId = this.ChosenId;
                 foreach (KeyValuePair<string, string> pair in this.DisplayNames)
                 {
                     inner.DisplayNames[pair.Key] = pair.Value;
@@ -128,16 +212,35 @@ namespace ForzaStudio
                 inner.Run();
                 this.NewId = inner.NewId;
                 this.Report.Append(inner.Report.ToString());
+                }
                 StringBuilder text = new StringBuilder();
                 List<string> others = DbIds.PackDatabases(installed);
-                string package = DlcPackage.BuildFolder(this.TargetRoot, this.TargetRoot, stage, content, installed, this.PackOffer, this.PackName, text);
+                string offerText = this.PackOffer.ToString(CultureInfo.InvariantCulture);
+                string package, offerFolder, mergeName;
+                if (packGame == ForzaGame.Motorsport3)
+                {
+                    package = DlcPackage.BuildFolderFm3(this.TargetRoot, stage, content, installed, this.PackOffer, this.PackName, text);
+                    offerFolder = this.PackOffer.ToString("X4", CultureInfo.InvariantCulture) + "_pri_65";
+                    mergeName = offerText + "005_merge.slt";
+                }
+                else if (packGame == ForzaGame.Motorsport2)
+                {
+                    package = DlcPackage.BuildFolderFm2(this.TargetRoot, stage, content, installed, this.PackOffer, this.PackName, text);
+                    offerFolder = DlcPackage.LayerFm2(this.PackOffer);
+                    mergeName = offerText + "0000_merge.slt";
+                }
+                else
+                {
+                    package = DlcPackage.BuildFolder(this.TargetRoot, this.TargetRoot, stage, content, installed, this.PackOffer, this.PackName, text);
+                    offerFolder = offerText + "_pri_65";
+                    mergeName = offerText + "000_merge.slt";
+                }
 
                 // The package's database as the game will merge it into its own (and the other packs'): the
                 // same integrity rules, so a pack never leaves a broken database behind.
-                string offerFolder = this.PackOffer.ToString(CultureInfo.InvariantCulture) + "_pri_65";
                 string patch = Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(package, "Media"), "DLCZips"), offerFolder), "Media"), "db"), "patch");
-                string mergeFile = Path.Combine(patch, this.PackOffer.ToString(CultureInfo.InvariantCulture) + "000_merge.slt");
-                DbIntegrity.Result merged = DbIntegrity.CheckMerge(File.ReadAllBytes(Path.Combine(Path.Combine(this.Media, "db"), "gamedb.slt")), others, File.ReadAllBytes(mergeFile), ForzaGame.Motorsport4);
+                string mergeFile = Path.Combine(patch, mergeName);
+                DbIntegrity.Result merged = DbIntegrity.CheckMerge(File.ReadAllBytes(Path.Combine(Path.Combine(this.Media, "db"), "gamedb.slt")), others, File.ReadAllBytes(mergeFile), packGame);
                 if (!merged.Ok)
                 {
                     throw new InvalidOperationException("The pack's database would break the game's, nothing was left in Xenia:\r\n  " + string.Join("\r\n  ", merged.Errors.ToArray()));
@@ -147,19 +250,30 @@ namespace ForzaStudio
                 {
                     this.Report.AppendLine("  warning: " + line);
                 }
+                if (packGame == ForzaGame.Motorsport2)
+                {
+                    DlcPackage.ZipLayerFm2(package, this.PackOffer, text);
+                }
                 if (this.ConsoleOutput != null)
                 {
-                    string file = DlcPackage.BuildConsolePackage(package, this.ConsoleOutput, this.PackName, this.Thumbnail, text);
+                    string file = (packGame == ForzaGame.Motorsport3) ? DlcPackage.BuildConsolePackage(package, this.ConsoleOutput, this.PackName, this.Thumbnail, text, DlcPackage.TitleIdFm3, "Forza Motorsport 3")
+                        : (packGame == ForzaGame.Motorsport2) ? DlcPackage.BuildConsolePackage(package, this.ConsoleOutput, this.PackName, this.Thumbnail, text, DlcPackage.TitleIdFm2, "Forza Motorsport 2")
+                        : DlcPackage.BuildConsolePackage(package, this.ConsoleOutput, this.PackName, this.Thumbnail, text);
                     this.PackageFile = file;
                 }
                 this.Report.AppendLine("DLC package \"" + this.PackName + "\" (offer " + this.PackOffer + ") " + ((this.ConsoleOutput != null) ? "as a package file in " + this.ConsoleOutput : "in " + this.PackContent) + ":");
                 this.Report.Append(text.ToString());
+                if (work == null && this.RefreshNames)
+                {
+                    // the names pack (priority 999) is above the new pack's string tables: rebuilt on them, the new car keeps its name
+                    DlcPackage.RefreshNamesPack(packGame, this.TargetRoot, content, this.Report);
+                }
             }
             catch (Exception)
             {
                 try
                 {
-                    DlcPackage.Remove(content, this.PackOffer);
+                    this.RemovePack(content, packGame);
                 }
                 catch (IOException)
                 {
@@ -185,6 +299,29 @@ namespace ForzaStudio
             }
         }
 
+        private static string PackagePath(ForzaGame game, string content, int offer)
+        {
+            return (game == ForzaGame.Motorsport3) ? DlcPackage.PackagePathFm3(content, offer)
+                : (game == ForzaGame.Motorsport2) ? DlcPackage.PackagePathFm2(content, offer)
+                : DlcPackage.PackagePath(content, offer);
+        }
+
+        private void RemovePack(string content, ForzaGame game)
+        {
+            if (game == ForzaGame.Motorsport3)
+            {
+                DlcPackage.RemoveFm3(content, this.PackOffer);
+            }
+            else if (game == ForzaGame.Motorsport2)
+            {
+                DlcPackage.RemoveFm2(content, this.PackOffer);
+            }
+            else
+            {
+                DlcPackage.Remove(content, this.PackOffer);
+            }
+        }
+
         // The files a copy reads or changes, at the same place under a temporary root.
         private void Stage(string stage)
         {
@@ -194,7 +331,9 @@ namespace ForzaStudio
             files.Add(Path.Combine(Path.Combine(this.Media, "cars"), this.SourceMediaName + ".zip"));
             files.AddRange(Directory.GetFiles(Path.Combine(this.Media, "StringTables"), "*.zip"));
             string audio = Path.Combine(Path.Combine(this.Media, "audio"), "cars");
-            foreach (string tuning in new string[] { Path.Combine(audio, "CarModelTuning.zip"), Path.Combine(Path.Combine(audio, "Engines"), "enginetuning.zip") })
+            // FM4 / FM3: the car model and engine tunings; FM2: EmitterData and DSPTuning (by the car's name)
+            foreach (string tuning in new string[] { Path.Combine(audio, "CarModelTuning.zip"), Path.Combine(Path.Combine(audio, "Engines"), "enginetuning.zip"),
+                Path.Combine(audio, "EmitterData.zip"), Path.Combine(Path.Combine(audio, "Engines"), "DSPTuning.zip") })
             {
                 if (File.Exists(tuning))
                 {
@@ -264,13 +403,20 @@ namespace ForzaStudio
             {
                 throw new InvalidOperationException("The new MediaName must be 3-40 letters, digits or underscores (like ACU_NSX_97).");
             }
+            // One spelling of the folder (F:/x and F:\x): the zipmanifest.xml paths are made from it and the files' paths.
+            this.TargetRoot = Path.GetFullPath(this.TargetRoot).TrimEnd(Path.DirectorySeparatorChar);
+            this.game = this.Game;
+            string gameTag = GameInfo.Tag(this.game);
             string carsFolder = Path.Combine(this.Media, "cars");
             string sourceZipPath = Path.Combine(carsFolder, this.SourceMediaName + ".zip");
-            string newZipPath = Path.Combine(carsFolder, this.NewMediaName + ".zip");
             if (!File.Exists(sourceZipPath))
             {
-                throw new InvalidOperationException("The FM4 folder has no " + this.SourceMediaName + ".zip. If it is a car of a DLC pack, copying DLC cars is not supported yet (TODO NOW 2b): copy a car of the base game, or port the DLC car.");
+                throw new InvalidOperationException("The " + gameTag + " folder has no " + this.SourceMediaName + ".zip. If it is a car of a DLC pack, copying DLC cars is not supported yet (TODO NOW 2b): copy a car of the base game, or port the DLC car.");
             }
+            // The game's own spelling of the file names (FM2 names every car zip in lower case): the copy's follows it.
+            sourceZipPath = ActualPath(sourceZipPath);
+            bool lowerNames = Path.GetFileName(sourceZipPath) == Path.GetFileName(sourceZipPath).ToLowerInvariant();
+            string newZipPath = Path.Combine(Path.GetDirectoryName(sourceZipPath), (lowerNames ? this.NewMediaName.ToLowerInvariant() : this.NewMediaName) + ".zip");
             if (File.Exists(newZipPath))
             {
                 throw new InvalidOperationException(this.NewMediaName + ".zip already exists.");
@@ -295,14 +441,48 @@ namespace ForzaStudio
                 long sourceId = Convert.ToInt64(sourceValue, CultureInfo.InvariantCulture);
                 string reason;
                 DbIds.PackContent = this.XeniaContent;
-                this.NewId = DbIds.CarId(db, db, this.NewMediaName, DbIds.PackDatabases(this.XeniaContent), DbIds.InstallFirstCar, false, out reason);
+                if (this.ChosenId.HasValue)
+                {
+                    string idProblem = DbIds.ChosenCarIdProblem(db, this.ChosenId.Value, DbIds.PackCarIds(DbIds.PackDatabases(this.XeniaContent)), this.game);
+                    if (idProblem != null)
+                    {
+                        throw new InvalidOperationException(idProblem);
+                    }
+                    this.NewId = this.ChosenId.Value;
+                    reason = "chosen by the user";
+                }
+                else if (this.game == ForzaGame.Motorsport4)
+                {
+                    this.NewId = DbIds.CarId(db, db, this.NewMediaName, DbIds.PackDatabases(this.XeniaContent), DbIds.InstallFirstCar, false, out reason);
+                }
+                else
+                {
+                    // FM3: above every car of the game and its official DLC (GameIdLimits); FM2: 659-1000 first, then from 1025 with a
+                    // warning (DbIds.Fm2UsableCarId, 1001-1024 are the official DLC's); both free in the packs of the game's own Xenia content folder.
+                    long first = (this.game == ForzaGame.Motorsport2) ? DbIds.Fm2FirstFreeCarId : Math.Max(1, GameIdLimits.MaxCar(this.game) + 1);
+                    this.NewId = DbIds.CarId(db, db, this.NewMediaName, DbIds.PackDatabases(this.XeniaContent), first, false, out reason);
+                    if (this.game == ForzaGame.Motorsport2 && !DbIds.Fm2UsableCarId(this.NewId))
+                    {
+                        this.NewId = DbIds.CarId(db, db, this.NewMediaName, DbIds.PackDatabases(this.XeniaContent), DbIds.Fm2SkipDlcIds(this.NewId), false, out reason);
+                    }
+                }
+                if (this.game == ForzaGame.Motorsport2 && DbIds.Fm2CarIdWarning(this.NewId) != null)
+                {
+                    plan.Add("WARNING: " + DbIds.Fm2CarIdWarning(this.NewId));
+                }
                 plan.Add(string.Format(CultureInfo.InvariantCulture, "{0} (id {1}) -> {2}: id {3}, {4}", this.SourceMediaName, sourceId, this.NewMediaName, this.NewId, reason));
 
                 // Database: the rows of a renumbered copy that the game database lacks.
                 work = SqliteDatabase.FromBytes(db.ToBytes());
-                plan.AddRange(DbIds.RenumberCar(work, sourceId, this.NewId));
+                plan.AddRange(DbIds.RenumberCar(work, sourceId, this.NewId, false, this.game));
+                // FM2 / FM3: the car's rows keyed by a counter get new keys (FM2's physics, aero, prices, engine combo).
+                HashSet<string> cloned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (this.game != ForzaGame.Motorsport4)
+                {
+                    plan.AddRange(RenumberCounters(work, db, sourceId, this.NewId, this.game, cloned));
+                }
                 Dictionary<string, List<string>> schema = DbIds.Schema(db);
-                List<string[]> carColumns = DbIds.CarColumns(schema);
+                List<string[]> carColumns = DbIds.CarColumns(schema, this.game);
                 // Every write to the database is one transaction: an error puts all of it back.
                 db.Begin();
                 writing = true;
@@ -312,7 +492,7 @@ namespace ForzaStudio
                 foreach (KeyValuePair<string, List<string>> table in schema)
                 {
                     List<string> columns = table.Value;
-                    string key = DbIds.KeyColumn(db, table.Key, columns);
+                    string key = DbIds.KeyColumn(db, table.Key, columns, this.game);
                     int keyIndex = (key == null) ? -1 : columns.FindIndex(delegate(string c) { return string.Equals(c, key, StringComparison.OrdinalIgnoreCase); });
                     List<int> carIndexes = new List<int>();
                     foreach (string[] car in carColumns)
@@ -346,6 +526,23 @@ namespace ForzaStudio
                         {
                             take = true;
                         }
+                        else if (this.game != ForzaGame.Motorsport4 && keyIndex >= 0 && row[keyIndex] is long && cloned.Contains(table.Key + "#" + Convert.ToString(row[keyIndex], CultureInfo.InvariantCulture)))
+                        {
+                            take = true;   // a row RenumberCounters gave the copy (FM2 aero)
+                        }
+                        else if (this.game != ForzaGame.Motorsport4 && carIndexes.Count > 0)
+                        {
+                            // FM2 / FM3: every row of the car's own tables (counter keys already new), never the game's
+                            // content that only names the car (events, races, rewards, the starting garage; user 2026-11-14).
+                            take = false;
+                            if (!PointsAtCarOnly(table.Key))
+                            {
+                                foreach (int index in carIndexes)
+                                {
+                                    take = take || (index >= 0 && row[index] is long && (long) row[index] == this.NewId);
+                                }
+                            }
+                        }
                         else if (carIndexes.Count > 0 && (keyIndex < 0 || keyIsCar))
                         {
                             take = false;
@@ -354,7 +551,7 @@ namespace ForzaStudio
                                 take = take || (index >= 0 && row[index] is long && (long) row[index] == this.NewId);
                             }
                         }
-                        else if (string.Equals(table.Key, "Combo_Engines", StringComparison.OrdinalIgnoreCase) && keyIndex >= 0 && carIndexes.Exists(delegate(int i) { return i >= 0 && row[i] is long && (long) row[i] == this.NewId; }))
+                        else if (this.game == ForzaGame.Motorsport4 && string.Equals(table.Key, "Combo_Engines", StringComparison.OrdinalIgnoreCase) && keyIndex >= 0 && carIndexes.Exists(delegate(int i) { return i >= 0 && row[i] is long && (long) row[i] == this.NewId; }))
                         {
                             // The old engine table has a counter of its own (EngineComboID), not car * 1000 + n: the
                             // copy's row (same engine, same stock flag) gets the next free key.
@@ -419,11 +616,19 @@ namespace ForzaStudio
                     {
                         throw new InvalidOperationException("List_CarMake has no make " + this.MakeId.Value + ".");
                     }
-                    db.Execute("UPDATE Data_Car SET MakeID = ?, MakeName = ? WHERE Id = ?", this.MakeId.Value, makeName, this.NewId);
-                    object icon = db.Scalar("SELECT MakeIcon FROM Data_Car WHERE MakeID = ? AND Id <> ? LIMIT 1", this.MakeId.Value, this.NewId);
-                    if (icon != null)
+                    db.Execute("UPDATE Data_Car SET MakeID = ? WHERE Id = ?", this.MakeId.Value, this.NewId);
+                    // FM3 / FM4 keep the make's name and icon in Data_Car too; FM2 has neither column.
+                    if (schema["Data_Car"].Exists(delegate(string c) { return string.Equals(c, "MakeName", StringComparison.OrdinalIgnoreCase); }))
                     {
-                        db.Execute("UPDATE Data_Car SET MakeIcon = ? WHERE Id = ?", icon, this.NewId);
+                        db.Execute("UPDATE Data_Car SET MakeName = ? WHERE Id = ?", makeName, this.NewId);
+                    }
+                    if (schema["Data_Car"].Exists(delegate(string c) { return string.Equals(c, "MakeIcon", StringComparison.OrdinalIgnoreCase); }))
+                    {
+                        object icon = db.Scalar("SELECT MakeIcon FROM Data_Car WHERE MakeID = ? AND Id <> ? LIMIT 1", this.MakeId.Value, this.NewId);
+                        if (icon != null)
+                        {
+                            db.Execute("UPDATE Data_Car SET MakeIcon = ? WHERE Id = ?", icon, this.NewId);
+                        }
                     }
                 }
                 foreach (KeyValuePair<string, object> pair in this.Data)
@@ -440,9 +645,15 @@ namespace ForzaStudio
                 // The copy's own engine (CarEngine), before the checks. Its sound is set up the way the port does it: the
                 // engine keeps a MediaName of its own (the car's) and gets an engine tuning file of that name, a copy of the
                 // chosen engine's (or the source's) one, written below.
-                if (this.Engine != null)
+                if (this.Engine != null && this.game == ForzaGame.Motorsport2)
                 {
-                    long engineId = CarEngine.Clone(db, this.NewId, this.Engine, plan);
+                    // FM2 (CarEngine.Fm2.cs): every level copied; the sound stays the car's (EmitterData + DSPTuning by the CAR's
+                    // name, copied below), the engine keeps the source's MediaName (FM2 has no per-engine tuning file).
+                    CarEngine.CloneFm2(db, this.NewId, this.Engine, plan);
+                }
+                else if (this.Engine != null)
+                {
+                    long engineId = CarEngine.Clone(db, this.NewId, this.Engine, plan, this.game);
                     soundSource = Convert.ToString(db.Scalar("SELECT MediaName FROM Data_Engine WHERE EngineID = ?", engineId), CultureInfo.InvariantCulture);
                     ownEngineMedia = this.NewMediaName;
                     long aspiration = Convert.ToInt64(db.Scalar("SELECT AspirationID_Stock FROM Data_Engine WHERE EngineID = ?", engineId), CultureInfo.InvariantCulture);
@@ -454,9 +665,13 @@ namespace ForzaStudio
                     db.Execute("UPDATE Data_Engine SET MediaName = ? WHERE EngineID = ?", ownEngineMedia, engineId);
                 }
                 // The copy's own gearbox (CarGearbox); the performance numbers follow the engine and the gearbox.
-                if (this.Gearbox != null)
+                if (this.Gearbox != null && this.game == ForzaGame.Motorsport2)
                 {
-                    CarGearbox.Clone(db, this.NewId, this.Gearbox, plan);
+                    CarGearbox.ApplyFm2(db, this.NewId, this.Gearbox, plan);   // FM2: the copy's own List_UpgradeTransmission rows
+                }
+                else if (this.Gearbox != null)
+                {
+                    CarGearbox.Clone(db, this.NewId, this.Gearbox, plan, this.game);
                 }
                 if (this.Engine != null || this.Gearbox != null)
                 {
@@ -481,7 +696,7 @@ namespace ForzaStudio
                     {
                         throw new InvalidOperationException("A wheel " + newWheelMedia + " already exists.");
                     }
-                    long newWheel = DbIds.Next(db, "List_Wheels", "ID");
+                    long newWheel = DbIds.Next(db, "List_Wheels", "ID", this.game);
                     CopyRow(db, "List_Wheels", "ID", oldWheel, newWheel);
                     db.Execute("UPDATE List_Wheels SET MediaName = ? WHERE ID = ?", newWheelMedia, newWheel);
                     db.Execute("UPDATE List_Wheels SET IconPath = ? WHERE ID = ? AND IconPath = ? COLLATE NOCASE", newWheelMedia, newWheel, sourceWheelMedia);
@@ -490,9 +705,46 @@ namespace ForzaStudio
                     plan.Add(string.Format(CultureInfo.InvariantCulture, "wheel: {0} (List_Wheels {1}), a copy of {2} (id {3}){4}", newWheelMedia, newWheel, sourceWheelMedia, oldWheel, (extra > 0) ? ", with its WheelExceptions / WheelNormOffsets rows" : string.Empty));
                 }
 
+                // FM2 lists its cars from StockGarage: the copy's row, built as the official DLC build theirs, when the source has one.
+                if (this.game == ForzaGame.Motorsport2 && (Fm2StockGarage.HasRow(original, sourceId) || this.SourceFromPackage))   // a DLC car's row comes from its licence mask
+                {
+                    Fm2StockGarage.Write(db, this.NewId);
+                    plan.Add("StockGarage: +1 row (Id " + this.NewId.ToString(CultureInfo.InvariantCulture) + "), the official DLC query (FM2 lists its cars from this table)");
+                }
+                else if (this.game == ForzaGame.Motorsport2)
+                {
+                    plan.Add("StockGarage: no row, the source " + this.SourceMediaName + " has none either (an unlock or special car)");
+                }
+                if (this.game == ForzaGame.Motorsport2)
+                {
+                    // FM2's career dealer sells a car from the driver level its Rewards_DriverLevel rows of TypeId 3 give per region
+                    // (Mustang GT 05: region 3 at 0, 1 at 12, 2 at 14). Without them the copy is never for sale (user 2026-11-14:
+                    // "locked"). The copy gets the source's; the other types (1, 2: a car given at a level) stay the game's.
+                    int dealer = Fm2StockGarage.CopyDealerLevels(db, sourceId, this.NewId);
+                    plan.Add(string.Format(CultureInfo.InvariantCulture, "Rewards_DriverLevel: +{0} row(s) (CarId {1}, TypeId 3: the dealer sells it from the source's driver levels)", dealer, this.NewId));
+                    // A copy in the game folder whose source has no dealer / Arcade rows (disc 2 / DLC car) would stay locked:
+                    // it gets them open (user 2026-11-15). Packs never carry these tables (DlcPackage.Fm2).
+                    if (this.PackContent == null && this.ConsoleOutput == null)
+                    {
+                        int opened = (dealer == 0) ? Fm2StockGarage.DefaultDealerLevels(db, this.NewId) : 0;
+                        if (opened > 0)
+                        {
+                            plan.Add(string.Format(CultureInfo.InvariantCulture, "Rewards_DriverLevel: +{0} row(s) (CarId {1}, TypeId 3, driver level 0 in every region: the source has none)", opened, this.NewId));
+                        }
+                        if (Fm2StockGarage.EnsureArcadeList(db, this.NewId))
+                        {
+                            plan.Add("ArcadeCarList: +1 row (CarId " + this.NewId.ToString(CultureInfo.InvariantCulture) + ", Level 0 = open; the source has none)");
+                        }
+                    }
+                }
+                if (this.game == ForzaGame.Motorsport2 && Fm2StockGarage.EnableArcade(db, this.NewId))
+                {
+                    plan.Add("NewProfile_Arcade_Garage: +1 row (CarId " + this.NewId.ToString(CultureInfo.InvariantCulture) + "), FM2 copies are always in Arcade (user rule)");
+                }
+
                 // The integrity rules (DbIntegrity, DbIds.CheckCar): nothing is written when one breaks.
-                List<string> errors = DbIds.CheckCar(db, this.NewId, sourceId, this.NewMediaName);
-                DbIntegrity.Result check = DbIntegrity.Compare(original, db, ForzaGame.Motorsport4, null);
+                List<string> errors = DbIds.CheckCar(db, this.NewId, sourceId, this.NewMediaName, this.game);
+                DbIntegrity.Result check = DbIntegrity.Compare(original, db, this.game, null);
                 errors.AddRange(check.Errors);
                 if (errors.Count > 0)
                 {
@@ -500,7 +752,7 @@ namespace ForzaStudio
                 }
                 db.Commit();
                 writing = false;
-                plan.Add("database check: the rules hold (keys above FM4's largest and unique, every id points at a row, the car's Data_CarBody row, ModelId = Id)");
+                plan.Add("database check: the rules hold (keys above " + gameTag + "'s largest and unique, every id points at a row" + (this.game == ForzaGame.Motorsport2 ? "" : ", the car's Data_CarBody row, ModelId = Id") + ")");
                 foreach (string line in check.Summary)
                 {
                     plan.Add("  " + line);
@@ -525,6 +777,7 @@ namespace ForzaStudio
                     }
                 }
                 string[][] stringColumns = { new string[] { "DisplayName", "IDS_DisplayName_" }, new string[] { "ModelShort", "IDS_ModelShort_" } };
+                HashSet<int> dlcKeys = DlcPackage.InstalledStringKeys(this.game, this.NamesContent(), "Data_Car.str");   // the names pack merges them over the game's
                 foreach (string[] column in stringColumns)
                 {
                     string value = db.Scalar("SELECT " + column[0] + " FROM Data_Car WHERE Id = ?", sourceId) as string;
@@ -534,7 +787,7 @@ namespace ForzaStudio
                         continue;
                     }
                     int oldKey = (int) (stringId & 0xFFFF);
-                    int newKey = GameStringKeys.Free("Data_Car", files.Values);
+                    int newKey = GameStringKeys.Free("Data_Car", files.Values, dlcKeys);
                     Dictionary<string, string> perLanguage = (column[0] == "DisplayName") ? this.DisplayNames : this.ModelShorts;
                     string common = (column[0] == "DisplayName") ? this.DisplayName : this.ModelShort;
                     foreach (KeyValuePair<string, StrFile> file in files)
@@ -567,7 +820,11 @@ namespace ForzaStudio
                     }
                     string newValue = "_&" + ((stringId & 0xFFFF0000u) | (uint) newKey).ToString(CultureInfo.InvariantCulture);
                     db.Execute("UPDATE Data_Car SET " + column[0] + " = ? WHERE Id = ?", newValue, this.NewId);
-                    plan.Add(string.Format(CultureInfo.InvariantCulture, "strings: {0} key {1} (free in FM4 and its DLC) in {2} languages", column[0], newKey, files.Count));
+                    plan.Add(string.Format(CultureInfo.InvariantCulture, "strings: {0} key {1} (free in the game's tables and FM4's DLC list) in {2} languages", column[0], newKey, files.Count));
+                }
+                if (this.game == ForzaGame.Motorsport2 && Fm2StockGarage.HasRow(db, this.NewId))
+                {
+                    Fm2StockGarage.Write(db, this.NewId);   // again: its DisplayName / ModelName are Data_Car's new string keys
                 }
 
                 // Car zip under the new name.
@@ -616,9 +873,11 @@ namespace ForzaStudio
                     string from = Path.Combine(wheelsFolder, sourceWheelMedia + ".zip");
                     if (!File.Exists(from))
                     {
-                        throw new InvalidOperationException("The FM4 folder has no Media\\wheels\\" + sourceWheelMedia + ".zip (the source's stock wheel).");
+                        throw new InvalidOperationException("The " + gameTag + " folder has no Media\\wheels\\" + sourceWheelMedia + ".zip (the source's stock wheel).");
                     }
-                    wheelZips.Add(new KeyValuePair<string, ForzaZip>(Path.Combine(wheelsFolder, newWheelMedia + ".zip"), RenamedZip(from, sourceWheelMedia, newWheelMedia)));
+                    from = ActualPath(from);
+                    bool lowerWheel = Path.GetFileName(from) == Path.GetFileName(from).ToLowerInvariant();
+                    wheelZips.Add(new KeyValuePair<string, ForzaZip>(Path.Combine(Path.GetDirectoryName(from), (lowerWheel ? newWheelMedia.ToLowerInvariant() : newWheelMedia) + ".zip"), RenamedZip(from, sourceWheelMedia, newWheelMedia)));
                     wheelLikes.Add(sourceWheelMedia);
                     plan.Add("wheel zip: Media\\wheels\\" + newWheelMedia + ".zip (copy of " + sourceWheelMedia + ".zip)");
                 }
@@ -659,10 +918,54 @@ namespace ForzaStudio
                 string audioFolder = Path.Combine(Path.Combine(this.Media, "audio"), "cars");
                 string modelPath = Path.Combine(audioFolder, "CarModelTuning.zip");
                 string tuningPath = Path.Combine(Path.Combine(audioFolder, "Engines"), "enginetuning.zip");
-                ForzaZip modelZip = AddCopy(modelPath, this.SourceMediaName + "_CMT.xml", this.NewMediaName + "_CMT.xml", plan, "sound: car model tuning");
+                ForzaZip modelZip;
+                ForzaZip tuningZip = null;
+                if (this.game == ForzaGame.Motorsport2)
+                {
+                    // FM2 finds both by the CAR's name: Audio\Cars\EmitterData.zip <car>_ED.xml (324 cars) and
+                    // Audio\Cars\Engines\DSPTuning.zip <car>_DSPTuning.xml (351; the harmonic tunings and banks it names stay the
+                    // game's). A copy without them would be silent. The suffix keeps the source's spelling (_DSPtuning / _DSPTuning).
+                    modelPath = Path.Combine(audioFolder, "EmitterData.zip");
+                    tuningPath = Path.Combine(Path.Combine(audioFolder, "Engines"), "DSPTuning.zip");
+                    modelZip = AddCopy(modelPath, this.SourceMediaName + "_ED.xml", this.NewMediaName + "_ED.xml", plan, "sound: emitter data");
+                    // The engine sound: the DSP tuning of the car chosen in the engine dialog (its engine's MediaName is that car's,
+                    // 321 of 321), else the source's. The emitter data (where engine and exhausts sit) stays the source's.
+                    object chosenSound;
+                    string soundCar = (this.Engine != null && this.Engine.Data.TryGetValue("MediaName", out chosenSound) && chosenSound is string) ? (string) chosenSound : this.SourceMediaName;
+                    string dsp = EntryNameLike(tuningPath, soundCar + "_DSPTuning.xml");
+                    if (dsp == null && soundCar != this.SourceMediaName)
+                    {
+                        plan.Add("sound: " + soundCar + "_DSPTuning.xml is not in DSPTuning.zip, the source's sound is kept");
+                        soundCar = this.SourceMediaName;
+                        dsp = EntryNameLike(tuningPath, soundCar + "_DSPTuning.xml");
+                    }
+                    // An own engine: the tuning's audio_rpm_max / audio_rpm_min (the rpm range the sound plays over, FM2's form of FM4's
+                    // audio_rpm_redline / _idle) follow the new redline and idle against the sound car's, so the sound runs up to the new limiter.
+                    EntryEdit tune = null;
+                    if (this.Engine != null)
+                    {
+                        object soundEngine = original.Scalar("SELECT EngineID FROM Data_Engine WHERE MediaName = ? COLLATE NOCASE ORDER BY EngineID LIMIT 1", soundCar);
+                        double[] was = Fm2CamRpm(original, (soundCar != this.SourceMediaName && soundEngine != null) ? Convert.ToInt64(soundEngine, CultureInfo.InvariantCulture) : CarEngine.StockEngine(original, sourceId));
+                        double[] now = Fm2CamRpm(db, CarEngine.StockEngine(db, this.NewId));
+                        long newAspiration = Convert.ToInt64(db.Scalar("SELECT AspirationID_Stock FROM Data_Engine WHERE EngineID = ?", CarEngine.StockEngine(db, this.NewId)), CultureInfo.InvariantCulture);
+                        bool turbo = newAspiration >= 2 && newAspiration <= 4;
+                        double? turboVolume = this.Engine.TurboVolume;
+                        double rf = (was != null && now != null && was[0] > 0) ? now[0] / was[0] : 1.0;
+                        double inf = (was != null && now != null && was[1] > 0) ? now[1] / was[1] : 1.0;
+                        tune = delegate(byte[] data, List<string> lines) { return TuneFm2Sound(data, lines, rf, inf, turbo, turboVolume); };
+                    }
+                    tuningZip = (dsp == null) ? null : AddCopy(tuningPath, dsp, this.NewMediaName + dsp.Substring(soundCar.Length), plan, "sound: engine DSP tuning" + ((soundCar != this.SourceMediaName) ? " (of " + soundCar + ")" : ""), tune);
+                    if (dsp == null)
+                    {
+                        plan.Add("sound: engine DSP tuning: " + this.SourceMediaName + "_DSPTuning.xml is not in DSPTuning.zip, nothing added");
+                    }
+                }
+                else
+                {
+                    modelZip = AddCopy(modelPath, this.SourceMediaName + "_CMT.xml", this.NewMediaName + "_CMT.xml", plan, "sound: car model tuning");
+                }
                 // A turbo engine on the setup of a natural one (TurboVolume 0, as the Furai's) would whistle never: FM4's 137 turbo
                 // engines all have TurboVolume 0.2 - 0.9 (median 0.5), the turbo sound's level in the tuning file.
-                ForzaZip tuningZip = null;
                 if (ownEngineMedia != null)
                 {
                     // The sound engine's stock redline / idle against the copy's own: the audio range follows the ratio.
@@ -687,9 +990,11 @@ namespace ForzaStudio
                         delegate(byte[] data, List<string> lines) { return TuneEngineSound(data, lines, turboNow, rf, inf, engineSpec); });
                 }
 
+                // Plan(): the database the copy would write, for the tests (fm4dev\ST02\dupall.exe); nothing is written.
+                this.PlannedDatabase = apply ? null : db.ToBytes();
+
                 if (apply)
                 {
-                    List<string> locked = new List<string>();
                     List<string> targets = new List<string>();
                     targets.Add(dbPath);
                     targets.Add(manifestPath);
@@ -706,22 +1011,52 @@ namespace ForzaStudio
                     {
                         targets.Add(thumbnailZipPath);
                     }
-                    foreach (string path in targets)
-                    {
-                        try
-                        {
-                            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-                            {
-                            }
-                        }
-                        catch (IOException)
-                        {
-                            locked.Add(Path.GetFileName(path));
-                        }
-                    }
+                    // A missing file is not "in use" (FileNotFoundException is an IOException: a game folder without
+                    // zipmanifest.xml was reported as "zipmanifest.xml in use"); read-only files are made writable;
+                    // the others name the process that keeps them (FileLocks, 2026-11-14).
+                    List<string> locked = FileLocks.Busy(targets, delegate(string path) { return Path.GetFileName(path); });
                     if (locked.Count > 0)
                     {
-                        throw new IOException("Files in use (close the game or the emulator first): " + string.Join(", ", locked.ToArray()));
+                        throw new IOException(FileLocks.Message(locked));
+                    }
+                    // Every zipmanifest.xml line this copy adds or updates, found before anything is written: a missing one
+                    // stops the copy here, not after the files and the database (2026-11-14: a manifest path failed last and
+                    // left a half-made copy in FM2_Extracted_DEV).
+                    List<string> manifestProblems = new List<string>();
+                    List<string> written = new List<string>();
+                    written.Add(newZipPath);
+                    foreach (KeyValuePair<string, ForzaZip> wheelZip in wheelZips)
+                    {
+                        written.Add(wheelZip.Key);
+                    }
+                    foreach (string path in targets)
+                    {
+                        if (path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                        {
+                            written.Add(path);
+                        }
+                    }
+                    foreach (string path in written)
+                    {
+                        if (ZipManifest.GamePath(this.TargetRoot, path) == null)
+                        {
+                            manifestProblems.Add(path + ": no GAME:\\ path under " + this.TargetRoot);
+                        }
+                    }
+                    if (!ZipManifest.Lists(manifestPath, "game:\\media\\cars\\" + this.SourceMediaName.ToLowerInvariant() + ".zip"))
+                    {
+                        manifestProblems.Add("zipmanifest.xml has no line for the source's car zip");
+                    }
+                    for (int i = 0; i < wheelLikes.Count; i++)
+                    {
+                        if (!ZipManifest.Lists(manifestPath, "game:\\media\\wheels\\" + wheelLikes[i].ToLowerInvariant() + ".zip"))
+                        {
+                            manifestProblems.Add("zipmanifest.xml has no line for the wheel zip " + wheelLikes[i]);
+                        }
+                    }
+                    if (manifestProblems.Count > 0)
+                    {
+                        throw new InvalidOperationException("Nothing was written: " + string.Join("; ", manifestProblems.ToArray()));
                     }
 
                     // New files first, the database last: an error before it leaves the game as it was.
@@ -806,6 +1141,57 @@ namespace ForzaStudio
         // The zip with a copy of one of its files under another name (in memory; null and a plan line when it has no such file).
         private delegate byte[] EntryEdit(byte[] data, List<string> plan);
 
+        // FM2: the stock CamValves level's redline and idle (StallRPM) of an engine, or null.
+        private static double[] Fm2CamRpm(SqliteDatabase db, long engine)
+        {
+            if (engine < 0)
+            {
+                return null;
+            }
+            SqliteDatabase.Result r = db.Query("SELECT RedlineRPM, StallRPM FROM " + CarEngine.Fm2CamTable + " WHERE EngineID = ? AND IsStock = 1 ORDER BY Level LIMIT 1", engine);
+            return (r.Rows.Count == 0) ? null : new double[] { Convert.ToDouble(r.Rows[0][0], CultureInfo.InvariantCulture), Convert.ToDouble(r.Rows[0][1], CultureInfo.InvariantCulture) };
+        }
+
+        // FM2's DSPTuning: audio_rpm_max / audio_rpm_min times the redline / idle change (FM4's TuneEngineSound rule).
+        // A turbo engine: TurboVolume of every upgrade level = the user's, or 0.5 where it is 0 (the whistle would never sound).
+        private static byte[] TuneFm2Sound(byte[] data, List<string> plan, double redlineFactor, double idleFactor, bool turbo, double? turboVolume)
+        {
+            string text = System.Text.Encoding.UTF8.GetString(data);
+            if (turbo)
+            {
+                int changed = 0;
+                text = System.Text.RegularExpressions.Regex.Replace(text, "TurboVolume=\"([^\"]*)\"", delegate(System.Text.RegularExpressions.Match m)
+                {
+                    double now;
+                    bool zero = !double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out now) || now <= 0;
+                    if (!turboVolume.HasValue && !zero)
+                    {
+                        return m.Value;
+                    }
+                    changed++;
+                    return "TurboVolume=\"" + (turboVolume.HasValue ? turboVolume.Value : 0.5).ToString("0.000000", CultureInfo.InvariantCulture) + "\"";
+                });
+                if (changed > 0)
+                {
+                    plan.Add(string.Format(CultureInfo.InvariantCulture, "sound: TurboVolume of {0} upgrade level(s) set to {1} in the DSP tuning (the engine is turbocharged)", changed, turboVolume.HasValue ? turboVolume.Value : 0.5));
+                }
+            }
+            string[] names = { "audio_rpm_max", "audio_rpm_min" };
+            double[] factors = { redlineFactor, idleFactor };
+            for (int i = 0; i < names.Length; i++)
+            {
+                System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(text, names[i] + "=\"([^\"]*)\"");
+                double was;
+                if (factors[i] > 0 && Math.Abs(factors[i] - 1.0) > 0.001 && m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out was) && was > 0)
+                {
+                    double value = Math.Round(was * factors[i]);
+                    text = text.Substring(0, m.Index) + names[i] + "=\"" + value.ToString(CultureInfo.InvariantCulture) + "\"" + text.Substring(m.Index + m.Length);
+                    plan.Add(string.Format(CultureInfo.InvariantCulture, "sound: {0} {1:0} -> {2:0} in the DSP tuning (follows the engine's {3})", names[i], was, value, i == 0 ? "redline" : "idle"));
+                }
+            }
+            return System.Text.Encoding.UTF8.GetBytes(text);
+        }
+
         // The engine tuning file of a copy's own engine, made for the engine it describes: the turbo level (see the call) and the
         // rpm range the sound is played over. audio_rpm_redline / audio_rpm_idle sit near the engine's redline and stall rpm in
         // FM4 (median 1.02 and 1.00 times; the Furai's own are 1.075 and 1.6): the copy keeps the sound engine's ratio to its
@@ -824,7 +1210,7 @@ namespace ForzaStudio
                     text = text.Substring(0, m.Index) + "TurboVolume=\"" + volume.ToString("0.000000", CultureInfo.InvariantCulture) + "\"" + text.Substring(m.Index + m.Length);
                     plan.Add(string.Format(CultureInfo.InvariantCulture, "sound: TurboVolume {0} -> {1} in the engine tuning (the engine is turbocharged; FM4's turbo engines use 0.2 - 0.9)", now, volume));
                 }
-                if (spec != null && spec.BovLevel > 0)
+                if (spec != null && spec.BovLevel > 0 && text.IndexOf("blowoffL1Level", StringComparison.OrdinalIgnoreCase) >= 0)   // FM3's tuning has no blow-off slots
                 {
                     for (int slot = 1; slot <= 3; slot++)
                     {
@@ -878,6 +1264,243 @@ namespace ForzaStudio
             zip.Add(to, (edit != null) ? edit(bytes, plan) : bytes);
             plan.Add(what + ": " + to + " added to " + Path.GetFileName(zipPath) + " (copy of " + from + ")");
             return zip;
+        }
+
+        // The name an entry of the zip has (any case), or null.
+        private static string EntryNameLike(string zipPath, string name)
+        {
+            if (!File.Exists(zipPath))
+            {
+                return null;
+            }
+            ForzaZip.Entry entry = new ForzaZip(zipPath).Find(name);
+            return (entry == null) ? null : entry.Name;
+        }
+
+        // The path with the spelling the file system has (the game's own: FM2 names its zips in lower case).
+        private static string ActualPath(string path)
+        {
+            string folder = Path.GetDirectoryName(path);
+            foreach (string file in Directory.GetFiles(folder))
+            {
+                if (string.Equals(Path.GetFileName(file), Path.GetFileName(path), StringComparison.OrdinalIgnoreCase))
+                {
+                    return file;
+                }
+            }
+            return path;
+        }
+
+        // Tables that only name the car (the game's content: events, races, rewards, the starting garage). A copy is never
+        // put in them (user 2026-11-14). FM4's procedure skips them by their key (an Id of their own, not the car's).
+        private static bool PointsAtCarOnly(string table)
+        {
+            return string.Equals(table, "EventParticipants", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(table, "Races", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(table, "EventShowroomChallenges", StringComparison.OrdinalIgnoreCase)
+                || table.StartsWith("Rewards_", StringComparison.OrdinalIgnoreCase)
+                || table.StartsWith("NewProfile_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Whether a row of 'table' belongs to the car: one of its car columns holds it, or its key is car * 1000 + n.
+        private static string BelongsWhere(Dictionary<string, List<string>> schema, List<string[]> carColumns, SqliteDatabase db, string table, ForzaGame game, long car, List<object> args)
+        {
+            List<string> parts = new List<string>();
+            foreach (string[] column in carColumns)
+            {
+                if (string.Equals(column[0], table, StringComparison.OrdinalIgnoreCase))
+                {
+                    parts.Add(SqliteDatabase.Quote(column[1]) + " = ?");
+                    args.Add(car);
+                }
+            }
+            string key = DbIds.KeyColumn(db, table, schema[table], game);
+            if (key != null)
+            {
+                parts.Add(SqliteDatabase.Quote(key) + " BETWEEN ? AND ?");
+                args.Add(car * 1000);
+                args.Add((car * 1000) + 999);
+            }
+            return (parts.Count == 0) ? null : "(" + string.Join(" OR ", parts.ToArray()) + ")";
+        }
+
+        // FM2 (any game whose car rows are keyed by a counter, not car * 1000 + n): in the renumbered working copy 'work', the
+        // new car's rows still hold the source's counter keys. (1) In a table with a car column, each such key gets the next
+        // free value (above the game's largest, GameIdLimits, and every key of 'db' and 'work'), and the new car's rows that
+        // point at it (the game's relation map) follow. (2) A row without a car column that only the source car's rows point at
+        // (FM2's List_AeroPhysics: 347 rows of one car, 8 shared) is cloned under a new key for the copy; a row other cars use
+        // stays shared. Keys made are added to 'cloned' (table#key). Returns the plan lines.
+        private static List<string> RenumberCounters(SqliteDatabase work, SqliteDatabase db, long sourceId, long newId, ForzaGame game, HashSet<string> cloned)
+        {
+            List<string> lines = new List<string>();
+            Dictionary<string, List<string>> schema = DbIds.Schema(work);
+            List<string[]> carColumns = DbIds.CarColumns(schema, game);
+            Dictionary<string, long> next = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            Func<string, string, long> take = delegate(string table, string key)
+            {
+                long value;
+                if (!next.TryGetValue(table, out value))
+                {
+                    value = Math.Max(DbIds.Next(db, table, key, game), DbIds.Next(work, table, key, game));
+                }
+                next[table] = value + 1;
+                return value;
+            };
+            List<string> done = new List<string>();
+            // (1)
+            foreach (string[] column in carColumns)
+            {
+                string table = column[0];
+                string key = DbIds.KeyColumn(work, table, schema[table], game);
+                if (key == null || string.Equals(key, column[1], StringComparison.OrdinalIgnoreCase) || PointsAtCarOnly(table))
+                {
+                    continue;
+                }
+                string t = SqliteDatabase.Quote(table), k = SqliteDatabase.Quote(key), c = SqliteDatabase.Quote(column[1]);
+                List<long> olds = new List<long>();
+                foreach (object[] row in work.Query("SELECT DISTINCT " + k + " FROM " + t + " WHERE " + c + " = ? AND NOT (" + k + " BETWEEN ? AND ?)", newId, newId * 1000, (newId * 1000) + 999).Rows)
+                {
+                    if (row[0] is long)
+                    {
+                        olds.Add((long) row[0]);
+                    }
+                }
+                foreach (long old in olds)
+                {
+                    long now = take(table, key);
+                    work.Execute("UPDATE " + t + " SET " + k + " = ? WHERE " + c + " = ? AND " + k + " = ?", now, newId, old);
+                    Repoint(work, schema, carColumns, game, table, key, old, now, newId);
+                    cloned.Add(table + "#" + now.ToString(CultureInfo.InvariantCulture));
+                }
+                if (olds.Count > 0)
+                {
+                    done.Add(string.Format(CultureInfo.InvariantCulture, "{0}.{1} {2}", table, key, olds.Count));
+                }
+            }
+            // (2)
+            foreach (GameDbSchema.Relation relation in GameDbSchema.For(game))
+            {
+                List<string> targetColumns;
+                if (relation.IsComposite || !CloneWhenOwned(relation.Target) || !schema.ContainsKey(relation.Table) || !schema.TryGetValue(relation.Target, out targetColumns)
+                    || carColumns.Exists(delegate(string[] cc) { return string.Equals(cc[0], relation.Target, StringComparison.OrdinalIgnoreCase); })
+                    || string.Equals(relation.Target, "Data_Car", StringComparison.OrdinalIgnoreCase) || PointsAtCarOnly(relation.Table))
+                {
+                    continue;
+                }
+                string targetKey = DbIds.KeyColumn(work, relation.Target, targetColumns, game);
+                if (targetKey == null || !string.Equals(targetKey, relation.TargetColumn, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                List<object> args = new List<object>();
+                string mine = BelongsWhere(schema, carColumns, work, relation.Table, game, newId, args);
+                if (mine == null)
+                {
+                    continue;
+                }
+                string rc = SqliteDatabase.Quote(relation.Column);
+                List<long> values = new List<long>();
+                foreach (object[] row in work.Query("SELECT DISTINCT " + rc + " FROM " + SqliteDatabase.Quote(relation.Table) + " WHERE " + mine, args.ToArray()).Rows)
+                {
+                    if (row[0] is long && !GameDbSchema.IsNone((long) row[0]) && !cloned.Contains(relation.Target + "#" + ((long) row[0]).ToString(CultureInfo.InvariantCulture))
+                        && !((long) row[0] >= newId * 1000 && (long) row[0] <= (newId * 1000) + 999))
+                    {
+                        values.Add((long) row[0]);
+                    }
+                }
+                foreach (long value in values)
+                {
+                    if (!OnlyCarUses(db, schema, carColumns, game, relation.Target, targetKey, value, sourceId))
+                    {
+                        continue;   // other cars' rows point at it too: shared, the copy points at the same row
+                    }
+                    // FM3 keys its aero rows car * 1000 + n (207 of 207 owned rows): the clone stays in the copy's range, at the
+                    // same n when free. FM2 numbers them with a counter: the next free one.
+                    long now = (game == ForzaGame.Motorsport3) ? FreeInCarRange(work, relation.Target, targetKey, newId, value) : take(relation.Target, targetKey);
+                    string tt = SqliteDatabase.Quote(relation.Target), tk = SqliteDatabase.Quote(targetKey);
+                    List<string> quoted = targetColumns.ConvertAll<string>(delegate(string x) { return SqliteDatabase.Quote(x); });
+                    string select = string.Join(", ", targetColumns.ConvertAll<string>(delegate(string x) { return string.Equals(x, targetKey, StringComparison.OrdinalIgnoreCase) ? "?" : SqliteDatabase.Quote(x); }).ToArray());
+                    work.Execute("INSERT INTO " + tt + " (" + string.Join(", ", quoted.ToArray()) + ") SELECT " + select + " FROM " + tt + " WHERE " + tk + " = ?", now, value);
+                    Repoint(work, schema, carColumns, game, relation.Target, targetKey, value, now, newId);
+                    cloned.Add(relation.Target + "#" + now.ToString(CultureInfo.InvariantCulture));
+                    done.Add(string.Format(CultureInfo.InvariantCulture, "{0}.{1} {2} -> {3}", relation.Target, targetKey, value, now));
+                }
+            }
+            if (done.Count > 0)
+            {
+                lines.Add("rows keyed by a counter, new keys for the copy: " + string.Join(", ", done.ToArray()));
+            }
+            return lines;
+        }
+
+        // The tables without a car column whose rows are a car's own data (fm4dev\ST02\own.exe over every car): FM2's
+        // List_AeroPhysics (347 rows of one car, 8 shared). Not the engine (a plain copy shares it, as in FM4), nor a lookup
+        // list (a part maker one car alone uses stays one row).
+        private static bool CloneWhenOwned(string table)
+        {
+            return string.Equals(table, "List_AeroPhysics", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // A key car * 1000 + n of the car 'car' that table.key does not use yet: n of 'old' first, else the first free n.
+        private static long FreeInCarRange(SqliteDatabase work, string table, string key, long car, long old)
+        {
+            string sql = "SELECT count(*) FROM " + SqliteDatabase.Quote(table) + " WHERE " + SqliteDatabase.Quote(key) + " = ?";
+            long first = (car * 1000) + (old % 1000);
+            if (Convert.ToInt64(work.Scalar(sql, first), CultureInfo.InvariantCulture) == 0)
+            {
+                return first;
+            }
+            for (long n = 0; n < 1000; n++)
+            {
+                if (Convert.ToInt64(work.Scalar(sql, (car * 1000) + n), CultureInfo.InvariantCulture) == 0)
+                {
+                    return (car * 1000) + n;
+                }
+            }
+            throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "{0}.{1}: no free key in {2}000 - {2}999 for the copy.", table, key, car));
+        }
+
+        // The new car's rows (BelongsWhere) that point at table.key = old point at now.
+        private static void Repoint(SqliteDatabase work, Dictionary<string, List<string>> schema, List<string[]> carColumns, ForzaGame game, string table, string key, long old, long now, long newId)
+        {
+            foreach (GameDbSchema.Relation relation in GameDbSchema.Into(game, table))
+            {
+                if (relation.IsComposite || !string.Equals(relation.TargetColumn, key, StringComparison.OrdinalIgnoreCase) || !schema.ContainsKey(relation.Table))
+                {
+                    continue;
+                }
+                List<object> args = new List<object>();
+                args.Add(now);
+                args.Add(old);
+                string mine = BelongsWhere(schema, carColumns, work, relation.Table, game, newId, args);
+                if (mine == null)
+                {
+                    continue;
+                }
+                string c = SqliteDatabase.Quote(relation.Column);
+                work.Execute("UPDATE " + SqliteDatabase.Quote(relation.Table) + " SET " + c + " = ? WHERE " + c + " = ? AND " + mine, args.ToArray());
+            }
+        }
+
+        // True when, in the game's database 'db', only the rows of the car 'car' point at table.key = value.
+        private static bool OnlyCarUses(SqliteDatabase db, Dictionary<string, List<string>> schema, List<string[]> carColumns, ForzaGame game, string table, string key, long value, long car)
+        {
+            foreach (GameDbSchema.Relation relation in GameDbSchema.Into(game, table))
+            {
+                if (relation.IsComposite || !string.Equals(relation.TargetColumn, key, StringComparison.OrdinalIgnoreCase) || !schema.ContainsKey(relation.Table))
+                {
+                    continue;
+                }
+                List<object> args = new List<object>();
+                args.Add(value);
+                string mine = BelongsWhere(schema, carColumns, db, relation.Table, game, car, args);
+                string where = SqliteDatabase.Quote(relation.Column) + " = ?" + ((mine == null) ? "" : " AND NOT " + mine);
+                if (Convert.ToInt64(db.Scalar("SELECT count(*) FROM " + SqliteDatabase.Quote(relation.Table) + " WHERE " + where, args.ToArray()), CultureInfo.InvariantCulture) > 0)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         // The rows of 'table' whose 'key' is oldId, inserted again with newId. Returns how many.

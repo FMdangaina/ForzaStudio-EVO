@@ -293,11 +293,16 @@ namespace ForzaStudio
         private static readonly Dictionary<string, ModCar> modCars = new Dictionary<string, ModCar>(StringComparer.OrdinalIgnoreCase);
 
         // True for a package the official DLC list knows (an original, never written: its cars are changed through mod
-        // packs). Only FM4's for now: the mod pack's folder name and header are FM4's.
+        // packs). FM4, FM3 (disc 2 + DLC) and FM2 (DLC), ST-02 2026-11-15.
         private static bool IsOriginalPackage(string file)
         {
             DlcCatalog.Pack pack = DlcCatalog.Find(DlcCatalog.ReadHeader(file));
-            return pack != null && pack.Game == ForzaGame.Motorsport4;
+            return pack != null && ModPackGame(pack.Game);
+        }
+
+        private static bool ModPackGame(ForzaGame game)
+        {
+            return game == ForzaGame.Motorsport4 || game == ForzaGame.Motorsport3 || game == ForzaGame.Motorsport2;
         }
 
         private static ModCar ModCarOf(string zipPath)
@@ -316,12 +321,10 @@ namespace ForzaStudio
         // After a save of a car copy of an original package: writes its mod pack (Xenia closed first).
         private bool WriteModPack(ModCar car)
         {
-            if (CarPortForm.XeniaRunning())
+            if (!XeniaGuard.Confirm(this, "Mod Pack", "the DLC packages (the copy of " + car.Media + " is already saved)"))
             {
                 car.Pending = true;
-                MessageBox.Show(this, "The copy of " + car.Media + " is saved, but Xenia is open and keeps the packages in use.\n\nClose Xenia, then Save again: the mod pack is written then.",
-                    "Mod Pack", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                this.SetStatus(car.Media + ": copy saved, mod pack NOT written yet (close Xenia, then Save again).");
+                this.SetStatus(car.Media + ": copy saved, mod pack NOT written yet (close the game in Xenia, then Save again).");
                 return false;
             }
             try
@@ -329,7 +332,8 @@ namespace ForzaStudio
                 Cursor.Current = Cursors.WaitCursor;
                 this.SetStatus("Writing the mod pack of " + car.Media + "...");
                 // a car of an original DLC: standalone (wheels, offer mapping, names), for players without that DLC
-                ModPack.Standalone standalone = (car.PackageFile == null) ? null : ModPack.StandaloneFrom(car.PackageFile, car.Media, car.Root);
+                // (FM4 only: an FM2 / FM3 mod pack needs the original disc 2 / DLC installed)
+                ModPack.Standalone standalone = (car.PackageFile == null || ModPack.GameOf(car.Root) != ForzaGame.Motorsport4) ? null : ModPack.StandaloneFrom(car.PackageFile, car.Media, car.Root);
                 // the car's database copy (File > Database of This Car): every row of the car goes into the pack's merge
                 ModPack.CarDatabase database = null;
                 ForzaZip.Entry dbEntry = this.zip.Find(ModCarDb.EntryName);
@@ -428,8 +432,9 @@ namespace ForzaStudio
         // folder set): the caller opens the game's zip as before.
         private bool OpenGameCarAsMod(string carZip, string media, string root)
         {
-            string content = InstalledDlc.ContentFolder(ForzaGame.Motorsport4);
-            if (content == null || GameInfo.Detect(root) != ForzaGame.Motorsport4)
+            ForzaGame game = GameInfo.Detect(root);
+            string content = ModPackGame(game) ? InstalledDlc.ContentFolder(game) : null;
+            if (content == null)
             {
                 return false;
             }
@@ -503,8 +508,9 @@ namespace ForzaStudio
                 if (IsOriginalPackage(package.File))
                 {
                     mod = new ModCar();
-                    // Xenia's FM4 content folder (Settings), else the folder the package is in
-                    mod.Content = InstalledDlc.ContentFolder(ForzaGame.Motorsport4) ?? Path.GetDirectoryName(Path.GetFullPath(package.File));
+                    // Xenia's content folder of the package's game (Settings), else the folder the package is in
+                    DlcCatalog.Pack pack = DlcCatalog.Find(DlcCatalog.ReadHeader(package.File));
+                    mod.Content = InstalledDlc.ContentFolder(pack.Game) ?? Path.GetDirectoryName(Path.GetFullPath(package.File));
                     mod.Media = media;
                     mod.PackageFile = package.File;
                     mod.PackageTitle = package.Title;

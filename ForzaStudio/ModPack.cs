@@ -27,6 +27,16 @@ namespace ForzaStudio
     // media/db/patch/<offer>000_merge.slt. A merge row with a key the game has replaces the game's row (checked in game).
     //
     // One mod pack per car; the next Save of the same car replaces its file (the content id, so the name, changes).
+    //
+    // FM3 and FM2 (ST-02, 2026-11-15; FM2 = disc 1 + DLC, FM3 = disc 1 + disc 2 + DLC): the same STFS file with the game's
+    // title id, laid out as the names pack (proven in both games) and the game's packs:
+    //   FM3  Media\DLCZips\<offer, 4 hex>_pri_999.zip (LZX) with media/db/patch/<offer>005_merge.slt = the pack row
+    //        (MultiDiscContentPacks) + the car's rows; Media\LicenseMasks\00000001.sql (no-op);
+    //   FM2  Media\DLCZips\DLC<offer>_pri_999.zip in DEFLATE (FM2 hangs on LZX) with <offer>0000_merge.slt when the car's
+    //        database is carried (no offer row; never StockGarage, Rewards_DriverLevel, ArcadeCarList, CarExceptions,
+    //        Combo_Engines, WheelNormOffsets: the game hangs with them); LicenseMasks 00000001.sql + 00000002.sql (no-op).
+    // Not standalone: a disc 2 / DLC car's mod pack needs the original installed. Priority 999 over a disc 1 car's zip:
+    // proven in FM4 only, to check in game for FM2 / FM3.
     public static class ModPack
     {
         public const int Priority = 999;
@@ -185,6 +195,11 @@ namespace ForzaStudio
             {
                 throw new InvalidOperationException("The Xenia content folder of the game is not set (Tools > Settings > Folders).");
             }
+            ForzaGame game = GameOf(targetRoot);
+            if (game != ForzaGame.Motorsport4)
+            {
+                standalone = null;      // FM2 / FM3: the mod pack needs the original (disc 2 / DLC) installed
+            }
             string old = Find(content, media);
             int offer = 0;
             string kept;
@@ -195,7 +210,7 @@ namespace ForzaStudio
             }
             if (offer <= 0)
             {
-                offer = FreeOffer(content, targetRoot);
+                offer = (game == ForzaGame.Motorsport3) ? FreeOfferFm3(content, targetRoot) : (game == ForzaGame.Motorsport2) ? FreeOfferFm2(content) : FreeOffer(content, targetRoot);
             }
             string offerText = offer.ToString(CultureInfo.InvariantCulture);
 
@@ -235,11 +250,29 @@ namespace ForzaStudio
                 }
             }
 
+            // FM4 <offer>000_merge.slt, FM3 <offer>005_merge.slt (its packs), FM2 <offer>0000_merge.slt (DLC8, proven in game)
+            string mergeName = "media/db/patch/" + offerText + ((game == ForzaGame.Motorsport3) ? "005" : (game == ForzaGame.Motorsport2) ? "0000" : "000") + "_merge.slt";
             if (database != null)
             {
                 // every row of the car + the rows the user changed; the car mapped to the mod's offer when standalone
-                byte[] merge = ModCarDb.BuildMerge(database.Working, database.Reference, offer, media, standalone != null, database.Report);
-                Stage(files, "media/db/patch/" + offerText + "000_merge.slt", merge);
+                byte[] merge = ModCarDb.BuildMerge(database.Working, database.Reference, offer, media, standalone != null, database.Report, game);
+                bool empty = false;
+                if (game == ForzaGame.Motorsport2)
+                {
+                    using (SqliteDatabase check = SqliteDatabase.FromBytes(merge))
+                    {
+                        empty = DbIds.Schema(check).Count == 0;     // FM2 has no offer row: nothing new for the game, no merge
+                    }
+                }
+                if (!empty)
+                {
+                    Stage(files, mergeName, merge);
+                }
+            }
+            else if (game == ForzaGame.Motorsport3)
+            {
+                // FM3: the pack row (MultiDiscContentPacks) as the names pack and the FM3 packs the editor builds carry
+                Stage(files, mergeName, ModCarDb.OfferOnlyMergeFm3(targetRoot, offer));
             }
 
             // The package's folder.
@@ -247,7 +280,12 @@ namespace ForzaStudio
             string mediaFolder = Path.Combine(package, "Media");
             string zips = Path.Combine(mediaFolder, "DLCZips");
             Directory.CreateDirectory(zips);
-            DlcPackage.WriteStoredZip(files, Path.Combine(zips, offerText + "_pri_" + Priority.ToString(CultureInfo.InvariantCulture) + ".zip"));
+            // FM4 <offer>_pri_999.zip; FM3 <offer, 4 hex digits>_pri_999.zip (as its packs, 0065_pri_65.zip); FM2 DLC<offer>_pri_999.zip,
+            // deflate (FM2 hangs on an LZX zip, 2026-11-14)
+            string priority = "_pri_" + Priority.ToString(CultureInfo.InvariantCulture) + ".zip";
+            string zipName = (game == ForzaGame.Motorsport3) ? offer.ToString("X4", CultureInfo.InvariantCulture) + priority
+                : (game == ForzaGame.Motorsport2) ? "DLC" + offerText + priority : offerText + priority;
+            DlcPackage.WriteStoredZip(files, Path.Combine(zips, zipName), null, game == ForzaGame.Motorsport2);
             if (standalone != null)
             {
                 foreach (KeyValuePair<string, byte[]> file in standalone.DlcZipFiles)
@@ -255,8 +293,23 @@ namespace ForzaStudio
                     File.WriteAllBytes(Path.Combine(zips, file.Key), file.Value);
                 }
             }
-            File.WriteAllBytes(Path.Combine(mediaFolder, offerText + ".puboffer"), new byte[] { 0x20, 0x0D, 0x0A });
+            if (game == ForzaGame.Motorsport4)
+            {
+                File.WriteAllBytes(Path.Combine(mediaFolder, offerText + ".puboffer"), new byte[] { 0x20, 0x0D, 0x0A });
+            }
+            else
+            {
+                // FM2 / FM3 packs carry licence masks (the pack row of FM3 names 00000001.sql): a no-op, the mod buys no car
+                string masks = Path.Combine(mediaFolder, "LicenseMasks");
+                Directory.CreateDirectory(masks);
+                File.WriteAllText(Path.Combine(masks, "00000001.sql"), "UPDATE Data_Car SET IsPurchased=1 WHERE 0;", Encoding.ASCII);
+                if (game == ForzaGame.Motorsport2)
+                {
+                    File.WriteAllText(Path.Combine(masks, "00000002.sql"), "UPDATE Data_Car SET IsPurchased=1 WHERE 0;", Encoding.ASCII);
+                }
+            }
             StringBuilder marker = new StringBuilder();
+            marker.Append("game=" + GameInfo.Tag(game) + "\r\n");
             marker.Append("car=" + media + "\r\n");
             marker.Append("offer=" + offerText + "\r\n");
             marker.Append("source=" + (sourceTitle ?? "") + "\r\n");
@@ -267,8 +320,8 @@ namespace ForzaStudio
             File.WriteAllText(Path.Combine(package, MarkerName), marker.ToString());
 
             string temp = Path.Combine(work, "package.stfs");
-            string id = StfsPackage.Write(package, temp, uint.Parse(DlcPackage.TitleId, NumberStyles.HexNumber, CultureInfo.InvariantCulture), 2,
-                media + " (mod)", "ForzaStudio EVO mod pack: " + media + " replaces the car of " + (sourceTitle ?? "the game"), GameName, thumbnail);
+            string id = StfsPackage.Write(package, temp, InstalledDlc.TitleId(game), 2,
+                media + " (mod)", "ForzaStudio EVO mod pack: " + media + " replaces the car of " + (sourceTitle ?? "the game"), DlcPackage.GameTitle(game), thumbnail);
             string target = Path.Combine(content, id);
             if (old != null && File.Exists(old))
             {
@@ -387,6 +440,55 @@ namespace ForzaStudio
             }
             File.Delete(file);
             return true;
+        }
+
+        // The game of a game folder (FM4 when it is not known: the mod packs were FM4's first).
+        public static ForzaGame GameOf(string targetRoot)
+        {
+            ForzaGame game = (targetRoot == null) ? ForzaGame.Unknown : GameInfo.Detect(targetRoot);
+            return (game == ForzaGame.Motorsport2 || game == ForzaGame.Motorsport3) ? game : ForzaGame.Motorsport4;
+        }
+
+        // The largest offer the mod packs of the content folder use (0: none).
+        private static int MarkerOffers(string content)
+        {
+            int offer = 0;
+            foreach (string file in Directory.GetFiles(content))
+            {
+                Dictionary<string, string> marker = Marker(file);
+                int used;
+                if (marker != null && marker.ContainsKey("offer") && int.TryParse(marker["offer"], NumberStyles.None, CultureInfo.InvariantCulture, out used))
+                {
+                    offer = Math.Max(offer, used);
+                }
+            }
+            return offer;
+        }
+
+        // FM3: above the game's packs (MultiDiscContentPacks), the installed ones and the mod packs (at least 100).
+        private static int FreeOfferFm3(string content, string targetRoot)
+        {
+            int offer = Math.Max(DlcPackage.FreeOfferFm3(targetRoot, content), MarkerOffers(content) + 1);
+            while (Directory.Exists(DlcPackage.PackagePathFm3(content, offer)))
+            {
+                offer++;
+            }
+            return offer;
+        }
+
+        // FM2: above the official packs (DLC1 - DLC7), the installed ones and the mod packs (at least 8, below DLCBeta's 70).
+        private static int FreeOfferFm2(string content)
+        {
+            int offer = Math.Max(DlcPackage.FreeOfferFm2(content), MarkerOffers(content) + 1);
+            while (Directory.Exists(DlcPackage.PackagePathFm2(content, offer)))
+            {
+                offer++;
+            }
+            if (offer >= 70)
+            {
+                throw new InvalidOperationException("No FM2 offer number left below 70 (DLCBeta's).");
+            }
+            return offer;
         }
 
         // A number no installed package (folders, the mod packs' markers, the game's database when its folder is known) uses.

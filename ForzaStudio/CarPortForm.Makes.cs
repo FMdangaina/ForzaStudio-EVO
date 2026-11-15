@@ -68,9 +68,8 @@ namespace ForzaStudio
                     this.report.Text = string.Format("Make {0} \"{1}\" ({2}) added to the pack: it is written into the next trial, and with it into the pack. The game folder is untouched.\r\n", spec.Id, spec.Name, spec.Code);
                     return;
                 }
-                if (XeniaRunning())
+                if (!XeniaGuard.Confirm(this, this.Text, "the game's files (the make is written into them)"))
                 {
-                    MessageBox.Show(this, "Close Xenia first: the make is written into the game's files.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
                 if (this.MainWindowBusy())

@@ -283,9 +283,8 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (CarPortForm.XeniaRunning())
+            if (!XeniaGuard.Confirm(this, "Delete Car from DLC Package", "this DLC package"))
             {
-                MessageBox.Show(this, "Close Xenia first: it keeps the package open.", "Delete Car from DLC Package", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             try

@@ -1264,9 +1264,8 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (XeniaRunning())
+            if (!XeniaGuard.Confirm(this, this.Text, "FM3's DLC packages"))
             {
-                MessageBox.Show(this, "Xenia is running. Close it first.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             AppSettings.Set(SettingsForm.XeniaKey, this.xeniaBox.Text.Trim());
@@ -1305,16 +1304,22 @@ namespace ForzaStudio
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
             {
                 dialog.Description = "Folder for the Xbox 360 package file (saved directly in it)";
-                string last = AppSettings.Get("CarPort.XboxOut.FM3", "");
-                if (Directory.Exists(last))
+                string start = DlcPackage.PackageOutputStart("CarPort.XboxOut.FM3", DlcPackage.TitleIdFm3);   // never another game's folder
+                if (start != null)
                 {
-                    dialog.SelectedPath = last;
+                    dialog.SelectedPath = start;
                 }
                 if (dialog.ShowDialog(this) != DialogResult.OK)
                 {
                     return;
                 }
                 output = dialog.SelectedPath;
+            }
+            string foreign = DlcPackage.ForeignTitleFolder(output, DlcPackage.TitleIdFm3);
+            if (foreign != null)
+            {
+                MessageBox.Show(this, output + " is the content folder of another game (title " + foreign + ").\n\nThis is a Forza Motorsport 3 package (title " + DlcPackage.TitleIdFm3 + "): choose its own folder.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                return;
             }
             AppSettings.Set("CarPort.XboxOut.FM3", output);
             string installed = this.XeniaContent();   // the strings of the FM3 packs installed in Xenia, if its folder is set
@@ -1362,9 +1367,8 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (XeniaRunning())
+            if (!XeniaGuard.Confirm(this, this.Text, "FM3's DLC packages"))
             {
-                MessageBox.Show(this, "Xenia is running. Close it first.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             string package = DlcPackage.PackagePathFm3(content, offer);
@@ -1401,9 +1405,8 @@ namespace ForzaStudio
                     MessageBox.Show(this, "FM3_Extracted is the clean game and is never written: use the test copy FM3_Extracted_DEV.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-                if (XeniaRunning())
+                if (!XeniaGuard.Confirm(this, this.Text, "FM3's game files"))
                 {
-                    MessageBox.Show(this, "Xenia is running. Close it first: the game files are replaced while the install writes them.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 if (MessageBox.Show(this, "Install " + car.MediaName + " into\n" + target + "\n\n"
@@ -1460,18 +1463,6 @@ namespace ForzaStudio
                     this.status.Text = result.IndexOf("FAILED:", StringComparison.Ordinal) >= 0 ? car.MediaName + ": failed, see the report." : (installing ? car.MediaName + " installed in FM3." : car.MediaName + ": trial run OK.");
                 };
             });
-        }
-
-        private static bool XeniaRunning()
-        {
-            foreach (Process process in Process.GetProcesses())
-            {
-                if (process.ProcessName.StartsWith("xenia", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-            return false;
         }
 
         // Copies the ported tree over the game's, saving each file it replaces to bak\<stamp>_bak_<name> first.

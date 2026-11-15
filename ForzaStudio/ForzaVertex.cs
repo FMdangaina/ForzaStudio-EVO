@@ -60,7 +60,9 @@ namespace ForzaStudio
                     switch (version)
                     {
                         case ForzaVersion.Two:
-                            if (size != 60)
+                            // 64: one wheel (por_550_56, ModelSettings 713); position, UVs and normal sit where the 60-byte
+                            // vertex has them (checked 2026-11-13), the extra 4 bytes are skipped with the rest.
+                            if (size != 60 && size != 64)
                             {
                                 throw new NotSupportedException();
                             }
@@ -74,7 +76,7 @@ namespace ForzaStudio
                             this.normal = this.ToN3(stream.ReadUInt32());
                             stream.Position += 4L;
                             stream.Position += 4L;
-                            stream.Position += 0x20L;
+                            stream.Position += 0x20L + (size - 60);
                             return;
 
                         case ForzaVersion.Three:

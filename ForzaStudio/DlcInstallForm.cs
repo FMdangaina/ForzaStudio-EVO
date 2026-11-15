@@ -236,13 +236,9 @@ namespace ForzaStudio
             {
                 return;
             }
-            foreach (Process process in Process.GetProcesses())
+            if (!XeniaGuard.Confirm(this, this.Text, "the DLC packages"))
             {
-                if (process.ProcessName.StartsWith("xenia", StringComparison.OrdinalIgnoreCase))
-                {
-                    MessageBox.Show(this, "Xenia is running. Close it first, then press Install again.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
+                return;
             }
             string full = Path.GetFullPath(path);
             bool inside = full.StartsWith(Path.GetFullPath(folder).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);

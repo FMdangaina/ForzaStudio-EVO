@@ -407,6 +407,129 @@ namespace ForzaStudio
             }
         }
 
+        // ---- see-through parts ----
+
+        // The materials the stock FM2 models draw in the see-through pass, and only there (fm4dev\ST01\passscan.exe,
+        // 718 car + wheel files, 2026-11-13, 0 exceptions). A part has HasTransparentMeshes = 1 exactly when one of
+        // its meshes has one of them (4272 parts with, 6720 without, 0 exceptions).
+        public static readonly string[] SeeThroughMaterials = new string[]
+        {
+            "window", "window_2", "glass", "red_glass", "detail_glass_clear", "detail_glass_red", "detail_glass_amber",
+            "blur_rim", "chrome_blur_rim",
+        };
+
+        public static bool IsSeeThrough(string material)
+        {
+            return material != null && Array.IndexOf(SeeThroughMaterials, material.ToLowerInvariant()) >= 0;
+        }
+
+        // After a material change: every mesh in the draw pass of its material (moved to the same LOD list of the other
+        // pass, at the end; meshes already right keep their order), every part's HasTransparentMeshes as its meshes say,
+        // and a part whose flag changed moved to the other shared buffer (RepackBuffers). Returns what changed.
+        public List<string> FixSeeThrough()
+        {
+            List<string> changed = new List<string>();
+            int half = this.DrawLists.Count / 2;
+            if (half >= 1 && this.DrawLists.Count % 2 == 0)
+            {
+                List<List<uint>> lists = new List<List<uint>>();
+                foreach (List<uint> list in this.DrawLists)
+                {
+                    lists.Add(new List<uint>());
+                }
+                for (int l = 0; l < this.DrawLists.Count; l++)
+                {
+                    bool seeThroughList = l < half;
+                    foreach (uint entry in this.DrawLists[l])
+                    {
+                        int p = (int) (entry >> 16);
+                        int k = (int) (entry & 0xFFFF);
+                        bool wanted = (p < this.Parts.Count && k < this.Parts[p].Meshes.Count) ? IsSeeThrough(this.Parts[p].Meshes[k].MaterialName) : seeThroughList;
+                        if (wanted == seeThroughList)
+                        {
+                            lists[l].Add(entry);
+                        }
+                    }
+                }
+                for (int l = 0; l < this.DrawLists.Count; l++)
+                {
+                    bool seeThroughList = l < half;
+                    foreach (uint entry in this.DrawLists[l])
+                    {
+                        int p = (int) (entry >> 16);
+                        int k = (int) (entry & 0xFFFF);
+                        if (p < this.Parts.Count && k < this.Parts[p].Meshes.Count && IsSeeThrough(this.Parts[p].Meshes[k].MaterialName) != seeThroughList)
+                        {
+                            lists[seeThroughList ? l + half : l - half].Add(entry);
+                            changed.Add(string.Format("{0}.{1} to the {2} pass", this.Parts[p].Name, this.Parts[p].Meshes[k].MaterialName, seeThroughList ? "opaque" : "see-through"));
+                        }
+                    }
+                }
+                this.DrawLists = lists;
+            }
+            byte[] flags = new byte[this.Parts.Count];
+            bool move = false;
+            for (int p = 0; p < this.Parts.Count; p++)
+            {
+                Part part = this.Parts[p];
+                flags[p] = part.HasTransparentMeshes;
+                if (part.Meshes.Count == 0)
+                {
+                    continue;
+                }
+                bool any = false;
+                foreach (Mesh mesh in part.Meshes)
+                {
+                    any |= IsSeeThrough(mesh.MaterialName);
+                }
+                byte flag = (byte) (any ? 1 : 0);
+                if (flag != part.HasTransparentMeshes)
+                {
+                    flags[p] = flag;
+                    move = true;
+                    changed.Add(string.Format("{0}: HasTransparentMeshes {1}, vertices moved to the {2} buffer", part.Name, flag, any ? "see-through" : "opaque"));
+                }
+            }
+            if (move)
+            {
+                this.RepackBuffers(flags);
+            }
+            return changed;
+        }
+
+        // Lays the two shared buffers out again with the given HasTransparentMeshes per part: each part's vertices
+        // (taken from where they are now) follow each other in part order in the buffer of its flag, FirstVertex /
+        // LastVertex renumbered. Mesh indices count from FirstVertex, so they stay as they are. With the flags the file
+        // has, the result is the file itself (checked on the stock files, fm4dev\ST01\repack.exe).
+        public void RepackBuffers(byte[] flags)
+        {
+            MemoryStream[] data = new MemoryStream[] { new MemoryStream(), new MemoryStream() };   // 0 see-through, 1 opaque
+            int[] cursor = new int[2];
+            for (int p = 0; p < this.Parts.Count; p++)
+            {
+                Part part = this.Parts[p];
+                int target = (flags[p] != 0) ? 0 : 1;
+                int count = part.VertexCount;
+                if (count > 0)
+                {
+                    VertexBuffer from = this.BufferOf(part);
+                    data[target].Write(from.Data, part.FirstVertex * from.Stride, count * from.Stride);
+                }
+                if (cursor[target] + count > 0x10000)
+                {
+                    throw new InvalidOperationException("More than 65536 vertices in one FM2 shared buffer.");
+                }
+                part.FirstVertex = cursor[target];
+                part.LastVertex = cursor[target] + count - 1;
+                part.HasTransparentMeshes = flags[p];
+                cursor[target] += count;
+            }
+            this.TransparentVertices.Data = data[0].ToArray();
+            this.TransparentVertices.Count = cursor[0];
+            this.OpaqueVertices.Data = data[1].ToArray();
+            this.OpaqueVertices.Count = cursor[1];
+        }
+
         // ---- reading the geometry ----
 
         public Part Find(string name)

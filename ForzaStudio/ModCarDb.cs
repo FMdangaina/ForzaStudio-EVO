@@ -169,12 +169,18 @@ namespace ForzaStudio
         // (Data_CarBody, physics, aero...). Shared rows (engines, wheels of other cars) are not the car's.
         public static Dictionary<string, List<KeyValuePair<string, object>>> Owned(SqliteDatabase db, long car)
         {
+            return Owned(db, car, ForzaGame.Motorsport4);
+        }
+
+        // game: whose car columns and relation map (FM2 / FM3 have their own, ST-02).
+        public static Dictionary<string, List<KeyValuePair<string, object>>> Owned(SqliteDatabase db, long car, ForzaGame game)
+        {
             Dictionary<string, List<string>> schema = DbIds.Schema(db);
             Dictionary<string, List<KeyValuePair<string, object>>> owned = new Dictionary<string, List<KeyValuePair<string, object>>>(StringComparer.OrdinalIgnoreCase);
             long low = car * 1000;
             long high = low + 999;
             Add(owned, "Data_Car", "Id = ?", car);
-            foreach (string[] column in DbIds.CarColumns(schema))
+            foreach (string[] column in DbIds.CarColumns(schema, game))
             {
                 if (!Skipped(column[0]))
                 {
@@ -201,7 +207,7 @@ namespace ForzaStudio
                         continue;
                     }
                     done.Add(owner);
-                    foreach (GameDbSchema.Relation relation in GameDbSchema.From(owner))
+                    foreach (GameDbSchema.Relation relation in GameDbSchema.From(game, owner))
                     {
                         List<string> targetColumns;
                         if (relation.IsComposite || Skipped(relation.Target) || !schema.ContainsKey(owner) || !schema[owner].Exists(delegate(string c) { return string.Equals(c, relation.Column, StringComparison.OrdinalIgnoreCase); })
@@ -264,6 +270,34 @@ namespace ForzaStudio
         // has cannot be removed by a merge: reported.
         public static byte[] BuildMerge(byte[] working, byte[] reference, int offer, string media, bool mapCar, StringBuilder report)
         {
+            return BuildMerge(working, reference, offer, media, mapCar, report, ForzaGame.Motorsport4);
+        }
+
+        // FM2: tables no official FM2 merge nor DLCBeta carries; with them the game hung on its loading screen (DLC8, 2026-11-14).
+        // NewProfile_Arcade_Garage is left out by Skipped already.
+        private static readonly string[] Fm2NeverInMerge = { Fm2StockGarage.Table, "Rewards_DriverLevel", "ArcadeCarList", "CarExceptions", "Combo_Engines", "WheelNormOffsets" };
+
+        private static bool LeftOut(string table, ForzaGame game)
+        {
+            return game == ForzaGame.Motorsport2 && Array.Exists(Fm2NeverInMerge, delegate(string t) { return string.Equals(t, table, StringComparison.OrdinalIgnoreCase); });
+        }
+
+        // FM3: a merge with only the mod pack's pack row (MultiDiscContentPacks), for a mod pack without the car's database.
+        public static byte[] OfferOnlyMergeFm3(string gameRoot, int offer)
+        {
+            using (SqliteDatabase game = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(Path.Combine(Path.Combine(gameRoot, "Media"), "db"), "gamedb.slt"))))
+            using (SqliteDatabase merge = SqliteDatabase.FromBytes(new byte[0]))
+            {
+                merge.Execute("PRAGMA page_size = 1024");
+                DlcPackage.AddFm3Offer(game, merge, offer, new StringBuilder());
+                return merge.ToBytes();
+            }
+        }
+
+        // game: FM4 (ContentOffers, mapping when standalone), FM3 (its pack row, MultiDiscContentPacks), FM2 (no offer row; the tables
+        // FM2 merges never carry are left out, a change there is reported).
+        public static byte[] BuildMerge(byte[] working, byte[] reference, int offer, string media, bool mapCar, StringBuilder report, ForzaGame game)
+        {
             using (SqliteDatabase after = SqliteDatabase.FromBytes(working))
             using (SqliteDatabase before = SqliteDatabase.FromBytes(reference))
             using (SqliteDatabase merge = SqliteDatabase.FromBytes(new byte[0]))
@@ -275,7 +309,7 @@ namespace ForzaStudio
                     throw new InvalidOperationException("The car's database has no Data_Car row for " + media + ".");
                 }
                 long car = (long) id;
-                Dictionary<string, List<KeyValuePair<string, object>>> owned = Owned(after, car);
+                Dictionary<string, List<KeyValuePair<string, object>>> owned = Owned(after, car, game);
                 int ownRows = 0;
                 int changedRows = 0;
                 int tables = 0;
@@ -315,6 +349,20 @@ namespace ForzaStudio
                             }
                         }
                     }
+                    // FM2: no table has a key or an index (its merges only ADD rows, as the official packs do): a row whose logical
+                    // key (Id, counter key) the reference has is a changed game row, which a merge cannot replace (it would be a
+                    // second row with the same Id). It stays out and is reported.
+                    string logical = (game == ForzaGame.Motorsport2 && !keyed && known) ? DbIds.KeyColumn(after, table.Key, table.Value, game) : null;
+                    int logicalIndex = (logical == null) ? -1 : table.Value.FindIndex(delegate(string c) { return string.Equals(c, logical, StringComparison.OrdinalIgnoreCase); });
+                    HashSet<string> referenceKeys = new HashSet<string>(StringComparer.Ordinal);
+                    if (logicalIndex >= 0)
+                    {
+                        foreach (object[] row in before.Query("SELECT " + SqliteDatabase.Quote(logical) + " FROM " + quoted).Rows)
+                        {
+                            referenceKeys.Add(Convert.ToString(row[0], CultureInfo.InvariantCulture));
+                        }
+                    }
+                    int unchangeable = 0;
                     List<object[]> rows = new List<object[]>();
                     int added = 0;
                     foreach (object[] full in after.Query("SELECT rowid, * FROM " + quoted).Rows)
@@ -327,6 +375,11 @@ namespace ForzaStudio
                         if (inReference)
                         {
                             old[key] = n - 1;
+                        }
+                        if (!inReference && logicalIndex >= 0 && referenceKeys.Contains(Convert.ToString(row[logicalIndex], CultureInfo.InvariantCulture)))
+                        {
+                            unchangeable++;
+                            continue;
                         }
                         if (!inReference)
                         {
@@ -350,11 +403,15 @@ namespace ForzaStudio
                             keyValues.Add(Convert.ToString(row[keyIndex], CultureInfo.InvariantCulture));
                         }
                     }
+                    if (unchangeable > 0)
+                    {
+                        report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  WARNING {0}: {1} changed game row(s) stay out: an FM2 merge only adds rows (no key to replace one), the game keeps its own", table.Key, unchangeable));
+                    }
                     foreach (KeyValuePair<string, int> left in old)
                     {
-                        if (left.Value <= 0)
+                        if (left.Value <= 0 || logicalIndex >= 0)
                         {
-                            continue;
+                            continue;   // (FM2: the changed rows are reported above; a row the copy lost stays in game)
                         }
                         string first = left.Key.Split('\u0001')[(keyIndex >= 0) ? keyIndex : 0];
                         if (keyIndex >= 0 && keyValues.Contains(first))
@@ -371,6 +428,14 @@ namespace ForzaStudio
                     {
                         continue;
                     }
+                    if (LeftOut(table.Key, game))
+                    {
+                        if (added > 0)
+                        {
+                            report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  WARNING {0}: {1} new or changed rows stay out (an FM2 merge with this table hangs the game)", table.Key, added));
+                        }
+                        continue;
+                    }
                     CreateLike(after, merge, table.Key, table.Value);
                     string names = string.Join(",", table.Value.ConvertAll<string>(delegate(string c) { return SqliteDatabase.Quote(c); }).ToArray());
                     string marks = string.Join(",", table.Value.ConvertAll<string>(delegate(string c) { return "?"; }).ToArray());
@@ -385,7 +450,14 @@ namespace ForzaStudio
                     }
                 }
                 merge.Execute("COMMIT");
-                DlcPackage.AddOffer(before, merge, offer, mapCar ? new List<long> { car } : new List<long>(), report);
+                if (game == ForzaGame.Motorsport3)
+                {
+                    DlcPackage.AddFm3Offer(before, merge, offer, report);
+                }
+                else if (game != ForzaGame.Motorsport2)
+                {
+                    DlcPackage.AddOffer(before, merge, offer, mapCar ? new List<long> { car } : new List<long>(), report);
+                }
                 report.Insert(0, string.Format(CultureInfo.InvariantCulture, "car {0} ({1}): merge with {2} tables, the car's rows + {3} rows changed by the mod, offer {4}\r\n",
                     car, media, tables, changedRows, offer));
                 return merge.ToBytes();

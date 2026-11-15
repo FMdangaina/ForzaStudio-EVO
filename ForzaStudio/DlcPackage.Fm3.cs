@@ -238,7 +238,7 @@ namespace ForzaStudio
         }
 
         // The pack row: ID, intID and PubOfferingID = the offer, LicenseLevel 1, LicenseMask 1 (what the official one-car-group packs have), IsDLC.
-        private static void AddFm3Offer(SqliteDatabase game, SqliteDatabase merge, int offer, StringBuilder report)
+        internal static void AddFm3Offer(SqliteDatabase game, SqliteDatabase merge, int offer, StringBuilder report)
         {
             string id = OfferIdFm3(offer);
             if (Convert.ToInt64(game.Scalar("SELECT count(*) FROM MultiDiscContentPacks WHERE intID = ? OR ID = ?", (long) offer, id)) > 0)
@@ -343,7 +343,7 @@ namespace ForzaStudio
                 file.Set(descriptionKey, name, "IDS_Description_" + id);
                 file.Set(longKey, name, "IDS_LongDescription_" + id);
             }
-            model.Entries.RemoveAll(delegate(ForzaZip.Entry entry) { return entry.Method != ForzaZip.MethodLzx; });
+            ForzaZip.KeepGameMethod(model);   // LZX (FM3), deflate (FM2 uses this too)
             ForzaZip archive = ForzaZip.CreateLike(model);
             foreach (KeyValuePair<string, StrFile> pair in files)
             {

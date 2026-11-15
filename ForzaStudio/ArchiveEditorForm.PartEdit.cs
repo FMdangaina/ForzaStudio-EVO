@@ -806,6 +806,12 @@ namespace ForzaStudio
                 // Track models and older games use other layouts: no part edits there.
                 this.lblEditPart.Text = "Part edits not available: " + exception.Message;
                 this.EnablePartEdit(false);
+                // FM2 / FM3: no geometry edits, but material names can be changed (MaterialSlots, ST-01).
+                if (material != null && (this.shaderProfile == ShaderProfile.Fm2 || this.shaderProfile == ShaderProfile.Fm3))
+                {
+                    this.lblEditPart.Text = "Material: " + material + " of " + section + "\n" + ShaderProfiles.Name(this.shaderProfile) + " model: only Rename Material is available here.";
+                    this.btnRenameMaterial.Enabled = true;
+                }
             }
         }
 

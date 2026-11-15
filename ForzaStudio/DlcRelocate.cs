@@ -500,7 +500,7 @@ namespace ForzaStudio
             }
             Dictionary<long, bool> ids = new Dictionary<long, bool>();
             Dictionary<string, bool> names = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-            long top = GameIdLimits.Max(this.game, "Data_Car", "Id");
+            long top = GameIdLimits.MaxCar(this.game);
             foreach (Other other in this.others)
             {
                 if (!DbIds.HasTable(other.Db, "Data_Car"))

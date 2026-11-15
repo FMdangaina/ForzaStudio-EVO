@@ -158,6 +158,80 @@ namespace ForzaStudio
             return table;
         }
 
+        // ---- what the game's cars give each part (docs\<FM2|FM3>\PartMaterials.txt, fm4dev\ST01\survey.exe) ----
+
+        private static readonly Dictionary<ShaderProfile, Dictionary<string, Dictionary<string, int>>> partUses = new Dictionary<ShaderProfile, Dictionary<string, Dictionary<string, int>>>();
+
+        // "list|part" -> material -> cars, and "list" -> material -> most cars on one part (the material's weight in the list).
+        private static Dictionary<string, Dictionary<string, int>> PartUse(ShaderProfile profile)
+        {
+            Dictionary<string, Dictionary<string, int>> table;
+            if (partUses.TryGetValue(profile, out table))
+            {
+                return table;
+            }
+            table = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+            partUses[profile] = table;
+            try
+            {
+                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("PartMaterials_" + Tag(profile) + ".txt"))
+                {
+                    if (stream == null)
+                    {
+                        return table;
+                    }
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                        string line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            string[] part = line.Split('\t');
+                            int cars;
+                            if (line.StartsWith("#") || part.Length != 4 || !int.TryParse(part[3], out cars))
+                            {
+                                continue;
+                            }
+                            foreach (string key in new string[] { part[0] + "|" + part[1], part[0] })
+                            {
+                                Dictionary<string, int> materials;
+                                if (!table.TryGetValue(key, out materials))
+                                {
+                                    materials = new Dictionary<string, int>(StringComparer.Ordinal);
+                                    table[key] = materials;
+                                }
+                                int before;
+                                materials.TryGetValue(part[2], out before);
+                                materials[part[2]] = Math.Max(before, cars);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return table;
+        }
+
+        // The materials the game's car models give the part in this kind of file and LOD (list = Fm4MaterialUse.ListName),
+        // or every material of the list when part is null; most cars first. Empty when the game has no survey (FM4 and FH
+        // have their own lists: Fm4MaterialUse).
+        public static List<KeyValuePair<string, int>> PartMaterials(ShaderProfile profile, string list, string part)
+        {
+            List<KeyValuePair<string, int>> result = new List<KeyValuePair<string, int>>();
+            Dictionary<string, int> materials;
+            if (PartUse(profile).TryGetValue((part != null) ? list + "|" + part : list, out materials))
+            {
+                result.AddRange(materials);
+                result.Sort(delegate(KeyValuePair<string, int> a, KeyValuePair<string, int> b)
+                {
+                    int c = b.Value.CompareTo(a.Value);
+                    return (c != 0) ? c : string.CompareOrdinal(a.Key, b.Key);
+                });
+            }
+            return result;
+        }
+
         // True when the game's list for this kind of file and LOD (Fm4MaterialUse.ListName) has the material, or when
         // the game has no such list (nothing is flagged without data).
         public static bool IsUsed(ShaderProfile profile, string list, string material)

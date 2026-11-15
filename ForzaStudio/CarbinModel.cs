@@ -625,6 +625,13 @@ namespace ForzaStudio
         {
             this.position = 0;
             this.Type = this.U32();
+            // FM2 files start like FM4/FH ones (body header 2, wheel/brake header 1) but are laid out differently: read as
+            // FM4 they gave IndexOutOfRange / Overflow / OutOfMemory (UF-002, 20/20 FM2 cars). The viewer reads them with
+            // its own reader (Fm2CarbinModel); this class, used by every edit command, refuses them.
+            if (CarbinFormat.Identify(this.data).Family == CarbinFamily.Motorsport2)
+            {
+                throw new NotSupportedException("Forza Motorsport 2 .carbin: model editing is not supported for Forza Motorsport 2 (view and export only).");
+            }
             if (IsMotorsport3File(this.data))
             {
                 if (!this.allowMotorsport3)

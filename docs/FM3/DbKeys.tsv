@@ -1,0 +1,6 @@
+# Keys of the FM3 tables that declare none (fm4dev\ST02\relmap.exe, 2026-11-14): the first column named
+# ...ID / Id whose values are all different and never empty in the stock database. Format: table, column, rows.
+AES_Tip_Overrides	EventId	10
+IECars	CarId	7
+List_SuspensionPhysicsType	SuspensionPhysicsTypeID	2
+VolatileHostOptions	OptionId	11

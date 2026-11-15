@@ -477,25 +477,28 @@
             }
         }
 
-        // Tools > Duplicate Car: the FM4 folder of what is open here (or the port window's target folder).
+        // Tools > Duplicate Car (user 2026-11-14): ONLY the game of the folder open here, and only its cars; nothing open, no copy.
+        // FM2, FM3, FM4 work; FH1 / FH2 say the function is not there yet.
         private void ShowDuplicateCar()
         {
             string root = (this.zip == null) ? null : GamePaths.FindRoot(this.zip.FilePath);
-            if (root == null || GameInfo.Detect(root) != ForzaGame.Motorsport4)
+            ForzaGame found = (root == null) ? ForzaGame.Unknown : GameInfo.Detect(root);
+            if (root == null || found == ForzaGame.Unknown)
             {
-                string saved = AppSettings.Get("CarPort.Target", "");
-                root = (saved.Length > 0 && GameInfo.Detect(saved) == ForzaGame.Motorsport4) ? saved : null;
+                MessageBox.Show(this, "Open a game folder first (File > Open Folder, the Forza Motorsport 2, 3 or 4 folder): Duplicate Car copies a car of THAT game, in that game.", "Duplicate Car", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
             }
-            if (root == null)
+            if (found != ForzaGame.Motorsport4 && found != ForzaGame.Motorsport3 && found != ForzaGame.Motorsport2)
             {
-                MessageBox.Show(this, "Open a file of the Forza Motorsport 4 folder first (the copy is made in that folder).", "Duplicate Car", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "Duplicate Car is not available for " + GameInfo.Tag(found) + " yet (Forza Motorsport 2, 3 and 4 only).", "Duplicate Car", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             string xenia = AppSettings.Get(SettingsForm.XeniaKey, "");
             string content = null;
             try
             {
-                content = (xenia.Length > 0 && Directory.Exists(xenia)) ? DlcPackage.XeniaContent(xenia) : null;
+                // Xenia's content folder of THIS game (its DLC: ids, strings; the pack destination)
+                content = (xenia.Length > 0 && Directory.Exists(xenia)) ? DlcPackage.XeniaContent(xenia, InstalledDlc.TitleId(found).ToString("X8", System.Globalization.CultureInfo.InvariantCulture)) : null;
             }
             catch (IOException)
             {
