@@ -140,3 +140,108 @@ Exact rules (all confirmed by the 308/308 match):
 - Drag in braking: body drag x product(stock DragScale) x GameDragScale (clamp 0.5..1.5) + front wing + rear wing drag.
 - Braking = drag/m + brakeScale x (kF NF + kR NR)/m, 6 load-transfer iterations; cornering = T+0xC x sum(k_i L_i)/m, 6 iterations.
 - Mass = List_UpgradeWeight.Mass + stock MassDiff (Ordinal tables). wF = CMBackFront.
+
+## Acceleration, top speed and PI (2026-11-15, night)
+
+`fm2perf grip <db> exact [car|all]` now also does acceleration and the full PI.
+- **AccelerationRating 294/296** (max error 0.22%), **SpeedRating 310/310**.
+  - The torque table is sampled at i*step, but `82557700` looks it up as if xMax = n*step spanned n-1 intervals:
+    torque used = table at omega*(n-1)/n (game quirk, needed for the exact match).
+  - Gears: the first forward gear with v < redline(rad/s) x R / (fd x ratio). B+0xDC8 = GameTorqueScale (not an efficiency).
+  - Driven radius = first driven wheel (B+0xD50): FRONT for FWD and AWD, rear for RWD (this also fixed the Murcielago top speed).
+  - Traction scale c = TorqueFreeLongFrictionScaleAccel1 inside the loop, the transfer uses F/c (same rule as braking).
+- **PI** (`8259E660`, checked against Data_Car.PerformanceIndex): 294/310 within 0.001, 298/310 within 0.005.
+  - Before measuring, PI sets the CVT flag B+0xC80 = 1 (slot 0x274, restored after): acceleration inputs use the CVT branch,
+    wheel torque = R x wPeakPower / v x T(wPeakPower) x GameTorqueScale (no gears).
+  - Input order per speed (50/100/150 mph): braking (normalised), mean slip angle of wheels 1 and 2 at the cornering outer loads
+    (RAW, not normalised), cornering (normalised); then accel at 25..175 mph (7), then MOIY, then drive type (B+0xD4C) x 0.5.
+  - Input 16 is NOT top speed: slot 0x7C copies the inertia struct at B+0x120, field Iyy, normalised with the MOIY constants.
+    Fit: MOIY = 1200 / (m x (BlockDimX^2 + BlockDimZ^2)) (box yaw inertia, sim mass unit kg/100, inverted).
+  - Slip angle = lerp by load of the peak-slip of the two lateral curves (first max index x MaxSlip(rad) / (N-1)) x PeakSASRScale
+    x StartPressureAffectPeakSASR curve at the start tyre pressure. Pressure not decoded (setup slider x PhysicsSettings.ini
+    TuneTirePressure 15..55); 30 psi fits best. Residual PI error 0.0004 average (about 1 shown point in class D).
+- PT Cruiser 414: stock PI calc 0.1635 vs db 0.1642. With a natural engine (bisect backup DB) the clean model gives PI 0.016
+  (D about 118), NOT 0.86. No single input set to 0 or 1 reaches 0.86 either. So the in-game 999 comes from a runtime value
+  this model does not reproduce with the natural engine (open).
+
+## PT Cruiser 999: what the code says (2026-11-15, late)
+
+- `82599458` (number on screen): any PI above 0.72 (class S max) shows 999, not only above 0.86. NaN gives class D and
+  100 on hardware; on Xenia `fctiwz(NaN)` saturates (vminsd with INT_MAX), so a NaN gives 400 in class D, never 999.
+- `8259DC20` also recomputes the class from the same PI (`825993E8`: stored class kept only for R4..R1, ids 6..9) and
+  stores it at stats+0x70. So "D 999" means the letter and the number do NOT come from the same value: the letter is a
+  stored ClassID (Data_Car / StockGarage / profile garage) and the number a PI above 0.72.
+- Callers of `82599458`: `82298998` reads the column `PerformanceIndex` of a database row; `822C8B2C` a cached float
+  (`824B6CC8`); `8225D054` a stats upload (x1000). `82236250` writes ClassID, PerformanceIndex, ratings, sim peaks back
+  with `UPDATE %s SET ...` into the profile's garage table.
+- `8259E9A0` (best of): getter/setter slots 0x244/0x248 = B+0xDC8 GameTorqueScale (x 1, 0.95 .. 0.65), slots 0x24C/0x250 =
+  B+0xFAC braking scale (stock, then 1.03 / 1.01 / 1.0 while above the caller's limit). The max is kept. Now in fm2perf
+  (torque part; brake part not modelled); it changes no car: PI 294/310 within 0.001, 310/310 within 0.005 (max 0.0017).
+- Network sensitivity on the natural PT (inputs clamped 0..1 except the raw slip, which never helps): only two input
+  groups can lift PI above 0.72: cornering at 50 mph (input 2 = 1 gives 0.82) or an acceleration curve with input 9
+  (25 mph) = 1, i.e. about 20 m/s2, above the traction limit. Infinite torque with the traction limit gives only 0.48.
+  So the 999 needs a runtime value far outside physics, not just more or less power.
+- DB finding: the bisect DB (`ST02\pi\bisect\gamedb_before_civic54_on_414.slt`, edited by hand) keeps the OLD StockGarage
+  row 414: AspirationID_Stock = 2 (turbo) and Exhaust = 168000, while Data_Engine 168 says natural (1) with
+  StockBoost-bar 0.889 (no other natural engine has boost > 0). The Civic engine 54 test had the same stale row
+  (Exhaust 168000 belongs to engine 168). The editor rebuilds StockGarage with the official query (`Fm2StockGarage.Write`),
+  hand edits do not. Next: in-game test with only the StockGarage row rebuilt.
+- Test written 2026-11-15 in FM2_Extracted_DEV (from stock): Data_Engine 168 AspirationID_Stock 1, turbo + intercooler
+  row 168000 IsStock 0 (ManufacturerID 161 / 240, as the bisect DB), StockGarage 414 AspirationID_Stock 1. Backup of the
+  stock DEV DB: `E:\DEV\fm4dev\ST02\pi\bisect\test_sg\gamedb_DEV_stock_before.slt`. Result in game 2026-11-16: STILL D 999, so StockGarage is NOT the cause. Next: variant A (no turbo/intercooler rows on engine 168).
+- Test variant A written 2026-11-16 in FM2_Extracted_DEV: same as above + all List_UpgradeEngineTurbo / Intercooler rows of
+  engine 168 deleted (3 + 3; no DSC/CSC rows). Previous DEV state saved as `ST02\pi\bisect\test_sg\gamedb_DEV_after_test_sg.slt`. Result 2026-11-16: STILL D 999. Turbo rows are NOT the cause; variant A alone does not fix test 10. Next: study the engine build with no fitted turbo (8264A198 / 82649BD8) before any new test.
+
+## Engine with no turbo and the garage write (2026-11-16)
+
+- `8264A198` (torque table, vcall 0x38C): T[i] = base[i] (E+0x424) x (1 + (turbo - 1) + (DSC - 1) + (third block - 1)); each
+  induction factor is used only when its flag is set (E+0x704 turbo, E+0x734 DSC, E+0x6EC third). With no turbo the table
+  is the base curve x 1: nothing breaks there.
+- `82236250` (garage stats update) writes ClassID = the class recomputed from the PI (stats+0x70) and PerformanceIndex
+  (stats+0x5C) into the profile garage table: in the garage the letter and the number come from the SAME PI. The stored
+  ClassID passed in is kept only for R4..R1.
+- The only 999 in the code paths is the CarClasses MaxDisplayPerformanceIndex (PI above 0.72). Other 999 constants
+  (`xexfp li16 3E7`) are SQLite / buffer limits.
+- The profile (`Xenia Canary\content\<profile>\4D5307EA\00000001\ForzaProfile\PlayerDatabase`) is encrypted or compressed:
+  the runtime values the game wrote cannot be read yet.
+- Open: which screen shows "D 999" (dealer list reads StockGarage; garage reads the profile table) and what the car's stats
+  page shows (power, torque, weight, rating bars) with the natural engine.
+- 2026-11-16: dealer shows the stored StockGarage value; ARCADE shows D 999 (Arcade recomputes via `82236250`, the only
+  caller of `8259DC20`). PT cannot be bought as a career starter, so the test moved to Talon TSi 462 (engine 216, same
+  structure: turbo + intercooler L1 stock). DEV = stock + Talon natural (Data_Engine 216 asp 1, turbo/intercooler 216000
+  not stock, StockGarage 462 asp 1); copy `ST02\pi\bisect\test_sg\gamedb_DEV_talon_natural.slt`. Model: stock 0.2231
+  (db 0.2238), natural 0.0822 = about D 193.
+- RESULT 2026-11-16 (Talon natural, screenshots by the user): showroom D 354, 157 kW, 290 N.m, bars 4.9/3.4/3.5/3.8 (the
+  stored StockGarage values, not recomputed); CAREER garage D 194, 117 kW, 217 N.m, bars 4.2/3.0/3.5/3.8; career race grid
+  D 194; ARCADE race grid D 999. fm2perf predicted all career values: PI 0.0822 (D 194), speed rating 4.169, accel 3.233 m/s2
+  -> 2.64 clamped 3.0, `engine`: 2.172 (217 N.m) @ 314.16, 1172.4 (117 kW) @ 628.32. The model is right; only ARCADE is wrong.
+- Arcade has no garage row of its own (NewProfile_Arcade_Garage = CarId only; the arcade list joins StockGarage). Suspect:
+  the arcade car takes the STORED Data_Car / StockGarage performance values (SimPeakPower, SimPeakAngVel ... still the
+  turbo ones). Next test: write the natural values into Data_Car + StockGarage 462 and look at the arcade grid.
+- Test written 2026-11-16: Talon natural + Data_Car/StockGarage 462 stored values = model natural values (PI 0.082161,
+  class 0, speed 4.1687, accel 3, peaks 1172.37915 @ 628.3182, 2.172365 @ 314.1591, redline 733.0379, SimTopSpeed 65.7085).
+  Copy `ST02\pi\bisect\test_sg\gamedb_DEV_talon_natural_values.slt`. Result: pending.
+- RESULT 2026-11-16 (stored values test): showroom D 194, ARCADE grid D 193. SOLVED: Arcade (and the dealer) show the
+  STORED Data_Car / StockGarage performance values; only the career garage recomputes them (`82236250`). The 999 came from
+  the stored turbo values left in place after the engine became natural. 193 vs 194: Arcade shows the stored PI 0.082161,
+  the career garage its own runtime value (about 0.0822), inside the accepted fm2perf error.
+- Fix for the editor: when an FM2 car's engine or aspiration changes, recompute PerformanceIndex, ClassID,
+  Speed/Acceleration/Braking/Handling ratings and the Sim* peaks (fm2perf logic) and write them to Data_Car and StockGarage.
+
+## In the editor: ForzaStudio\Fm2Perf.cs (FM2 ONLY, 2026-11-16)
+
+- fm2perf "grip exact" ported to the app (no search branches). Duplicate Car with an engine or gearbox of its own, FM2 only:
+  `Fm2Perf.Update` writes Data_Car PerformanceIndex, ClassID (R4..R1 kept), SpeedRating, AccelerationRating,
+  SimPeakTorque / TorqueAngVel / Power / AngVel, SimRedlineAngVel; SimTopSpeed = the source's x (computed top speed ratio).
+  Braking / handling and the Sim times stay the source's. StockGarage copies them (Fm2StockGarage.Write). The network is read
+  from the game's Media\AI\PerfPrediction. FM3 / FM4 keep CarPerformance.Update until their own calculations are studied.
+- Check (harness `E:\DEV\fm4dev\ST02\perf\fm2perfapp.exe <db> <PerfPrediction dir> [car|all]`, compiles a copy of the
+  app's file): 310 stock cars PI 294 within 0.001, 310 within 0.005 (max 0.00173), speed / accel / peaks 310/310; Talon
+  natural PI 0.082161 (D 193), the value shown in Arcade. In-app Duplicate test and in-game check: pending.
+- In-app + in-game test 2026-11-16 (Talon TSi 462 natural, as a DLC pack, Id 659): first run showroom D 354, garage D 193,
+  Arcade D 999. Cause: a pack copy runs an inner CarDuplicate on a temp stage that has no AI\PerfPrediction, so the PI was
+  not computed (ratings and peaks were) and the stored PI stayed the turbo one. Fix: `CarDuplicate.PerfMedia` (the inner
+  copy reads the game's network). Pack rebuilt: PerformanceIndex 0.0823; in game showroom, garage and Arcade all D 193.
+  CLOSED for FM2.
+- Rule (user, from the tests): when the stored values and the game's own computed values disagree, FM2 shows D 999. The
+  stored performance values are always written as a whole set, never a part.

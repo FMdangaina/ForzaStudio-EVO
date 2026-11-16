@@ -42,6 +42,7 @@ namespace ForzaStudio
         public long? ChosenId;                      // the car Id chosen by the user (DbIds.ChosenCarIdProblem); null = the first free one
         public EngineSpec Engine;                  // an engine of its own for the copy (CarEngine); null = the source's, shared
         public GearboxSpec Gearbox;                 // a gearbox (drivetrain) of its own for the copy (CarGearbox); null = the source's, shared
+        public string PerfMedia;                    // FM2: the Media folder holding AI\PerfPrediction (a pack's stage has none); null = this.Media
 
         // A DLC pack instead of the game folder: the copy is built on a staged part of the game (the database,
         // the string tables, the source's zip and thumbnail zip), then DlcPackage.BuildFolder turns what
@@ -208,6 +209,7 @@ namespace ForzaStudio
                 }
                 inner.Engine = this.Engine;
                 inner.Gearbox = this.Gearbox;
+                inner.PerfMedia = this.PerfMedia ?? this.Media;   // the stage has no AI\PerfPrediction: the game's network
                 inner.BackupFolder = Path.Combine(stage, "bak");
                 inner.Run();
                 this.NewId = inner.NewId;
@@ -673,7 +675,12 @@ namespace ForzaStudio
                 {
                     CarGearbox.Clone(db, this.NewId, this.Gearbox, plan, this.game);
                 }
-                if (this.Engine != null || this.Gearbox != null)
+                if ((this.Engine != null || this.Gearbox != null) && this.game == ForzaGame.Motorsport2)
+                {
+                    // FM2: the game's own calculation (Arcade and the dealer show the stored numbers, 2026-11-16). FM3 / FM4 not studied yet.
+                    Fm2Perf.Update(db, original, sourceId, this.NewId, this.PerfMedia ?? this.Media, this.Data.Keys, plan);
+                }
+                else if (this.Engine != null || this.Gearbox != null)
                 {
                     CarPerformance.Update(db, original, sourceId, this.NewId, this.Data.Keys, plan);
                 }
