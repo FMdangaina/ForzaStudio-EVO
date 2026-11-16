@@ -77,6 +77,29 @@ namespace ForzaStudio
                 "Ctrl + Y  /  Ctrl + Shift + Z", "Redo",
                 "Alt + Left  /  Ctrl + B", "Back to the previous page",
                 "F1", "This list (again to close it)"),
+            new Group("FILE TREE", null,
+                "Ctrl + Shift + A", "Add a file to the archive (only with the file tree active: in the view it is Select none of the MESH tab)",
+                "Del", "Delete the selected file or folder",
+                "Enter  /  double-click", "Open the selected archive (a zip inside the folder)",
+                "Right-click", "The file commands, as the FILES bar"),
+            new Group("WHERE THE OLD MENUS WENT", null,
+                "Archive", "The FILES bar under the top bar; Copy Dash is in Tools",
+                "Model", "PART tab, section IMPORT / EXPORT MODEL; Make Rim Scalable also in the PART tab (wheel models); Export UV Map in the TEXTURE tab",
+                "Texture", "Export / Import Image on the texture page; New Texture in Tools"),
+            // What is not obvious at first sight (user 2026-11-17: "documenta su f1 ... se ci sono cose strane").
+            new Group("GOOD TO KNOW", null,
+                "Red headings", "A click on a red heading of the side bar closes or opens its section; the state is remembered. IMPORT / EXPORT PART and IMPORT / EXPORT MODEL start closed",
+                "File tree", "Hidden while a model is shown: the Files button over the model tree brings it back",
+                "FILES bar", "Its buttons work on the file selected in the file tree; the grey ones do not apply to it. Revert becomes Remove on a file just added",
+                "DLC button", "In the top bar only with a DLC package open, or a game / DLC car open as a copy (mod pack)",
+                "Tools, game buttons", "A grey game has no conversion or tool yet",
+                "Make Rim Scalable", "A button of the PART tab, only with a wheel model open. It is never asked automatically; it runs at once, pending until Save, Ctrl+Z undoes it",
+                "Nothing is written", "Moves, copies and edits stay pending until Save; Ctrl+Z undoes them, so most actions ask no confirmation",
+                "Copy Part", "Never replaces a part unless you pick one in \"Replace in this car\"; the copy gets the next free name",
+                "Handles on MESH", "Vertex / edge / face moves change only the open LOD; part moves (PART tab) can also go to lod0 and cockpit",
+                "UV box (TEXTURE)", "Framed on the selection's UVs. Select one material for a close view: a part with several materials spreads over their textures",
+                "Ctrl + Shift + A", "Two meanings: Add File with the file tree active, Select none in the MESH tab with the view active",
+                "1 - 6", "Standard views only with the view active (the digit row) or the pointer over it (keypad)"),
         };
     }
 
@@ -89,7 +112,7 @@ namespace ForzaStudio
 
         public ViewportHelpForm()
         {
-            this.Text = "Viewport commands";
+            this.Text = "Commands and help";
             this.FormBorderStyle = FormBorderStyle.SizableToolWindow;
             this.ShowInTaskbar = false;
             this.StartPosition = FormStartPosition.Manual;

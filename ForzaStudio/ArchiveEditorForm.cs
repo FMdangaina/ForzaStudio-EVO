@@ -108,6 +108,7 @@
             };
             this.BuildArchiveMenu();
             this.split.Panel1.Controls.Add(this.tvArchive);
+            this.BuildArchiveStrip();       // the FILES bar (docs/UI_WORKFLOW.md E.2), added to the form below
 
             this.pnlContent = new Panel();
             this.pnlContent.Dock = DockStyle.Fill;
@@ -157,6 +158,7 @@
 
             this.Controls.Add(this.split);
             this.Controls.Add(this.status);
+            this.Controls.Add(this.archiveStrip);       // the FILES bar, under the top bar (added before it = docked below)
             this.Controls.Add(this.menu);
             this.MainMenuStrip = this.menu;
             this.UpdateTitle();
@@ -189,81 +191,9 @@
         {
             this.menu = new MenuStrip();
 
-            // The archive tree's file commands, also on its right-click menu.
-            ToolStripMenuItem archive = new ToolStripMenuItem("&Archive");
-            ToolStripMenuItem openSelected = new ToolStripMenuItem("&Open Selected Archive", null, delegate { this.OpenSelectedArchive(); });
-            archive.DropDownItems.Add(openSelected);
-            archive.DropDownItems.Add(new ToolStripSeparator());
-            ToolStripMenuItem addFile = new ToolStripMenuItem("&Add File...", null, delegate { this.AddFileToArchive(); }, Keys.Control | Keys.Shift | Keys.A);
-            archive.DropDownItems.Add(addFile);
-            ToolStripMenuItem newFolder = new ToolStripMenuItem("New &Folder...", null, delegate { this.NewArchiveFolder(); });
-            archive.DropDownItems.Add(newFolder);
-            ToolStripMenuItem copyDash = new ToolStripMenuItem("Copy &Dash From Another Car...", null, delegate { this.CopyDashFromCar(); });
-            archive.DropDownItems.Add(copyDash);
-            ToolStripMenuItem extract =new ToolStripMenuItem("&Extract Selected File...", null, delegate { this.ExtractSelected(); });
-            ToolStripMenuItem replace = new ToolStripMenuItem("&Replace Selected File...", null, delegate { this.ReplaceSelected(); });
-            ToolStripMenuItem revert = new ToolStripMenuItem("Re&vert Selected File", null, delegate { this.RevertSelected(); });
-            archive.DropDownItems.Add(extract);
-            archive.DropDownItems.Add(replace);
-            archive.DropDownItems.Add(revert);
-            ToolStripMenuItem deleteItem = new ToolStripMenuItem("&Delete Selected File or Folder...", null, delegate { this.DeleteSelected(); });
-            deleteItem.ShortcutKeyDisplayString = "Del (in the tree)";
-            ToolStripMenuItem undoDelete = new ToolStripMenuItem("&Undo Delete", null, delegate { this.UndoDeleteSelected(); });
-            archive.DropDownItems.Add(deleteItem);
-            archive.DropDownItems.Add(undoDelete);
-            archive.DropDownItems.Add(new ToolStripSeparator());
-            ToolStripMenuItem extractAll = new ToolStripMenuItem("Extract A&ll...", null, delegate { this.ExtractAll(); });
-            archive.DropDownItems.Add(extractAll);
-            archive.DropDownOpening += delegate
-            {
-                ForzaZip.Entry entry = (this.zip != null) ? this.SelectedEntry : null;
-                openSelected.Enabled = this.CanOpenSelectedArchive;
-                addFile.Enabled = this.zip != null;
-                newFolder.Enabled = this.zip != null;
-                copyDash.Enabled = this.zip != null;
-                extract.Enabled = entry != null;
-                replace.Enabled = entry != null;
-                revert.Enabled = entry != null && entry.IsModified;
-                revert.Text = (entry != null && entry.IsAdded) ? "Remo&ve Added File" : "Re&vert Selected File";
-                deleteItem.Enabled = this.CanDeleteSelection;
-                undoDelete.Enabled = this.CanUndoDeleteSelection;
-                extractAll.Enabled = this.zip != null;
-            };
-
-            ToolStripMenuItem model = new ToolStripMenuItem("&Model");
-            ToolStripMenuItem exportChecked = new ToolStripMenuItem("Export &Checked Parts to OBJ...", null, delegate { this.ExportObj(); });
-            model.DropDownItems.Add(exportChecked);
-            model.DropDownItems.Add(new ToolStripSeparator());
-            model.DropDownItems.Add(new ToolStripMenuItem("&Export Model to OBJ Folder...", null, delegate { this.ExportModelFolder(); }));
-            model.DropDownItems.Add(new ToolStripMenuItem("&Import Model from OBJ Folder...", null, delegate { this.ImportModelFolder(); }));
-            model.DropDownItems.Add(new ToolStripMenuItem("Export Model to &FBX...", null, delegate { this.ExportModelFbx(false); }));
-            model.DropDownItems.Add(new ToolStripMenuItem("Import Model from F&BX...", null, delegate { this.ImportModelFbx(false); }));
-            model.DropDownItems.Add(new ToolStripMenuItem("Export Model to &glTF...", null, delegate { this.ExportModelFbx(true); }));
-            model.DropDownItems.Add(new ToolStripMenuItem("Import Model from gl&TF...", null, delegate { this.ImportModelFbx(true); }));
-            model.DropDownItems.Add(new ToolStripSeparator());
-            model.DropDownItems.Add(new ToolStripMenuItem("Make &Rim Scalable...", null, delegate { this.MakeRimScalable(true); }));
-            model.DropDownItems.Add(new ToolStripMenuItem("Export &UV Map to TGA...", null, delegate { this.ExportUvMap(); }));
-            model.DropDownOpening += delegate { exportChecked.Enabled = this.pnlModel.Visible && this.scene != null; };
-
-            ToolStripMenuItem texture = new ToolStripMenuItem("Te&xture");
-            texture.DropDownItems.Add(new ToolStripMenuItem("&New Texture from Image...", null, delegate { this.NewXdsFromImage(); }));
-            texture.DropDownItems.Add(new ToolStripSeparator());
-            ToolStripMenuItem exportImage = new ToolStripMenuItem("&Export Image...", null, delegate { this.ExportTexturePng(); });
-            ToolStripMenuItem importImage = new ToolStripMenuItem("&Import Image...", null, delegate { this.ImportTextureImage(); });
-            texture.DropDownItems.Add(exportImage);
-            texture.DropDownItems.Add(importImage);
-            texture.DropDownOpening += delegate
-            {
-                bool shown = this.pnlTexture.Visible && (this.texture != null || this.tga != null);
-                exportImage.Enabled = shown;
-                importImage.Enabled = shown;
-            };
-
-            this.AddTopBar();       // Open, Save, Save As, DLC, Tools, ?, Pay Respects (docs/UI_WORKFLOW.md E.1)
-            // still menus until step E.2 moves their commands where they are used
-            this.menu.Items.Add(archive);
-            this.menu.Items.Add(model);
-            this.menu.Items.Add(texture);
+            // Open, Save, Save As, DLC, Tools, ?, Pay Respects (docs/UI_WORKFLOW.md E.1). The Archive / Model / Texture
+            // commands are where they are used (E.2, ArchiveEditorForm.ArchiveBar.cs).
+            this.AddTopBar();
             this.mnuBackBar = new ToolStripMenuItem("◀ Back", null, delegate { this.GoBack(); });
             this.menu.Items.Add(this.mnuBackBar);
             this.AddUndoRedoBar();
@@ -1381,6 +1311,7 @@
             this.mnuSaveAs.Enabled = open && !this.zip.IsFolder;
             this.mnuClose.Enabled = open;
             this.UpdateDlcBar();
+            this.UpdateArchiveBar();
             this.UpdateBackMenu();
             this.Text = open ? string.Format("{0}{1}{2} - {3}", this.zip.IsFolder ? this.zip.FilePath.TrimEnd('\\') : Path.GetFileName(this.zip.FilePath), this.zip.IsFolder ? "\\" : "", this.zip.IsModified ? " *" : "", AppTitle) : AppTitle;
             if (open && this.package != null && this.InPackage(this.zip.FilePath))

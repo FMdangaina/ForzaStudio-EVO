@@ -23,7 +23,7 @@ namespace ForzaStudio
 
         private bool HandleHelpKey(Keys keyData)
         {
-            if (keyData != Keys.F1 || this.pnlModel == null || !this.pnlModel.Visible)
+            if (keyData != Keys.F1)
             {
                 return false;
             }
@@ -52,8 +52,9 @@ namespace ForzaStudio
                     }
                 };
             }
-            // At the viewer's top right corner, inside the screen.
-            Point corner = this.pnlViewport.PointToScreen(new Point(this.pnlViewport.ClientSize.Width, 0));
+            // At the top right corner of the viewer (of the content area when no model is shown), inside the screen.
+            Control area = (this.pnlModel != null && this.pnlModel.Visible) ? (Control) this.pnlViewport : this.pnlContent;
+            Point corner = area.PointToScreen(new Point(area.ClientSize.Width, 0));
             Rectangle screen = Screen.FromControl(this).WorkingArea;
             int x = Math.Max(screen.Left, Math.Min(corner.X - this.helpForm.Width - 8, screen.Right - this.helpForm.Width));
             int y = Math.Max(screen.Top, Math.Min(corner.Y + 8, screen.Bottom - this.helpForm.Height));

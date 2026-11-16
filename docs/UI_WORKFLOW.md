@@ -278,5 +278,44 @@ menus removed from BuildMenu:
 - Archive / Model / Texture stay menus until E.2. F1 help: Ctrl+O, Ctrl+Shift+O, Ctrl+S added.
 - Off-screen: fm4dev\ui\topbar\toolsshot.exe <exe> <outdir> (topbar.png, tools.png).
 
-E.2 (next, after E.1 is OK): Archive commands as a strip over the file tree (+ right-click as today), Model
-Export / Import button in the viewer's bar, Texture buttons on the texture page.
+E.1 OK in the app, committed fc8a87a.
+
+E.2 (built 2026-11-17 00:36, app test pending, uncommitted) - ArchiveEditorForm.ArchiveBar.cs; the Archive, Model
+and Texture menus are removed, the top bar is Open / Save / Save As / (DLC) / Tools / Back / Undo / Redo / Pay
+Respects / ?:
+- Archive: a strip of text buttons over the file tree (wraps on rows): Add File, New Folder, New Texture (was
+  Texture > New Texture from Image), Extract, Replace, Revert (Remove Added), Delete, Undo Delete, Extract All.
+  Enabled by the selection (UpdateArchiveBar: on selection, with the title, pointer over the strip). Open Selected
+  Archive = double-click / Enter (as before); right-click menu unchanged. Copy Dash From Another Car -> Tools, CARS.
+- Ctrl+Shift+A adds a file only with the file tree focused (HandleArchiveKey): in the viewer it is the MESH tab's
+  Select none.
+- Model: "Export / Import" drop-down in the viewer's bar before "?" (checked parts to OBJ, OBJ folder, FBX, glTF).
+- Make Rim Scalable: a button of the PART tab right under the header line, shown only when the open model is a
+  wheel (WheelScale.Check, once per model). USER RULE 2026-11-17: NEVER asked or offered automatically - the popup
+  on opening a wheel archive (CheckWheelScaleOnOpen) is removed, only the status line stays; the button runs it
+  without a question (pending until Save, Ctrl+Z).
+- Export UV Map to TGA: TEXTURE tab, under Open In Window.
+- Texture Export / Import Image: already buttons on the texture page (nothing to move).
+- F1 help: groups FILE TREE and WHERE THE OLD MENUS WENT.
+
+E.2 round 2 (user 2026-11-17: "funziona", three notes; built 00:47, app test pending):
+- Export / Import did not belong in the viewer's bar -> PART tab, new section IMPORT / EXPORT MODEL (closed at
+  first, like IMPORT / EXPORT PART): OBJ folder, FBX, glTF each with Export / Import, then Export Checked Parts to
+  OBJ (PartImport.cs). The viewer-bar button is removed.
+- "nella barra laterale tutte le voci vorrei fossero minimizzabili": every side tab's red headings are
+  collapsible (MakeCollapsibleTab with the tab name in the ini key, so "Write" of Driver / Exhaust / Gauges keep
+  their own state; PART and TEXTURE keep their old keys). Closing hides only the controls that were visible and
+  opening shows those again (OwnVisible), so what a tab hides by itself stays hidden.
+- The strip over the file tree was "confusionaria e stretta": now a 3 x 3 grid of equal buttons following the
+  tree's width - Add File / New Folder / New Texture, Extract / Replace / Revert, Delete / Undo Delete / Extract All.
+
+E.2 round 3 (user 2026-11-17: the grid too "non mi piace... piuttosto sdoppia la barra sopra"): NOTHING over the
+file tree. A second bar under the top one, as wide as the window (BuildArchiveStrip, added to the form before the
+menu so it docks below it): FILES  Add File  New Folder  New Texture | Extract  Replace  Revert | Delete
+Undo Delete | Extract All. Compiled 2026-11-17; the app was open, exe copy + app test pending.
+Round 4 (user: "per il resto sembra tutto ok"; "new texture può andare sotto tool"): New Texture is out of the
+FILES bar and in the Tools panel, group TEXTURE (New Texture from Image...). Exe 00:54: OK in the app ("funziona").
+F1 help (user: "documenta su f1 ... se ci sono cose strane"): new group GOOD TO KNOW (what is not obvious: red
+headings, hidden file tree, FILES bar, DLC button, grey game buttons, Make Rim Scalable, pending until Save, Copy
+Part, MESH handles, UV box, the two Ctrl+Shift+A, 1-6). F1 now opens from any page (window "Commands and help").
+E.2 committed with this. Step E CLOSED: steps A-E of the workflow redesign are all done.

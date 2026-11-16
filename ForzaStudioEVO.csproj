@@ -347,6 +347,7 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.MeshGizmo.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Help.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.TopBar.cs" />
+    <Compile Include="ForzaStudio\ArchiveEditorForm.ArchiveBar.cs" />
     <Compile Include="ForzaStudio\ViewportHelp.cs" />
     <Compile Include="ForzaStudio\PartPreviewControl.cs" />
     <Compile Include="ForzaStudio\CarbinModel.MoveVertices.cs" />

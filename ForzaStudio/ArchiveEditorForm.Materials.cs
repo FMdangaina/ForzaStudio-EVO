@@ -158,9 +158,12 @@ namespace ForzaStudio
 
             // The selection info goes at the bottom, the actions first (user 2026-11-16: "le info meglio al fondo").
             this.AddPartEditControls(part);
+            // Make Rim Scalable: under the header line, before any heading; shown only for a wheel model (E.2)
+            part.Controls.Add(this.BuildRimScalableButton());
+            part.Controls.SetChildIndex(this.btnRimScalable, 1);
             part.Controls.Add(SideHeading("Selected", false));
             part.Controls.Add(this.lblMeshInfo);
-            MakeCollapsible(part, "IMPORT / EXPORT PART");
+            MakeCollapsible(part, "IMPORT / EXPORT PART", "IMPORT / EXPORT MODEL");
 
             textures.Controls.Add(this.lblTextureHeader);
             textures.Controls.Add(SideHeading("Preview texture", true));
@@ -178,6 +181,14 @@ namespace ForzaStudio
             this.AddMeshEditControls(meshEdit);
             this.AddGaugeControls(gauges);
             this.AddShaderTabControls(shader);
+            // every side tab: the red headings open and close their section (user 2026-11-17)
+            MakeCollapsibleTab("Camera", camera);
+            MakeCollapsibleTab("Collision", collision);
+            MakeCollapsibleTab("Exhaust", exhaust);
+            MakeCollapsibleTab("Driver", driver);
+            MakeCollapsibleTab("Mesh", meshEdit);
+            MakeCollapsibleTab("Gauges", gauges);
+            MakeCollapsibleTab("Shader", shader);
 
             this.tvModel.AfterSelect += delegate { this.TreeSelected(); };
             return host;

@@ -17,7 +17,16 @@ namespace ForzaStudio
             side.Controls.Add(SideWideButton("Copy Part From Another Car...", delegate { this.ImportPartFromCar(); }));
             side.Controls.Add(SideWideButton("Fill Missing LOD0 Parts From LOD1...", delegate { this.FillLod0FromLod1(); }));
             side.Controls.Add(SideButtonRow(PartButton("Export OBJ...", delegate { this.ExportPartObj(); }), PartButton("Import OBJ...", delegate { this.ImportObjIntoPart(); })));
-            side.Controls.Add(SideNote("The whole model: Model > Export Model to OBJ Folder."));
+            // The whole model, by format (was the Model menu, then a button of the viewer's bar: the user wanted it
+            // in PART, 2026-11-17).
+            side.Controls.Add(SideHeading("Import / export model", false));
+            side.Controls.Add(SideCaption("OBJ folder"));
+            side.Controls.Add(SideButtonRow(PartButton("Export...", delegate { this.ExportModelFolder(); }), PartButton("Import...", delegate { this.ImportModelFolder(); })));
+            side.Controls.Add(SideCaption("FBX"));
+            side.Controls.Add(SideButtonRow(PartButton("Export...", delegate { this.ExportModelFbx(false); }), PartButton("Import...", delegate { this.ImportModelFbx(false); })));
+            side.Controls.Add(SideCaption("glTF"));
+            side.Controls.Add(SideButtonRow(PartButton("Export...", delegate { this.ExportModelFbx(true); }), PartButton("Import...", delegate { this.ImportModelFbx(true); })));
+            side.Controls.Add(SideWideButton("Export Checked Parts to OBJ...", delegate { this.ExportObj(); }));
         }
 
         // The part OBJ export/import works on: the one in edit, else the part selected in the tree (OBJ

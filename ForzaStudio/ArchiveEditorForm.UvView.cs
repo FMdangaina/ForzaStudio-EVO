@@ -38,6 +38,7 @@ namespace ForzaStudio
             column.Controls.Add(this.picUv);
             column.Controls.Add(this.lblUvInfo);
             column.Controls.Add(SideWideButton("Open In Window...", delegate { this.OpenUvWindow(); }));
+            column.Controls.Add(SideWideButton("Export UV Map to TGA...", delegate { this.ExportUvMap(); }));
         }
 
         private void OpenUvWindow()

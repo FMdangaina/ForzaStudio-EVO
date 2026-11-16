@@ -68,13 +68,9 @@ namespace ForzaStudio
                 this.SetStatus(string.Format("Opened {0}: rim scalable ({1})", this.SourceName, wheels[0].Value));
                 return;
             }
-            this.SetStatus("Opened " + this.SourceName + ": rim NOT scalable (Model > Make Rim Scalable)");
-            if (MessageBox.Show(this, fixedSize.ToString() + "\nThe game draws this rim at its modelled size whatever rim size the database gives the car.\n\n"
-                + "Make it scalable now? LOD 0 becomes the 15\" reference of FM4 with a morph table, as the FM2 port does; LODs 1-5 are not changed. "
-                + "The change is pending until you save.", "Wheel Rim Size", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-            {
-                this.MakeRimScalable(false);
-            }
+            // Status line only. USER RULE 2026-11-17: never ask Make Rim Scalable automatically ("MAKE RIM SCALABLE NON
+            // CHIEDERMELO MAI PIU' IN AUTOMATICO"); it runs only from its button in the PART tab.
+            this.SetStatus("Opened " + this.SourceName + ": rim NOT scalable (PART tab > Make Rim Scalable)");
         }
 
         // Model > Make Rim Scalable: every wheel model of the archive that is not scalable yet.

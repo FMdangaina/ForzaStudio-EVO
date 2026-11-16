@@ -63,6 +63,31 @@ namespace ForzaStudio
         // Section<NAME>); closedAtFirst names the ones that start closed.
         private static void MakeCollapsible(FlowLayoutPanel side, params string[] closedAtFirst)
         {
+            MakeCollapsibleTab("", side, closedAtFirst);
+        }
+
+        private static readonly System.Reflection.MethodInfo ControlGetState =
+            typeof(Control).GetMethod("GetState", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        // The control's own Visible flag: Control.Visible is also false while a parent is hidden (a tab not shown yet).
+        private static bool OwnVisible(Control control)
+        {
+            try
+            {
+                return (ControlGetState != null) ? (bool) ControlGetState.Invoke(control, new object[] { 2 }) : control.Visible;
+            }
+            catch (Exception)
+            {
+                return control.Visible;
+            }
+        }
+
+        // tab: prefix of the ini key, so that equal headings of different tabs ("Write") keep their own state
+        // (empty for PART and TEXTURE, whose keys came first). Every side tab is collapsible (user 2026-11-17:
+        // "nella barra laterale tutte le voci vorrei fossero minimizzabili"). Closing hides only the controls that
+        // were visible and opening shows those again: what a tab hides by itself stays hidden.
+        private static void MakeCollapsibleTab(string tab, FlowLayoutPanel side, params string[] closedAtFirst)
+        {
             foreach (Control control in side.Controls)
             {
                 Label heading = control as Label;
@@ -71,29 +96,42 @@ namespace ForzaStudio
                     continue;
                 }
                 string title = heading.Text;
-                string key = "Editor.Section" + title.Replace(" ", "").Replace(",", "").Replace("/", "");
+                string key = "Editor.Section" + tab + title.Replace(" ", "").Replace(",", "").Replace("/", "").Replace("(", "").Replace(")", "");
                 bool closed = Array.Exists(closedAtFirst, delegate(string name) { return string.Equals(name, title, StringComparison.OrdinalIgnoreCase); });
                 bool open = AppSettings.Get(key, closed ? "0" : "1") != "0";
                 heading.Cursor = Cursors.Hand;
                 Label label = heading;
+                List<Control> hidden = new List<Control>();
                 EventHandler apply = delegate
                 {
                     label.Text = (open ? "- " : "+ ") + title;
                     side.SuspendLayout();
-                    bool inside = false;
-                    foreach (Control other in side.Controls)
+                    if (open)
                     {
-                        if (other == label)
+                        foreach (Control other in hidden)
                         {
-                            inside = true;
+                            other.Visible = true;
                         }
-                        else if (other.Name == SideHeadingName)
+                        hidden.Clear();
+                    }
+                    else
+                    {
+                        bool inside = false;
+                        foreach (Control other in side.Controls)
                         {
-                            inside = false;
-                        }
-                        else if (inside)
-                        {
-                            other.Visible = open;
+                            if (other == label)
+                            {
+                                inside = true;
+                            }
+                            else if (other.Name == SideHeadingName)
+                            {
+                                inside = false;
+                            }
+                            else if (inside && OwnVisible(other))
+                            {
+                                other.Visible = false;
+                                hidden.Add(other);
+                            }
                         }
                     }
                     side.ResumeLayout();

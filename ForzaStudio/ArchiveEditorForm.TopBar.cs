@@ -56,11 +56,10 @@ namespace ForzaStudio
             ToolStripMenuItem help = new ToolStripMenuItem("?");
             help.Alignment = ToolStripItemAlignment.Right;
             help.ToolTipText = "Help";
-            ToolStripMenuItem commands = new ToolStripMenuItem("Viewport Commands", null, delegate { this.ToggleViewportHelp(); });
+            ToolStripMenuItem commands = new ToolStripMenuItem("Commands and Help", null, delegate { this.ToggleViewportHelp(); });
             commands.ShortcutKeyDisplayString = "F1";
             help.DropDownItems.Add(commands);
             help.DropDownItems.Add(new ToolStripMenuItem("About...", null, delegate { new AboutForm().ShowDialog(this); }));
-            help.DropDownOpening += delegate { commands.Enabled = this.pnlModel != null && this.pnlModel.Visible; };
 
             // The original Forza Studio 4.6 window, kept as a tribute (untouched).
             ToolStripMenuItem respects = new ToolStripMenuItem("Pay Respects", null, delegate { new ForzaStudioForm().Show(); });
@@ -196,8 +195,11 @@ namespace ForzaStudio
             wide("Duplicate Car...", delegate { this.ShowDuplicateCar(); });
             wide("Change Car Sound...", delegate { this.ShowChangeSound(); });
             wide("Car Performance From Game...", delegate { this.ShowPerformanceFromGame(); });
+            wide("Copy Dash From Another Car...", delegate { this.CopyDashFromCar(); });
             heading("Database");
             wide("Database SQL...", delegate { this.ShowSqlConsole(); });
+            heading("Texture");
+            wide("New Texture from Image...", delegate { this.NewXdsFromImage(); });
             heading("Checks");
             wide("Check Model Format...", delegate { this.ShowModelFormatCheck(); });
             wide("Check and Validate DLC...", delegate { using (DlcValidatorForm form = new DlcValidatorForm()) { form.ShowDialog(this); } });
