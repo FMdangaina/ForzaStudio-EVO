@@ -189,41 +189,6 @@
         {
             this.menu = new MenuStrip();
 
-            ToolStripMenuItem file = new ToolStripMenuItem("&File");
-            file.DropDownItems.Add(new ToolStripMenuItem("&Open Archive...", null, delegate { this.OpenArchiveDialog(); }, Keys.Control | Keys.O));
-            file.DropDownItems.Add(new ToolStripMenuItem("Open &Folder...", null, delegate { this.OpenFolderDialog(); }, Keys.Control | Keys.Shift | Keys.O));
-            file.DropDownItems.Add(new ToolStripMenuItem("Open DLC &Package...", null, delegate { this.OpenPackageDialog(); }));
-            file.DropDownItems.Add(new ToolStripSeparator());
-            this.mnuSave = new ToolStripMenuItem("&Save", null, delegate { this.SaveArchive(false); }, Keys.Control | Keys.S);
-            this.mnuSaveAs = new ToolStripMenuItem("Save &As...", null, delegate { this.SaveArchive(true); });
-            this.mnuClose = new ToolStripMenuItem("&Close", null, delegate { this.CloseArchive(); });
-            file.DropDownItems.Add(this.mnuSave);
-            file.DropDownItems.Add(this.mnuSaveAs);
-            file.DropDownItems.Add(this.mnuClose);
-            file.DropDownItems.Add(new ToolStripSeparator());
-            ToolStripMenuItem rebuild = new ToolStripMenuItem("&Rebuild DLC Package", null, delegate { this.RebuildPackageCommand(); });
-            file.DropDownItems.Add(rebuild);
-            ToolStripMenuItem deletePackageCar = new ToolStripMenuItem("Delete Car from DLC Package...", null, delegate { this.DeletePackageCar(); });
-            file.DropDownItems.Add(deletePackageCar);
-            ToolStripMenuItem baseDb = new ToolStripMenuItem("Base Game Database (disc 2 packs)", null, delegate { this.ShowBaseDatabase(); });
-            baseDb.ToolTipText = "For a package with cars but no database of its own (FM4 disc 2, FM3 second disc): the base game's gamedb.slt, read-only, linked to the pack's cars.";
-            file.DropDownItems.Add(baseDb);
-            ToolStripMenuItem modPacks = new ToolStripMenuItem("&Mod Packs (uninstall)...", null, delegate { this.ShowModPacks(); });
-            modPacks.ToolTipText = "The mod packs Save wrote for game and DLC cars (FM4): uninstall one to get the original car back.";
-            file.DropDownItems.Add(modPacks);
-            ToolStripMenuItem carDb = new ToolStripMenuItem("Database of This &Car", null, delegate { this.ShowModCarDatabase(); });
-            carDb.ToolTipText = "For a game or original DLC car open as a copy (its Save writes a mod pack): its database rows, edited here and saved into the mod pack with the car. The game's gamedb.slt is never written.";
-            file.DropDownItems.Add(carDb);
-            file.DropDownOpening += delegate
-            {
-                rebuild.Enabled = this.package != null;
-                deletePackageCar.Enabled = this.package != null;
-                baseDb.Enabled = this.package != null;
-                carDb.Enabled = this.zip != null && ModCarOf(this.zip.FilePath) != null;
-            };
-            file.DropDownItems.Add(new ToolStripSeparator());
-            file.DropDownItems.Add(new ToolStripMenuItem("E&xit", null, delegate { this.Close(); }));
-
             // The archive tree's file commands, also on its right-click menu.
             ToolStripMenuItem archive = new ToolStripMenuItem("&Archive");
             ToolStripMenuItem openSelected = new ToolStripMenuItem("&Open Selected Archive", null, delegate { this.OpenSelectedArchive(); });
@@ -294,46 +259,11 @@
                 importImage.Enabled = shown;
             };
 
-            ToolStripMenuItem tools = new ToolStripMenuItem("&Tools");
-            // Only the target game is chosen here; the source game is read from the folder chosen in the window
-            // (user 2026-11-08). Targets without a conversion + window yet are greyed (PortPairs).
-            ToolStripMenuItem importCar = new ToolStripMenuItem("&Import Car From Another Forza");
-            ToolStripMenuItem createDlc = new ToolStripMenuItem("Create &DLC Package");
-            foreach (string target in PortPairs.Games)
-            {
-                string t = target;
-                ToolStripMenuItem into = new ToolStripMenuItem("For " + t + "...", null, delegate { this.ShowCarPort(PortMode.Import, t, null); });
-                into.Enabled = PortPairs.CanImportInto(t);
-                importCar.DropDownItems.Add(into);
-                ToolStripMenuItem pack = new ToolStripMenuItem("For " + t + "...", null, delegate { this.ShowCarPort(PortMode.Dlc, t, null); });
-                pack.Enabled = PortPairs.CanCreateDlc(t);
-                createDlc.DropDownItems.Add(pack);
-            }
-            tools.DropDownItems.Add(importCar);
-            tools.DropDownItems.Add(createDlc);
-            tools.DropDownItems.Add(new ToolStripMenuItem("Duplicate &Car...", null, delegate { this.ShowDuplicateCar(); }));
-            tools.DropDownItems.Add(new ToolStripMenuItem("Database &SQL...", null, delegate { this.ShowSqlConsole(); }));
-            tools.DropDownItems.Add(new ToolStripMenuItem("Car &Performance From Game...", null, delegate { this.ShowPerformanceFromGame(); }));
-            tools.DropDownItems.Add(new ToolStripMenuItem("Change Car &Sound...", null, delegate { this.ShowChangeSound(); }));
-            tools.DropDownItems.Add(new ToolStripMenuItem("Check &Model Format...", null, delegate { this.ShowModelFormatCheck(); }));
-            tools.DropDownItems.Add(new ToolStripMenuItem("Chec&k and Validate DLC...", null, delegate { using (DlcValidatorForm form = new DlcValidatorForm()) { form.ShowDialog(this); } }));
-            tools.DropDownItems.Add(new ToolStripMenuItem("Validate DLC for &Installation...", null, delegate { using (DlcInstallForm form = new DlcInstallForm()) { form.ShowDialog(this); } }));
-            tools.DropDownItems.Add(new ToolStripMenuItem("Set Generated &Thumbnail...", null, delegate { using (SetThumbnailsForm form = new SetThumbnailsForm()) { form.ShowDialog(this); } }));
-            tools.DropDownItems.Add(new ToolStripSeparator());
-            tools.DropDownItems.Add(new ToolStripMenuItem("&Settings...", null, delegate { this.ShowSettings(); }));
-            tools.DropDownItems.Add(new ToolStripSeparator());
-            // The original Forza Studio 4.6 window, kept as a tribute: Alt+T, F.
-            tools.DropDownItems.Add(new ToolStripMenuItem("Pay Respects (&F)", null, delegate { new ForzaStudioForm().Show(); }));
-
-            ToolStripMenuItem help = new ToolStripMenuItem("&Help");
-            help.DropDownItems.Add(new ToolStripMenuItem("&About...", null, delegate { new AboutForm().ShowDialog(this); }));
-
-            this.menu.Items.Add(file);
+            this.AddTopBar();       // Open, Save, Save As, DLC, Tools, ?, Pay Respects (docs/UI_WORKFLOW.md E.1)
+            // still menus until step E.2 moves their commands where they are used
             this.menu.Items.Add(archive);
             this.menu.Items.Add(model);
             this.menu.Items.Add(texture);
-            this.menu.Items.Add(tools);
-            this.menu.Items.Add(help);
             this.mnuBackBar = new ToolStripMenuItem("◀ Back", null, delegate { this.GoBack(); });
             this.menu.Items.Add(this.mnuBackBar);
             this.AddUndoRedoBar();
@@ -1450,6 +1380,7 @@
             this.mnuSave.Enabled = open;
             this.mnuSaveAs.Enabled = open && !this.zip.IsFolder;
             this.mnuClose.Enabled = open;
+            this.UpdateDlcBar();
             this.UpdateBackMenu();
             this.Text = open ? string.Format("{0}{1}{2} - {3}", this.zip.IsFolder ? this.zip.FilePath.TrimEnd('\\') : Path.GetFileName(this.zip.FilePath), this.zip.IsFolder ? "\\" : "", this.zip.IsModified ? " *" : "", AppTitle) : AppTitle;
             if (open && this.package != null && this.InPackage(this.zip.FilePath))

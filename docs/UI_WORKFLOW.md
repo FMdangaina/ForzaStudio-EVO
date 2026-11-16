@@ -261,4 +261,22 @@ Off-screen (fm4dev\ui\out\tex*): material-node selections frame tight; a part no
 
 ### E. Top menus become buttons
 
-File / Archive / Model / Texture / Tools turn into visible buttons and keys.
+File / Archive / Model / Texture / Tools turn into visible buttons and keys. Agreed with the user 2026-11-17, in
+two parts, each tested in the app before the next. Same windows and actions, only where they are found changes.
+
+E.1 (built 2026-11-17 00:26, app test pending, uncommitted) - ArchiveEditorForm.TopBar.cs; File / Tools / Help
+menus removed from BuildMenu:
+- Open (Archive Ctrl+O, Folder Ctrl+Shift+O, DLC Package, Close), Save (Ctrl+S), Save As. Keys handled in
+  HandleTopBarKey (first in ProcessCmdKey), no menu shortcuts. Exit dropped (the window's X).
+- DLC: Rebuild / Delete Car / Base Game Database (with a package open), Database of This Car (car copy with a mod
+  pack); the button is shown only when one applies (UpdateDlcBar from UpdateTitle).
+- Tools: a panel of buttons (ToolStripDropDown) in groups CARS (Import car into / Create DLC for: one button
+  per game, greyed where PortPairs has no conversion; Duplicate, Change Sound, Performance), DATABASE (SQL),
+  CHECKS (model format, DLC validate, install validate, thumbnail), MOD PACKS AND SETTINGS (Mod Packs uninstall,
+  moved here from File: it needs no open package; Settings).
+- Right: Pay Respects (untouched) and "?" (Viewport Commands F1, About).
+- Archive / Model / Texture stay menus until E.2. F1 help: Ctrl+O, Ctrl+Shift+O, Ctrl+S added.
+- Off-screen: fm4dev\ui\topbar\toolsshot.exe <exe> <outdir> (topbar.png, tools.png).
+
+E.2 (next, after E.1 is OK): Archive commands as a strip over the file tree (+ right-click as today), Model
+Export / Import button in the viewer's bar, Texture buttons on the texture page.
