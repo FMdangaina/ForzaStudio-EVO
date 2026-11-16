@@ -42,7 +42,7 @@ namespace ForzaStudio
         public long? ChosenId;                      // the car Id chosen by the user (DbIds.ChosenCarIdProblem); null = the first free one
         public EngineSpec Engine;                  // an engine of its own for the copy (CarEngine); null = the source's, shared
         public GearboxSpec Gearbox;                 // a gearbox (drivetrain) of its own for the copy (CarGearbox); null = the source's, shared
-        public string PerfMedia;                    // FM2: the Media folder holding AI\PerfPrediction (a pack's stage has none); null = this.Media
+        public string PerfMedia;                    // the GAME's Media folder for the performance numbers: FM2 AI\PerfPrediction, FM3 / FM4 Physics\PI.xml (a pack's stage has neither); null = this.Media
 
         // A DLC pack instead of the game folder: the copy is built on a staged part of the game (the database,
         // the string tables, the source's zip and thumbnail zip), then DlcPackage.BuildFolder turns what
@@ -142,6 +142,20 @@ namespace ForzaStudio
         public bool RefreshNames = true;            // false for the staged copy inside a DLC pack build
         public ForzaGame? GameOverride;             // the staged copy (no default.xex) of a pack build: the open game's
 
+        // The package file landed in a Xenia content folder of its game: the open game's, or one holding a names pack.
+        private bool PackageInXenia(ForzaGame packGame)
+        {
+            string folder = Path.GetDirectoryName(Path.GetFullPath(this.PackageFile));
+            foreach (string content in new string[] { this.XeniaContent, InstalledDlc.ContentFolder(packGame) })
+            {
+                if (!string.IsNullOrEmpty(content) && string.Equals(Path.GetFullPath(content).TrimEnd('\\'), folder.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return DlcPackage.FindNamesPack(folder, packGame) != null;
+        }
+
         // Xenia's content folder of the game: whose DLC string tables the names pack is built on.
         private string NamesContent()
         {
@@ -209,7 +223,7 @@ namespace ForzaStudio
                 }
                 inner.Engine = this.Engine;
                 inner.Gearbox = this.Gearbox;
-                inner.PerfMedia = this.PerfMedia ?? this.Media;   // the stage has no AI\PerfPrediction: the game's network
+                inner.PerfMedia = this.PerfMedia ?? this.Media;   // the stage has no AI\PerfPrediction (FM2) / Physics\PI.xml (FM3, FM4): the game's
                 inner.BackupFolder = Path.Combine(stage, "bak");
                 inner.Run();
                 this.NewId = inner.NewId;
@@ -269,6 +283,13 @@ namespace ForzaStudio
                 {
                     // the names pack (priority 999) is above the new pack's string tables: rebuilt on them, the new car keeps its name
                     DlcPackage.RefreshNamesPack(packGame, this.TargetRoot, content, this.Report);
+                }
+                else if (this.RefreshNames && this.PackageFile != null && this.PackageInXenia(packGame))
+                {
+                    // A package file written straight into Xenia's content folder (in game 2026-11-16: FM3 Supra SZ showed
+                    // "ForzaStudio EVO names (FM3)"): the names pack there was not rebuilt, its tables (priority 999) lacked
+                    // the new keys and used the same free ones for its own title. Rebuilt on the new package too.
+                    DlcPackage.RefreshNamesPack(packGame, this.TargetRoot, Path.GetDirectoryName(this.PackageFile), this.Report);
                 }
             }
             catch (Exception)
@@ -677,8 +698,18 @@ namespace ForzaStudio
                 }
                 if ((this.Engine != null || this.Gearbox != null) && this.game == ForzaGame.Motorsport2)
                 {
-                    // FM2: the game's own calculation (Arcade and the dealer show the stored numbers, 2026-11-16). FM3 / FM4 not studied yet.
+                    // FM2: the game's own calculation (Arcade and the dealer show the stored numbers, 2026-11-16).
                     Fm2Perf.Update(db, original, sourceId, this.NewId, this.PerfMedia ?? this.Media, this.Data.Keys, plan);
+                }
+                else if ((this.Engine != null || this.Gearbox != null) && this.game == ForzaGame.Motorsport3)
+                {
+                    // FM3: the game's own calculation too (the lap of Media\Physics\PI.xml, docs/FM3/PI_AND_RATINGS.md), as a whole set.
+                    Fm3Perf.Update(db, original, sourceId, this.NewId, this.PerfMedia ?? this.Media, this.Data.Keys, plan);
+                }
+                else if ((this.Engine != null || this.Gearbox != null) && this.game == ForzaGame.Motorsport4)
+                {
+                    // FM4: its own lap of Media\Physics\PI.xml (docs/FM4/PI_AND_RATINGS.md), as a whole set.
+                    Fm4Perf.Update(db, original, sourceId, this.NewId, this.PerfMedia ?? this.Media, this.Data.Keys, plan);
                 }
                 else if (this.Engine != null || this.Gearbox != null)
                 {

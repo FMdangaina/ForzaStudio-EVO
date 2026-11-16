@@ -296,7 +296,7 @@ namespace ForzaStudio
             }
             inner.Engine = this.Engine;
             inner.Gearbox = this.Gearbox;
-            inner.PerfMedia = this.PerfMedia ?? this.Media;   // the stage has no AI\PerfPrediction: the game's network
+            inner.PerfMedia = this.PerfMedia ?? this.Media;   // the stage has no AI\PerfPrediction (FM2) / Physics\PI.xml (FM3, FM4): the game's
             if (inner.Engine == null && this.PackageOnlyEngine(reference, sourceId))
             {
                 // A DLC car's engine is the package's (EngineID and its rows above the game's): shared, the copy would carry the DLC's

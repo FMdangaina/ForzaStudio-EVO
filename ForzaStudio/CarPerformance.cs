@@ -229,13 +229,17 @@ namespace ForzaStudio
         // R2 0.989, as in FM4's own data). The Sim peak power / torque are CarEngine's. Handling and braking stay (they
         // come from the lateral g and the brake distance, which the engine does not change). userSet = Data_Car columns
         // the user typed in the wizard: left as typed.
-        public static void Update(SqliteDatabase db, SqliteDatabase original, long sourceId, long carId, ICollection<string> userSet, List<string> plan)
+        // timesOnly (FM3 / FM4: Fm3Perf, Fm4Perf): only the Sim times, top speed and the shown figures are scaled; the ratings, PI and class are
+        // the game's own calculation, written by the caller.
+        public static void Update(SqliteDatabase db, SqliteDatabase original, long sourceId, long carId, ICollection<string> userSet, List<string> plan, bool timesOnly = false)
         {
             PerfResult s = Simulate(original, sourceId);
             PerfResult c = Simulate(db, carId);
             if (s == null || c == null || s.T60 <= 0 || c.T60 <= 0 || s.TopSpeed <= 0 || c.TopSpeed <= 0 || s.QuarterSpeed <= 0 || c.QuarterSpeed <= 0 || s.QuarterTime <= 0 || c.QuarterTime <= 0)
             {
-                plan.Add("performance: not recomputed (the car's engine, gearbox or tires could not be simulated); the times, ratings and PI stay the source's");
+                plan.Add(timesOnly
+                    ? "performance (Sim times): not scaled (the car's engine, gearbox or tires could not be simulated); the times and shown figures stay the source's"
+                    : "performance: not recomputed (the car's engine, gearbox or tires could not be simulated); the times, ratings and PI stay the source's");
                 return;
             }
             string[] names = { "SimTimeTo60MPH", "SimTimeTo100MPH", "SimTimeQuarterMile", "SimSpeedQuarterMile", "SimTopSpeed", "SpeedRating", "AccelerationRating", "LaunchRating", "PerformanceIndex", "ClassID" };
@@ -258,9 +262,17 @@ namespace ForzaStudio
             double acceleration = Math.Min(10, Math.Max(0, Real(row[6]) + (-0.21026 * (nt60 - t60)) + (0.13644 * (nvq - vq))));
             double launch = Math.Min(10, Math.Max(0, Real(row[7]) + (-0.61434 * (nt60 - t60))));
             double pi = Math.Max(0, Real(row[8]) + (0.01328 * (speed - Real(row[5]))) + (0.05059 * (acceleration - Real(row[6]))) + (0.01559 * (launch - Real(row[7]))));
-            object classId = CarPort.ClassFor(db, pi, carId) ?? row[9];
-            db.Execute("UPDATE Data_Car SET SimTimeTo60MPH = ?, SimTimeTo100MPH = ?, SimTimeQuarterMile = ?, SimSpeedQuarterMile = ?, SimTopSpeed = ?, SpeedRating = ?, AccelerationRating = ?, LaunchRating = ?, PerformanceIndex = ?, ClassID = ? WHERE Id = ?",
-                nt60, nt100, ntq, nvq, ntop, speed, acceleration, launch, pi, classId, carId);
+            object classId = timesOnly ? row[9] : (CarPort.ClassFor(db, pi, carId) ?? row[9]);
+            if (timesOnly)
+            {
+                db.Execute("UPDATE Data_Car SET SimTimeTo60MPH = ?, SimTimeTo100MPH = ?, SimTimeQuarterMile = ?, SimSpeedQuarterMile = ?, SimTopSpeed = ? WHERE Id = ?",
+                    nt60, nt100, ntq, nvq, ntop, carId);
+            }
+            else
+            {
+                db.Execute("UPDATE Data_Car SET SimTimeTo60MPH = ?, SimTimeTo100MPH = ?, SimTimeQuarterMile = ?, SimSpeedQuarterMile = ?, SimTopSpeed = ?, SpeedRating = ?, AccelerationRating = ?, LaunchRating = ?, PerformanceIndex = ?, ClassID = ? WHERE Id = ?",
+                    nt60, nt100, ntq, nvq, ntop, speed, acceleration, launch, pi, classId, carId);
+            }
 
             // The figures the car's page shows (0-60, top speed...): scaled the same way, unless the user typed them.
             object[][] shown = {
@@ -280,6 +292,12 @@ namespace ForzaStudio
                     db.Execute("UPDATE Data_Car SET " + SqliteDatabase.Quote(column) + " = ? WHERE Id = ?", Math.Round(old * (double) pair[1], 1), carId);
                     scaled.Add(column);
                 }
+            }
+            if (timesOnly)
+            {
+                plan.Add(string.Format(CultureInfo.InvariantCulture, "performance (Sim times, scaled source -> copy): 0-60 {0:0.0} -> {1:0.0} s, top speed {2:0} -> {3:0} km/h, quarter mile {4:0.0} -> {5:0.0} s; shown figures scaled: {6}",
+                    t60, nt60, top * 3.6, ntop * 3.6, tq, ntq, scaled.Count == 0 ? "none" : string.Join(", ", scaled.ToArray())));
+                return;
             }
             plan.Add(string.Format(CultureInfo.InvariantCulture, "performance (simulated, source -> copy): 0-60 {0:0.0} -> {1:0.0} s, top speed {2:0} -> {3:0} km/h, quarter mile {4:0.0} -> {5:0.0} s; PI {6:0} -> {7:0} (class {8}); shown figures scaled: {9}",
                 t60, nt60, top * 3.6, ntop * 3.6, tq, ntq, (Real(row[8]) * 1000) + 100, (pi * 1000) + 100, classId, scaled.Count == 0 ? "none" : string.Join(", ", scaled.ToArray())));

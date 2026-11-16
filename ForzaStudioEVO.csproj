@@ -168,6 +168,8 @@
     <Compile Include="ForzaStudio\CarbinFormat.cs" />
     <Compile Include="ForzaStudio\Fm2CarbinModel.cs" />
     <Compile Include="ForzaStudio\Fm2Perf.cs" />
+    <Compile Include="ForzaStudio\Fm3Perf.cs" />
+    <Compile Include="ForzaStudio\Fm4Perf.cs" />
     <Compile Include="ForzaStudio\Fm2StockGarage.cs" />
     <Compile Include="ForzaStudio\CarUninstall.Copy.cs" />
     <Compile Include="ForzaStudio\CarEngine.Fm2.cs" />
