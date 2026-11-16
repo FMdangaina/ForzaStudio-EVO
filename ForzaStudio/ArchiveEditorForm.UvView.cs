@@ -15,6 +15,7 @@ namespace ForzaStudio
     public partial class ArchiveEditorForm
     {
         private const int UvViewSize = SideWidth;
+        private const int UvViewHeight = 300;          // taller than wide: the side column is narrow (docs/UI_WORKFLOW.md D)
         private const int UvMaxTriangles = 120000;   // more than this in one selection: every n-th triangle only
         private PictureBox picUv;
         private Label lblUvInfo;
@@ -22,17 +23,21 @@ namespace ForzaStudio
         private void AddUvViewControls(FlowLayoutPanel column)
         {
             this.picUv = new PictureBox();
-            this.picUv.Size = new Size(UvViewSize, UvViewSize);
+            this.picUv.Size = new Size(UvViewSize, UvViewHeight);
             this.picUv.SizeMode = PictureBoxSizeMode.Normal;
             this.picUv.BackColor = System.Drawing.Color.FromArgb(24, 24, 24);
             this.picUv.Margin = new Padding(0, 2, 0, 2);
             this.picUv.Cursor = Cursors.Hand;
             this.picUv.DoubleClick += delegate { this.OpenUvWindow(); };
+            this.textureTips.SetToolTip(this.picUv, "Framed on the selection's UVs (grey square = the texture, 0 to 1). Double-click to open it larger.");
             this.lblUvInfo = SideNote("");
+            this.lblUvInfo.Margin = new Padding(0, 0, 0, 2);
             column.Controls.Add(SideHeading("UV layout", false));
+            column.Controls.Add(SideCaption("UV set"));
+            column.Controls.Add(this.cmbMeshUV);
             column.Controls.Add(this.picUv);
-            column.Controls.Add(SideWideButton("Open In Window...", delegate { this.OpenUvWindow(); }));
             column.Controls.Add(this.lblUvInfo);
+            column.Controls.Add(SideWideButton("Open In Window...", delegate { this.OpenUvWindow(); }));
         }
 
         private void OpenUvWindow()
@@ -74,14 +79,14 @@ namespace ForzaStudio
             }
             bool second = meshes.Count > 0 && meshes[0].UseSecondUV;
             int step;
-            Bitmap image = UvForm.Render(meshes, second, UvViewSize, 6, texture, 1f, false, out step);
+            Bitmap image = UvForm.Render(meshes, second, UvViewSize, UvViewHeight, 6, UvForm.Frame(meshes, second), texture, 1f, false, out step);
             int triangles = 0;
             foreach (ForzaMesh mesh in meshes)
             {
                 triangles += mesh.FaceCount;
             }
             this.lblUvInfo.Text = (meshes.Count == 0) ? "Select a part in the tree."
-                : string.Format("{0}, {1} part{2}, {3:N0} faces{4}. Double-click the picture to open it larger.",
+                : string.Format("{0}, {1} part{2}, {3:N0} faces{4}",
                     second ? "UV2" : "UV1", meshes.Count, meshes.Count == 1 ? "" : "s", triangles, step > 1 ? " (every " + step + "th drawn)" : "");
             Image old = this.picUv.Image;
             this.picUv.Image = image;
@@ -307,9 +312,58 @@ namespace ForzaStudio
         // step > 1 when the selection was thinned to stay fast.
         public static Bitmap Render(List<ForzaMesh> meshes, bool second, int size, int margin, Bitmap texture, float lineWidth, bool transparent, out int step)
         {
-            Bitmap image = new Bitmap(size, size);
-            int side = size - 2 * margin;
-            Rectangle square = new Rectangle(margin, margin, side, side);
+            return Render(meshes, second, size, size, margin, new RectangleF(0f, 0f, 1f, 1f), texture, lineWidth, transparent, out step);
+        }
+
+        // The UV region the selection's triangles use (u from X, v from Y, bottom-up as parsed), with a small border;
+        // the whole 0..1 square when there is nothing to frame. Read through the indices: meshes of one section
+        // may share a vertex buffer, and only this selection's triangles count.
+        public static RectangleF Frame(List<ForzaMesh> meshes, bool second)
+        {
+            float minU = float.MaxValue, minV = float.MaxValue, maxU = float.MinValue, maxV = float.MinValue;
+            foreach (ForzaMesh mesh in meshes)
+            {
+                if (mesh.Indices == null || mesh.Vertices == null)
+                {
+                    continue;
+                }
+                foreach (int index in mesh.Indices)
+                {
+                    if (index < 0 || index >= mesh.Vertices.Length)
+                    {
+                        continue;
+                    }
+                    Microsoft.Xna.Framework.Vector2 uv = second ? mesh.Vertices[index].texture1 : mesh.Vertices[index].texture0;
+                    if (float.IsNaN(uv.X) || float.IsNaN(uv.Y) || Math.Abs(uv.X) >= 100000f || Math.Abs(uv.Y) >= 100000f)
+                    {
+                        continue;
+                    }
+                    minU = Math.Min(minU, uv.X);
+                    maxU = Math.Max(maxU, uv.X);
+                    minV = Math.Min(minV, uv.Y);
+                    maxV = Math.Max(maxV, uv.Y);
+                }
+            }
+            if (minU > maxU)
+            {
+                return new RectangleF(0f, 0f, 1f, 1f);
+            }
+            float width = Math.Max(maxU - minU, 0.01f), height = Math.Max(maxV - minV, 0.01f);
+            float border = Math.Max(width, height) * 0.04f;
+            float centreU = (minU + maxU) / 2f, centreV = (minV + maxV) / 2f;
+            return new RectangleF(centreU - width / 2f - border, centreV - height / 2f - border, width + 2f * border, height + 2f * border);
+        }
+
+        // width x height bitmap showing the UV region view (u from view.X, v from view.Y, bottom-up), scaled the same
+        // on both axes and centred inside the margin: the 0..1 square (where the texture is) drawn where it falls.
+        public static Bitmap Render(List<ForzaMesh> meshes, bool second, int width, int height, int margin, RectangleF view, Bitmap texture, float lineWidth, bool transparent, out int step)
+        {
+            Bitmap image = new Bitmap(width, height);
+            float scale = Math.Min((width - 2 * margin) / view.Width, (height - 2 * margin) / view.Height);
+            float originX = (width - view.Width * scale) / 2f - view.X * scale;         // x = originX + u * scale
+            float originY = (height + view.Height * scale) / 2f + view.Y * scale;       // y = originY - v * scale
+            RectangleF unit = new RectangleF(originX, originY - scale, scale, scale);    // the 0..1 square
+            Rectangle square = Rectangle.Round(unit);
             int triangles = 0;
             foreach (ForzaMesh mesh in meshes)
             {
@@ -341,7 +395,7 @@ namespace ForzaStudio
                 }
                 using (Pen border = new Pen(System.Drawing.Color.FromArgb(120, 120, 120)))
                 {
-                    g.DrawRectangle(border, square);
+                    g.DrawRectangle(border, unit.X, unit.Y, unit.Width, unit.Height);
                 }
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 using (Pen pen = new Pen(System.Drawing.Color.FromArgb(transparent ? 255 : 200, 255, 70, 60), lineWidth))
@@ -366,7 +420,7 @@ namespace ForzaStudio
                                 }
                                 Microsoft.Xna.Framework.Vector2 uv = second ? mesh.Vertices[index].texture1 : mesh.Vertices[index].texture0;
                                 // parsed UVs are bottom-up (OBJ convention), the square is drawn top-down
-                                tri[k] = new PointF(square.Left + uv.X * side, square.Top + (1f - uv.Y) * side);
+                                tri[k] = new PointF(originX + uv.X * scale, originY - uv.Y * scale);
                             }
                             tri[3] = tri[0];
                             if (valid && IsFinite(tri))

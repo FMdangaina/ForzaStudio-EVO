@@ -183,7 +183,7 @@ namespace ForzaStudio
                 this.GoBack();
                 return true;
             }
-            if (this.HandlePickKey(keyData) || this.HandleGizmoKey(keyData) || this.HandleViewKey(keyData) || this.HandleUndoKey(keyData))
+            if (this.HandleHelpKey(keyData) || this.HandlePickKey(keyData) || this.HandleGizmoKey(keyData) || this.HandleViewKey(keyData) || this.HandleUndoKey(keyData))
             {
                 return true;
             }

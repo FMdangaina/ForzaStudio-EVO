@@ -343,6 +343,8 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.PickMode.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.MoveGizmo.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.MeshGizmo.cs" />
+    <Compile Include="ForzaStudio\ArchiveEditorForm.Help.cs" />
+    <Compile Include="ForzaStudio\ViewportHelp.cs" />
     <Compile Include="ForzaStudio\PartPreviewControl.cs" />
     <Compile Include="ForzaStudio\CarbinModel.MoveVertices.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.CarSources.cs" />

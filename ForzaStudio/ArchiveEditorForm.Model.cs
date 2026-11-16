@@ -106,6 +106,7 @@ namespace ForzaStudio
             toolbar.Items.Add(this.lblCameraFov);
             toolbar.Items.Add(this.BuildGoToCameraButton());
             toolbar.Items.Add(this.BuildGameLodCombo());
+            toolbar.Items.Add(this.BuildHelpButton());      // F1: the list of the viewport commands
             this.lblModelInfo = new ToolStripLabel();
             this.lblModelInfo.Alignment = ToolStripItemAlignment.Right;
             toolbar.Items.Add(this.lblModelInfo);

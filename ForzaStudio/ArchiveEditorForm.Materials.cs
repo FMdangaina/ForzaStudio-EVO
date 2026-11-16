@@ -99,7 +99,34 @@ namespace ForzaStudio
                 }
             };
 
-            Button browse = SideWideButton("Texture From File...", delegate { this.AssignTextureFromFile(); });
+            // TEXTURE tab layout (docs/UI_WORKFLOW.md D): the texture combo with a small "..." for a file beside it;
+            // the long explanation is the combo's tooltip.
+            this.cmbMeshTexture.Width = SideWidth - 36;
+            this.cmbMeshTexture.Margin = new Padding(0, 3, 4, 3);
+            Button browse = new Button();
+            browse.Text = "...";
+            browse.Size = new Size(32, this.cmbMeshTexture.Height + 2);
+            browse.Margin = new Padding(0, 2, 0, 2);
+            browse.Click += delegate { this.AssignTextureFromFile(); };
+            FlowLayoutPanel textureRow = new FlowLayoutPanel();
+            textureRow.FlowDirection = FlowDirection.LeftToRight;
+            textureRow.WrapContents = false;
+            textureRow.AutoSize = true;
+            textureRow.Margin = new Padding(0);
+            textureRow.Controls.Add(this.cmbMeshTexture);
+            textureRow.Controls.Add(browse);
+            this.textureTips = new ToolTip();
+            this.textureTips.AutoPopDelay = 20000;
+            this.textureTips.SetToolTip(this.cmbMeshTexture, "(auto): the texture the game draws the material with (its shader's samplers and Shared.zip\\textures.xml), from the car's files or Shared.zip.\nPick another to override it; choices are remembered per material and only change the preview.");
+            this.textureTips.SetToolTip(browse, "Texture from file: load a picture as this material's preview texture.");
+            this.lblTextureHeader = new Label();
+            this.lblTextureHeader.AutoSize = false;
+            this.lblTextureHeader.Size = new Size(SideWidth, 24);
+            this.lblTextureHeader.TextAlign = ContentAlignment.MiddleLeft;
+            this.lblTextureHeader.Font = new Font(ForzaTheme.Regular, FontStyle.Bold);
+            this.lblTextureHeader.AutoEllipsis = true;
+            this.lblTextureHeader.Margin = new Padding(0, 4, 0, 0);
+            this.lblTextureHeader.Text = NothingSelectedText;
 
             this.cmbMeshUV = new ComboBox();
             this.cmbMeshUV.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -135,15 +162,13 @@ namespace ForzaStudio
             part.Controls.Add(this.lblMeshInfo);
             MakeCollapsible(part, "IMPORT / EXPORT PART");
 
+            textures.Controls.Add(this.lblTextureHeader);
             textures.Controls.Add(SideHeading("Preview texture", true));
-            textures.Controls.Add(this.cmbMeshTexture);
-            textures.Controls.Add(browse);
-            textures.Controls.Add(SideCaption("UV set"));
-            textures.Controls.Add(this.cmbMeshUV);
+            textures.Controls.Add(textureRow);
             textures.Controls.Add(this.chkSameMaterial);
             textures.Controls.Add(this.chkAlphaMask);
             this.AddUvViewControls(textures);
-            textures.Controls.Add(SideNote("(auto): the texture the game draws the material with (its shader's samplers and Shared.zip\\textures.xml), from the car's files or Shared.zip. Pick another to override it; choices are remembered per material and only change the preview."));
+            MakeCollapsible(textures);
 
             // Kept in the tabs until a model loads, so the theme reaches it (LoadCockpitCamera hides it).
             this.AddCameraControls(camera);
@@ -522,6 +547,7 @@ namespace ForzaStudio
             this.updatingMeshPanel = true;
             try
             {
+                this.UpdateTextureHeader(meshes);
                 if (meshes.Count == 0)
                 {
                     this.lblMeshInfo.Text = "Select a part in the tree.";
@@ -578,6 +604,42 @@ namespace ForzaStudio
             {
                 this.updatingMeshPanel = false;
                 this.RefreshUvView();
+            }
+        }
+
+        private Label lblTextureHeader;
+        private ToolTip textureTips;
+
+        // First line of the TEXTURE tab: "material  ·  4 parts  ·  LOD0" (a material node), "part  ·  3 materials  ·  LOD0"
+        // (a part node), "LOD0  ·  27 materials" (a LOD node).
+        private void UpdateTextureHeader(List<ForzaMesh> meshes)
+        {
+            if (this.lblTextureHeader == null)
+            {
+                return;
+            }
+            TreeNode node = this.tvModel.SelectedNode;
+            string text;
+            if (meshes.Count == 0 || node == null)
+            {
+                text = NothingSelectedText;
+            }
+            else if (node.Tag is ForzaMesh)
+            {
+                int parts = this.CountMaterial(meshes[0].MaterialName);
+                string lod = (node.Parent != null && node.Parent.Parent != null) ? node.Parent.Parent.Text : "";
+                text = string.Format("{0}  ·  {1} part{2}", meshes[0].MaterialName, parts, parts == 1 ? "" : "s") + (lod.Length > 0 ? "  ·  " + lod : "");
+            }
+            else
+            {
+                // a part's parent is its LOD; a LOD's parent is the model's root node (not shown, as in the PART header)
+                text = string.Format("{0}  ·  {1} material{2}", node.Text, meshes.Count, meshes.Count == 1 ? "" : "s")
+                    + ((node.Parent != null && node.Parent.Parent != null) ? "  ·  " + node.Parent.Text : "");
+            }
+            if (this.lblTextureHeader.Text != text)
+            {
+                this.lblTextureHeader.Text = text;
+                this.textureTips.SetToolTip(this.lblTextureHeader, text);
             }
         }
 

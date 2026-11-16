@@ -104,6 +104,8 @@ click selects one material, a double-click the part)? Next after that: step D (T
 to the user before building. The other chat's files (Fm3Perf.cs, Fm4Perf.cs, CarPerformance.cs, CarDuplicate*.cs,
 their csproj lines, docs/FM3 + docs/FM4 PI_AND_RATINGS.md, docs/TODO_WIDEBODY_FUTURE.md) are never committed here.
 Fill LOD0 preview is fine as it is (its database rows: later).
+2026-11-16 night: user answers: double-click = whole part is fine (exhausta question closed); SHADER tab stays as
+it is; wanted a help of the viewport commands. Built: C.1 below (exe 23:56), app test pending. Next: D = TEXTURE only.
 
 ### UX direction after round 2
 
@@ -234,9 +236,28 @@ Copy Part rules (user 2026-11-16, built 23:22, app test pending, uncommitted):
   1458 -> 900, 1924 -> 1174, 884 -> 539. Exe 23:33.
 - Open question to the user: "regression" on moving a whole part node (exhausta) vs only its materials.
 
+### C.1. Viewport commands help (user 2026-11-16) — built, app test pending
+
+F1 or the "?" button at the end of the viewer's tool bar opens "Viewport commands" (ViewportHelp.cs, wired in
+ArchiveEditorForm.Help.cs): a non-modal tool window at the viewer's top right that does not take the focus, so the
+keys keep going to the viewer. F1 again (or Esc in it) closes it. Groups: VIEW, SELECTION IN THE VIEW, TOOLS,
+PART TAB, MESH TAB, ALWAYS; the group of the side tab in use goes first with "(this tab)" in red and follows tab
+changes. ONE table (ViewportHelp.Groups): when a key or mouse action changes, change it there too.
+Off-screen check: fm4dev\ui\help\helpshot.exe <exe> <outdir> (help_Part.png, help_Mesh.png).
+
 ### D. Materials and textures
 
-Same review of the TEXTURE and SHADER tabs.
+SHADER: stays as it is (user 2026-11-16). TEXTURE only, agreed: fixed header line (material, parts, LOD); texture
+combo with a small "..." for From File; the two ticks under it; taller UV box framed on the material's UVs (today it
+shows the whole 0-1 space, the UVs end up tiny in a corner) with the info line under it; the long "(auto)" text
+becomes the combo's tooltip. Layout and UV framing only, no change in what it does.
+2026-11-17 built (exe 00:19, app test pending, uncommitted): user "funziona" on C.1, "vai con texture". Header
+(UpdateTextureHeader, Materials.cs): "material · N parts · LOD" for a material node, "part · N materials · LOD" for
+a part. Texture combo + "..." (Texture From File), explanation as tooltip; headings collapsible (MakeCollapsible,
+both open). UV LAYOUT: UV set, box 236 x 300 framed on the selection's UVs (UvForm.Frame through the indices,
+4 % border; Render(width, height, view); the old square Render is the 0..1 case), info line, Open In Window.
+Off-screen (fm4dev\ui\out\tex*): material-node selections frame tight; a part node with several materials spreads
+(each material has its own texture space), e.g. exhausta UVs at both edges of the texture.
 
 ### E. Top menus become buttons
 
