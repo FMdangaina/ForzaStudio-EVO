@@ -271,7 +271,9 @@ namespace ForzaStudio
                 : (open == this.tabSideExhaust) ? this.ExhaustOverlayLines()
                 : (open == this.tabSideDriver) ? this.DriverOverlayLines()
                 : (open == this.tabSideGauges) ? this.GaugeOverlayLines()
-                : (open == this.tabSideMesh) ? this.MeshEditOverlayLines() : null;
+                : (open == this.tabSideMesh) ? this.MeshOverlayWithGizmo()
+                : (open == this.tabSidePart) ? this.GizmoLines() : null;
+            this.gizmoSignature = null;     // drawn again at the next tick, with the camera as it is then
             this.UpdateGaugePreview(open == this.tabSideGauges);
             this.scene.Overlay = (lines != null && lines.Count >= 2) ? lines.ToArray() : null;
             this.scene.OverlayFaces = (open == this.tabSideMesh) ? this.MeshEditFaceFill() : null;

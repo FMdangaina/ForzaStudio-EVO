@@ -87,8 +87,18 @@ it ("questa la vorrei rivedere") — what exactly is still to be asked.
 
 Third round checked by the user in the app 2026-11-16: crash, vertex dots, Attach strip, Save question all OK.
 
-RESUME HERE: the user tests A.3 in the app (below), then step B. Fill LOD0 preview is fine as it is (its database rows: later); Copy Part preview left for step C. Commit still to ask. Old note: A.3
-focus/responsiveness pass and test it before step B.
+RESUME HERE (2026-11-16 late): A.3 committed (8f6b3be). Step B part handles (Select/Move/Rotate/Scale buttons,
+Q/W/E/R, Scale centre triangle, no keyboard camera) OK in the app. MESH-tab handles (vertex/edge/face drag, only the
+open LOD) OK in the app (user tests 1-6 all OK). User then saw the view and tree get very slow / go wrong soon
+after editing: cause = a new XNA VertexDeclaration on every mesh draw and overlay pass, never released (harness
+fm4dev\ui\vdecl: 20000 kept 6 MB after GC); the handles redraw on every mouse move so it grew fast. Fixed: one
+declaration per device (ForzaMesh.DeclarationFor, RenderScene.ColorDeclaration), exe 22:21: user "va meglio".
+Then: on release the view and tree showed everything (default LOD0 view) and came back = the full reload. Fixed:
+RefreshMeshesInPlace (MeshGizmo.cs) gives the tree's meshes the file's new vertices/indices, no tree rebuild; also
+for undo/redo of steps labelled "Mesh: " (UndoRedo.cs); full reload only if parts/materials differ. Exe 22:24,
+USER RECHECK PENDING.
+Everything after 8f6b3be is uncommitted; ask before committing (docs/FM3/PI_AND_RATINGS.md belongs to another chat).
+Fill LOD0 preview is fine as it is (its database rows: later); Copy Part preview left for step C.
 
 ### UX direction after round 2
 
@@ -151,6 +161,39 @@ Coded 2026-11-16 (compiles; app test pending):
 
 Select parts from the tree or viewport. Use `W` for Move, `E` for Rotate and `R` for Scale, then drag X / Y / Z
 handles on the selected part (like 3ds Max). The number boxes stay for exact values; double-click or `Z` focuses.
+
+First cut coded 2026-11-16 (compiles; app test pending) - `ArchiveEditorForm.MoveGizmo.cs`:
+
+- Move only. With the PART tab open and a part or a material selected, three arrows start at its centre (X red,
+  Y green, Z blue, 90 px long at any zoom; the one under the pointer turns yellow). Dragging one with the left
+  button drives the Move box of that axis, so it is the same preview as typing: kept until Save, one Ctrl+Z step
+  per drag, LODs as "Also in lod0 and cockpit" says.
+- No W key yet: W / E are camera moves (W A S D / Q E) while the view has the focus. The arrows are simply there
+  when a part is selected. To decide with the user before Rotate (E) and Scale (R) are added.
+- A click on the car already selected the mesh under the pointer (`ArchiveEditorForm.ClickPick.cs`); new: a
+  double-click selects its whole part (`SelectPartAt`).
+
+Second cut 2026-11-16 (user: Move "sembra ok", wants Select / Move / Rotate / Scale buttons as in 3ds Max; built,
+app test pending):
+
+- Four buttons first in the view's bar (`AddGizmoToolButtons`), the choice kept as `Editor.Tool`. Select = no
+  handles; Move = arrows; Rotate = three rings around the pivot; Scale = three lines ending in a square (all three
+  axes with "Same scale on all axes"). No keys: Q / W / E / R are camera moves.
+- Rotate reads the angle where the pointer's ray meets the ring's plane; a ring seen edge-on is refused with a
+  status text. The three Rotate boxes are applied X, then Y, then Z, so with two of them non-zero a ring is not
+  exactly the axis the part turns around.
+- 2026-11-16 later: W A S D no longer move the camera (user rule; Q / E and the arrows stay). Scale has a centre
+  triangle that scales the three axes together (pointer right / up = larger). Built, app test pending.
+- 2026-11-16 later (user: "tutto ok, passa a vertici e facce"): Q W E R are the tools (no camera move from the
+  keyboard at all, user rule); every start is Select; icons on the four buttons.
+- The same handles on the MESH tab's selection (vertex, edge, face, polygon, element), `ArchiveEditorForm.MeshGizmo.cs`
+  + `CarbinModel.MoveVertices.cs`. USER RULE: these free edits change ONLY the LOD of the mesh. The handles start at
+  the centre of the selection; while dragging, the points and the red selection follow (preview only,
+  `ForzaMesh.PreviewVertices`); on release the move is written to the open model file, one Ctrl+Z step, and the
+  selection is put back. A point the other materials of the same LOD share (a seam) moves for all of them; a point
+  another LOD uses is copied first, so the other LODs stay. The PART tab keeps "Also in lod0 and cockpit".
+  Headless check `E:\DEV\fm4dev\ui\movevert\mv.exe <car.zip>`: NSX 35 meshes (LOD 1, lod0, cockpit), moved faces at
+  the right place, other LODs unchanged, file reads back: 35/35 OK. App test pending.
 
 ### C. Donor car next to this one
 

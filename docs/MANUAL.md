@@ -283,8 +283,7 @@ The toolbar has these controls (**Model > Export Checked Parts to OBJ...** write
 | Middle drag | Move the view |
 | Alt + middle drag | Turn the model |
 | Wheel | Zoom |
-| W A S D, Q E | Move |
-| Arrow keys | Look |
+| Q W E R | Select, Move, Rotate, Scale tools (the keyboard no longer moves the camera) |
 | 1 - 6 (or numpad) | Front, back, right, left, top, bottom view (orthographic; the tool bar switches orthographic off again) |
 
 **Red materials.** A material that no FM4 car uses is drawn red in the tree, and it may render

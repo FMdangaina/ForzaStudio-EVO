@@ -320,7 +320,15 @@ namespace ForzaStudio
                 {
                     this.editSection = null;
                     this.ClearFieldHistory();
-                    this.ReloadModelKeepingView();
+                    // a MESH-tab drag only moved vertices: no full reload, the view does not jump (MeshGizmo.cs)
+                    if (step.Label != null && step.Label.StartsWith(MeshStepPrefix, StringComparison.Ordinal) && this.RefreshMeshesInPlace())
+                    {
+                        this.ApplyTextures();
+                    }
+                    else
+                    {
+                        this.ReloadModelKeepingView();
+                    }
                 }
                 else
                 {

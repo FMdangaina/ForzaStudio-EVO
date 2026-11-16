@@ -341,6 +341,9 @@
     <Compile Include="ForzaStudio\ForzaZip.History.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.UndoRedo.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.PickMode.cs" />
+    <Compile Include="ForzaStudio\ArchiveEditorForm.MoveGizmo.cs" />
+    <Compile Include="ForzaStudio\ArchiveEditorForm.MeshGizmo.cs" />
+    <Compile Include="ForzaStudio\CarbinModel.MoveVertices.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.CarSources.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.AddFile.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.DashCopy.cs" />

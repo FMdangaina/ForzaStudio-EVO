@@ -134,8 +134,30 @@ namespace ForzaStudio
             return texture;
         }
 
+        // The overlays' vertex declaration, made once per device (a new one per draw was never released; see ForzaMesh).
+        private VertexDeclaration colorDeclaration;
+        private GraphicsDevice colorDeclarationDevice;
+
+        private VertexDeclaration ColorDeclaration
+        {
+            get
+            {
+                if (this.colorDeclaration == null || this.colorDeclarationDevice != this.Graphics || this.colorDeclaration.IsDisposed)
+                {
+                    this.colorDeclaration = new VertexDeclaration(this.Graphics, VertexPositionColor.VertexElements);
+                    this.colorDeclarationDevice = this.Graphics;
+                }
+                return this.colorDeclaration;
+            }
+        }
+
         public void Dispose()
         {
+            if (this.colorDeclaration != null)
+            {
+                this.colorDeclaration.Dispose();
+                this.colorDeclaration = null;
+            }
             this.ReleaseGpuTextures();
             if (this.env != null)
             {
@@ -326,7 +348,7 @@ namespace ForzaStudio
             foreach (EffectPass pass in this.ColoredVertices.CurrentTechnique.Passes)
             {
                 pass.Begin();
-                this.Graphics.VertexDeclaration = new VertexDeclaration(this.Graphics, VertexPositionColor.VertexElements);
+                this.Graphics.VertexDeclaration = this.ColorDeclaration;
                 this.Graphics.DrawUserPrimitives<VertexPositionColor>(PrimitiveType.TriangleList, vertexData, 0, vertexData.Length / 3);
                 pass.End();
             }
@@ -349,7 +371,7 @@ namespace ForzaStudio
             foreach (EffectPass pass in this.ColoredVertices.CurrentTechnique.Passes)
             {
                 pass.Begin();
-                this.Graphics.VertexDeclaration = new VertexDeclaration(this.Graphics, VertexPositionColor.VertexElements);
+                this.Graphics.VertexDeclaration = this.ColorDeclaration;
                 this.Graphics.DrawUserPrimitives<VertexPositionColor>(PrimitiveType.PointList, vertexData, 0, vertexData.Length);
                 pass.End();
             }
@@ -366,7 +388,7 @@ namespace ForzaStudio
             foreach (EffectPass pass in this.ColoredVertices.CurrentTechnique.Passes)
             {
                 pass.Begin();
-                this.Graphics.VertexDeclaration = new VertexDeclaration(this.Graphics, VertexPositionColor.VertexElements);
+                this.Graphics.VertexDeclaration = this.ColorDeclaration;
                 this.Graphics.DrawUserPrimitives<VertexPositionColor>(PrimitiveType.LineList, vertexData, 0, vertexData.Length / 2);
                 pass.End();
             }

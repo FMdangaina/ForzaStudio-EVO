@@ -33,6 +33,17 @@ namespace ForzaStudio
 
     public class ForzaMesh : IDisposable
     {
+        // One vertex declaration per device, made once. A new one on every draw was never released (XNA keeps a
+        // graphics resource alive until it is disposed): hundreds per redraw, so the editor slowed down and went
+        // wrong soon after editing, when the handles redraw on every mouse move.
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GraphicsDevice, VertexDeclaration> declarations =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<GraphicsDevice, VertexDeclaration>();
+
+        private static VertexDeclaration DeclarationFor(GraphicsDevice device)
+        {
+            return declarations.GetValue(device, d => new VertexDeclaration(d, ForzaVertex.VertexElements));
+        }
+
         public int[] Indices;
         public string MaterialName;
         public string Technique;   // shader technique the game runs it with (cockpit files add cockpit_), null = MaterialName
@@ -66,6 +77,8 @@ namespace ForzaStudio
         // Live preview of a pending part edit: drawn with this extra world transform, tinted when
         // highlighted. The vertices themselves are untouched until the edit is applied.
         public Matrix PreviewTransform = Matrix.Identity;
+        public int[] PreviewVertices;                       // MESH tab drag: the points that move (indices into Vertices)
+        public Matrix PreviewVertexMatrix = Matrix.Identity;
         public bool Highlight;
         public System.Collections.Generic.Dictionary<string, float[]> Settings;   // the car's shadersettings.xml values for this mesh's technique (ShaderLook.Apply)
         public bool Unused;       // no FM4 model of this kind and LOD uses the material (Fm4MaterialUse): drawn magenta
@@ -106,7 +119,16 @@ namespace ForzaStudio
                 this.displayUvScale = this.UvScale;
             }
             ForzaVertex[] vertices = this.displayVertices;
-            device.VertexDeclaration = new VertexDeclaration(device, ForzaVertex.VertexElements);
+            if (this.PreviewVertices != null && this.PreviewVertices.Length > 0)
+            {
+                // a sub-object drag in the MESH tab: only these points follow the handle until the button is released
+                vertices = (ForzaVertex[]) vertices.Clone();
+                foreach (int i in this.PreviewVertices)
+                {
+                    vertices[i].position = Vector3.Transform(vertices[i].position, this.PreviewVertexMatrix);
+                }
+            }
+            device.VertexDeclaration = DeclarationFor(device);
             device.DrawUserIndexedPrimitives<ForzaVertex>(PrimitiveType.TriangleList, vertices, 0, vertices.Length, this.Indices, 0, this.FaceCount);
         }
 

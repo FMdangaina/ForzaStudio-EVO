@@ -97,6 +97,7 @@ namespace ForzaStudio
             this.fovHost.ToolTipText = "Field of view (perspective only): photo mode 45, bumper 53, chase 54, cockpit 62, hood 66. The wheel moves the camera, it does not change this.";
             this.lblCameraFov = new ToolStripLabel();
             this.lblCameraFov.ForeColor = SystemColors.GrayText;
+            this.AddGizmoToolButtons(toolbar);      // Select / Move / Rotate / Scale, as in 3ds Max
             toolbar.Items.Add(this.btnWireframe);
             toolbar.Items.Add(this.btnTextures);
             toolbar.Items.Add(this.cmbCameraSpeed);
@@ -122,12 +123,36 @@ namespace ForzaStudio
                 this.clickDown = e.Location;
                 if (e.Button == MouseButtons.Left && this.MeshEditActive)
                 {
-                    this.MeshEditMouseDown(e);
+                    if (!this.GizmoMouseDown(e))     // a handle on the selection takes the click first
+                    {
+                        this.MeshEditMouseDown(e);
+                    }
+                }
+                else if (e.Button == MouseButtons.Left)
+                {
+                    this.GizmoMouseDown(e);     // a Move arrow under the pointer: the drag moves the part
+                }
+            };
+            this.pnlViewport.MouseDoubleClick += delegate(object sender, MouseEventArgs e)
+            {
+                if (e.Button == MouseButtons.Left && !this.MeshEditActive && this.gizmoDrag < 0)
+                {
+                    this.SelectPartAt(e.Location);
+                    this.skipClickSelect = true;    // the button's release must not select the mesh again
                 }
             };
             this.pnlViewport.MouseUp += delegate(object sender, MouseEventArgs e)
             {
-                if (e.Button == MouseButtons.Left && this.MeshEditActive)
+                bool skip = this.skipClickSelect;
+                this.skipClickSelect = false;
+                if (e.Button == MouseButtons.Left && this.gizmoDrag >= 0)
+                {
+                    this.GizmoMouseUp();
+                }
+                else if (e.Button == MouseButtons.Left && skip)
+                {
+                }
+                else if (e.Button == MouseButtons.Left && this.MeshEditActive)
                 {
                     this.MeshEditMouseUp(e);
                 }
@@ -177,7 +202,7 @@ namespace ForzaStudio
             help.Dock = DockStyle.Bottom;
             help.Height = 18;
             help.ForeColor = SystemColors.GrayText;
-            help.Text = "  Middle drag: move the view   Alt + middle drag: turn the model   Wheel: zoom   W A S D / Q E: move   Arrows: look   1-6: front, back, right, left, top, bottom";
+            help.Text = "  Middle drag: move the view   Alt + middle drag: turn the model   Wheel: zoom   Q W E R: select, move, rotate, scale   1-6: front, back, right, left, top, bottom";
 
             modelSplit.Panel2.Controls.Add(this.pnlViewport);
             modelSplit.Panel2.Controls.Add(this.BuildPickBanner());   // docked after the side panel: viewport width only
@@ -302,6 +327,7 @@ namespace ForzaStudio
         // With a model open the archive tree (the zip's file list) is hidden: the model tree and the view get the room.
         // The "Files" button of the view's bar brings it back; its state is kept (ForzaStudio.ini [Editor]
         // ArchiveTreeWithModel) so whoever wants the list always there ticks it once.
+        private bool skipClickSelect;
         private ToolStripButton btnArchiveTree;
         private bool syncingArchiveTree;
 
@@ -458,8 +484,17 @@ namespace ForzaStudio
             {
                 this.MeshEditHover(e);
             }
+            if (this.scene != null && e.Button == MouseButtons.None)
+            {
+                this.GizmoHover(e.Location);
+            }
             if (this.scene == null || e.Button == MouseButtons.None)
             {
+                return;
+            }
+            if (e.Button == MouseButtons.Left && this.gizmoDrag >= 0)
+            {
+                this.GizmoMouseMove(e);
                 return;
             }
             float dx = e.X - this.lastMouse.X;
@@ -499,24 +534,12 @@ namespace ForzaStudio
             {
                 Camera camera = this.scene.Camera;
                 camera.SpeedScale = ((ComboBoxItem<float>) this.cmbCameraSpeed.SelectedItem).Value;
-                // Ctrl / Alt held = a shortcut (Ctrl+D, Alt+A...), not a camera move.
-                if (this.pnlViewport.Focused && Form.ActiveForm == this && (Control.ModifierKeys & (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Alt)) == 0)
-                {
-                    KeyboardState keys = Keyboard.GetState();
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.W)) camera.ApplyForce(camera.ForwardDirection);
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.S)) camera.ApplyForce(-camera.ForwardDirection);
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.A)) camera.ApplyForce(-camera.HorizontalDirection);
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.D)) camera.ApplyForce(camera.HorizontalDirection);
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Q)) camera.ApplyForce(new Vector3(0f, -1f, 0f));
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.E)) camera.ApplyForce(new Vector3(0f, 1f, 0f));
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Up)) camera.ApplyLookForce(new Vector2(0f, 0.1f));
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Down)) camera.ApplyLookForce(new Vector2(0f, -0.1f));
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Left)) camera.ApplyLookForce(new Vector2(-0.1f, 0f));
-                    if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Right)) camera.ApplyLookForce(new Vector2(0.1f, 0f));
-                }
+                // No camera move from the keyboard (user 2026-11-16: "niente movimenti da tasti"): the mouse moves the
+                // view, Q / W / E / R are the Select / Move / Rotate / Scale tools as in 3ds Max (HandleGizmoKey).
                 // one redraw per tick at most, however many preview changes asked for it (docs/UI_WORKFLOW.md A.3)
                 bool redraw = this.viewRedrawWanted;
                 this.viewRedrawWanted = false;
+                redraw |= this.RefreshGizmo();      // the Move arrows follow the part and the zoom
                 this.scene.Update(redraw);
                 // The wheel zooms by changing the FOV; show where it is.
                 this.SyncViewButtons();
