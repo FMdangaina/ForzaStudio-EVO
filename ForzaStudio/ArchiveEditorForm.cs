@@ -336,6 +336,7 @@
             this.menu.Items.Add(help);
             this.mnuBackBar = new ToolStripMenuItem("◀ Back", null, delegate { this.GoBack(); });
             this.menu.Items.Add(this.mnuBackBar);
+            this.AddUndoRedoBar();
             this.AddBrand();
         }
 
@@ -918,6 +919,7 @@
 
         private bool ConfirmDiscard()
         {
+            this.CommitPartEdit(PartReload.None);   // a part move in preview counts as a change to save
             if (!this.ConfirmXmlEdits())
             {
                 return false;
@@ -1066,15 +1068,33 @@
                 MessageBox.Show(this, OriginalPackageNote, "Save", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return false;
             }
-            ModCar mod = saveAs ? null : ModCarOf((this.zip != null) ? this.zip.FilePath : null);
-            bool changed = this.zip != null && (this.zip.IsModified || this.xmlDirty);
-            if (!this.SaveArchiveCore(saveAs))
+            // a changed game car: mod pack or the game's own file, asked at its first Save
+            string redirect = null;
+            if (!saveAs && !this.ChooseSaveTarget(out redirect))
             {
                 return false;
             }
+            ModCar mod = saveAs ? null : ModCarOf(redirect ?? ((this.zip != null) ? this.zip.FilePath : null));
+            bool changed = this.zip != null && (this.zip.IsModified || this.xmlDirty);
+            this.saveRedirect = redirect;
+            try
+            {
+                if (!this.SaveArchiveCore(saveAs))
+                {
+                    return false;
+                }
+            }
+            finally
+            {
+                this.saveRedirect = null;
+            }
             if (mod != null && this.zip != null)
             {
-                return (!changed && !mod.Pending) || this.WriteModPack(mod);
+                if (!changed && !mod.Pending)
+                {
+                    return true;
+                }
+                return SavesOverGame(mod, this.zip.FilePath) ? this.OverwriteGameCar(mod) : this.WriteModPack(mod);
             }
             return !this.packagePending || this.zip == null || !this.InPackage(this.zip.FilePath) || this.RebuildPackage();
         }
@@ -1085,6 +1105,7 @@
             {
                 return false;
             }
+            this.CommitPartEdit(PartReload.Now);   // a part move still in preview is saved too
             if (!this.ApplyXml(false))
             {
                 return false;
@@ -1098,7 +1119,7 @@
                 this.SetStatus("Nothing to save.");
                 return true;
             }
-            string path = this.zip.FilePath;
+            string path = (!saveAs && this.saveRedirect != null) ? this.saveRedirect : this.zip.FilePath;
             if (saveAs)
             {
                 using (SaveFileDialog dialog = new SaveFileDialog())
@@ -1293,6 +1314,12 @@
 
         private void ShowEntry(ForzaZip.Entry entry)
         {
+            // A part move still in preview is written before the view changes (it belongs to the file shown now).
+            this.CommitPartEdit(PartReload.None);
+            if (entry != this.currentEntry)
+            {
+                this.ExitPickMode(null);   // Attach / Merge work in the file they started in
+            }
             this.currentEntry = entry;
             string extension = Path.GetExtension(entry.Name).ToLowerInvariant();
             if (this.zip.IsFolder && IsArchive(entry.Name))
@@ -1406,6 +1433,7 @@
             {
                 this.modelTimer.Stop();
             }
+            this.ArchiveTreeFollowView(view == this.pnlModel);
         }
 
         #endregion

@@ -90,3 +90,6 @@ tools/Fm4Cars/*.ini
 
 # Release zips
 dist/
+
+# Screens of the editor itself for the docs (off-screen renders, no game image)
+!docs/img/*.png

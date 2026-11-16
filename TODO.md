@@ -496,6 +496,10 @@ Both points wait for a proper release (user 2026-10-28), not before.
 
 - [ ] 15.1 Conversion tool as MDI (child windows inside the main window)
 - [ ] 15.2 Recent .NET Framework: since 2026-11-01 (bbc56ae) the project targets **.NET Framework 4.8**, x86, with XNA 3.1 (loaded through `useLegacyV2RuntimeActivationPolicy` in app.config); check SQLite, HexBox. Last, it touches everything
+- [ ] 15.3 🔧 Editor workflow (user 2026-11-16: "le interfacce sono veramente difficili da usare... workflow macchinoso e poco
+      efficiente"). Plan and state: `docs/UI_WORKFLOW.md`, steps A-E, one at a time, each checked by the user in the app:
+      A no confirmations / previews where Undo exists + 3ds Max shortcuts + pick banner; B move / scale handles in the
+      viewport; C donor car shown next to this one, drag a part across; D materials and textures; E top menus become buttons.
 
 ### 16. Documentation and community 🔧
 

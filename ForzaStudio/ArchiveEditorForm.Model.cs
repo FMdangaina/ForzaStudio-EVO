@@ -45,6 +45,11 @@ namespace ForzaStudio
             this.tvModel.AfterCheck += new TreeViewEventHandler(this.tvModel_AfterCheck);
             modelSplit.Panel1.Controls.Add(this.tvModel);
             this.AddStockOnlyButton(modelSplit.Panel1);
+            // "Files" over the model tree (user 2026-11-16): docked after the tree, so it takes the top strip
+            ToolStrip treeBar = new ToolStrip();
+            treeBar.GripStyle = ToolStripGripStyle.Hidden;
+            treeBar.Items.Add(this.BuildArchiveTreeButton());
+            modelSplit.Panel1.Controls.Add(treeBar);
 
             ToolStrip toolbar = new ToolStrip();
             toolbar.GripStyle = ToolStripGripStyle.Hidden;
@@ -175,6 +180,7 @@ namespace ForzaStudio
             help.Text = "  Middle drag: move the view   Alt + middle drag: turn the model   Wheel: zoom   W A S D / Q E: move   Arrows: look   1-6: front, back, right, left, top, bottom";
 
             modelSplit.Panel2.Controls.Add(this.pnlViewport);
+            modelSplit.Panel2.Controls.Add(this.BuildPickBanner());   // docked after the side panel: viewport width only
             modelSplit.Panel2.Controls.Add(this.BuildMeshInfoPanel());
             modelSplit.Panel2.Controls.Add(help);
             modelSplit.Panel2.Controls.Add(this.BuildToolsStrip());
@@ -292,6 +298,49 @@ namespace ForzaStudio
             this.modelTimer.Start();
         }
 
+        // ---- focus workspace (docs/UI_WORKFLOW.md A.3) ----
+        // With a model open the archive tree (the zip's file list) is hidden: the model tree and the view get the room.
+        // The "Files" button of the view's bar brings it back; its state is kept (ForzaStudio.ini [Editor]
+        // ArchiveTreeWithModel) so whoever wants the list always there ticks it once.
+        private ToolStripButton btnArchiveTree;
+        private bool syncingArchiveTree;
+
+        private ToolStripButton BuildArchiveTreeButton()
+        {
+            this.btnArchiveTree = new ToolStripButton("Files");
+            this.btnArchiveTree.CheckOnClick = true;
+            this.btnArchiveTree.ToolTipText = "Show / hide the archive's file list on the left. Hidden by itself when a model opens.";
+            this.btnArchiveTree.CheckedChanged += delegate
+            {
+                if (this.syncingArchiveTree)
+                {
+                    return;
+                }
+                AppSettings.Set("Editor.ArchiveTreeWithModel", this.btnArchiveTree.Checked ? "1" : "0");
+                this.ArchiveTreeFollowView(true);
+            };
+            return this.btnArchiveTree;
+        }
+
+        private void ArchiveTreeFollowView(bool model)
+        {
+            if (this.split == null)
+            {
+                return;
+            }
+            bool show = !model || AppSettings.Get("Editor.ArchiveTreeWithModel", "0") == "1";
+            if (this.split.Panel1Collapsed == show)
+            {
+                this.split.Panel1Collapsed = !show;
+            }
+            if (this.btnArchiveTree != null && this.btnArchiveTree.Checked != show)
+            {
+                this.syncingArchiveTree = true;
+                this.btnArchiveTree.Checked = show;
+                this.syncingArchiveTree = false;
+            }
+        }
+
         private static TreeNode GetChild(TreeNodeCollection nodes, string name)
         {
             TreeNode node = nodes[name];
@@ -305,6 +354,7 @@ namespace ForzaStudio
         private void ClearModel()
         {
             this.modelTimer.Stop();
+            this.previewPart = null;
             this.ResetGameLod();
             this.MeshEditReset();
             foreach (ForzaMesh mesh in GetMeshes(this.tvModel.Nodes, false))
@@ -449,7 +499,8 @@ namespace ForzaStudio
             {
                 Camera camera = this.scene.Camera;
                 camera.SpeedScale = ((ComboBoxItem<float>) this.cmbCameraSpeed.SelectedItem).Value;
-                if (this.pnlViewport.Focused && Form.ActiveForm == this)
+                // Ctrl / Alt held = a shortcut (Ctrl+D, Alt+A...), not a camera move.
+                if (this.pnlViewport.Focused && Form.ActiveForm == this && (Control.ModifierKeys & (System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Alt)) == 0)
                 {
                     KeyboardState keys = Keyboard.GetState();
                     if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.W)) camera.ApplyForce(camera.ForwardDirection);
@@ -463,7 +514,10 @@ namespace ForzaStudio
                     if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Left)) camera.ApplyLookForce(new Vector2(-0.1f, 0f));
                     if (keys.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Right)) camera.ApplyLookForce(new Vector2(0.1f, 0f));
                 }
-                this.scene.Update(false);
+                // one redraw per tick at most, however many preview changes asked for it (docs/UI_WORKFLOW.md A.3)
+                bool redraw = this.viewRedrawWanted;
+                this.viewRedrawWanted = false;
+                this.scene.Update(redraw);
                 // The wheel zooms by changing the FOV; show where it is.
                 this.SyncViewButtons();
                 string fov = camera.Orthographic ? string.Format("{0:0.##} m high", camera.OrthoHeight) : string.Format("{0:0.#}\u00B0", camera.FieldOfViewDegrees);

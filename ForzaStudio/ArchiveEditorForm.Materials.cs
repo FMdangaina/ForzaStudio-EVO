@@ -48,6 +48,7 @@ namespace ForzaStudio
         private const int SideWidth = 236;
         private TabControl tabSide;
         private TabPage tabSideCamera;
+        private TabPage tabSidePart;   // part keys (Alt+A, Ctrl+D, Del...) only while it is open
         private TabPage tabSideCollision;
         private TabPage tabSideExhaust;
         private TabPage tabSideDriver;
@@ -63,6 +64,7 @@ namespace ForzaStudio
             host.Width = 296;
             this.tabSide = new TabControl();
             FlowLayoutPanel part = this.AddSideTab("Part");
+            this.tabSidePart = (TabPage) part.Parent;
             FlowLayoutPanel textures = this.AddSideTab("Texture");
             // SHADER next to TEXTURE (ArchiveEditorForm.ShaderTab.cs). Added in place: TabPages.Insert does
             // nothing before the control has its handle, so the pages are only ever added in order.
@@ -127,9 +129,11 @@ namespace ForzaStudio
                 this.ApplyTextures();
             };
 
-            part.Controls.Add(SideHeading("Selected", true));
-            part.Controls.Add(this.lblMeshInfo);
+            // The selection info goes at the bottom, the actions first (user 2026-11-16: "le info meglio al fondo").
             this.AddPartEditControls(part);
+            part.Controls.Add(SideHeading("Selected", false));
+            part.Controls.Add(this.lblMeshInfo);
+            MakeCollapsible(part, "IMPORT / EXPORT PART");
 
             textures.Controls.Add(SideHeading("Preview texture", true));
             textures.Controls.Add(this.cmbMeshTexture);
@@ -271,14 +275,19 @@ namespace ForzaStudio
             this.UpdateGaugePreview(open == this.tabSideGauges);
             this.scene.Overlay = (lines != null && lines.Count >= 2) ? lines.ToArray() : null;
             this.scene.OverlayFaces = (open == this.tabSideMesh) ? this.MeshEditFaceFill() : null;
+            this.scene.OverlayPoints = (open == this.tabSideMesh) ? this.MeshEditVertexDots(false) : null;
+            this.scene.OverlayPointsOnTop = (open == this.tabSideMesh) ? this.MeshEditVertexDots(true) : null;
             this.scene.Update(true);
         }
 
         // Side panel pieces: a red section heading, a small caption over a control, a grey note that
         // grows with its text, a full-width button and a row of equal buttons.
+        private const string SideHeadingName = "sideHeading";
+
         private static Label SideHeading(string text, bool first)
         {
             Label label = new Label();
+            label.Name = SideHeadingName;
             label.Text = text.ToUpperInvariant();
             label.AutoSize = false;
             label.Size = new Size(SideWidth, 22);

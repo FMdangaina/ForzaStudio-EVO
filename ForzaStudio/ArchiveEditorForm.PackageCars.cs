@@ -366,6 +366,190 @@ namespace ForzaStudio
             }
         }
 
+        // ---- Save of a game car: mod pack or the game's own file (user 2026-11-16) ----
+        // The first Save of a changed game car asks where it goes; the answer holds for that car until the editor closes.
+        // Asked for a car of the game itself (DVD1 Media\cars\<car>.zip), opened from the database (a copy) or as the
+        // zip itself. Not asked for a car of an original DLC (never written: mod pack only), nor for a copy that
+        // carries its database (File > Database of This Car: those rows only travel in a mod pack).
+
+        private enum SaveTarget { ModPack, Overwrite }
+
+        private static readonly Dictionary<string, SaveTarget> saveTargets = new Dictionary<string, SaveTarget>(StringComparer.OrdinalIgnoreCase);
+        private string saveRedirect;    // SaveArchiveCore writes here instead of the open zip's path (the game's zip becomes a copy)
+
+        private static bool SavesOverGame(ModCar mod, string zipPath)
+        {
+            SaveTarget target;
+            return mod != null && mod.PackageFile == null && zipPath != null && saveTargets.TryGetValue(Path.GetFullPath(zipPath), out target) && target == SaveTarget.Overwrite;
+        }
+
+        // False: cancelled. redirect: where this Save writes when the game's zip is open and a mod pack was chosen.
+        private bool ChooseSaveTarget(out string redirect)
+        {
+            redirect = null;
+            if (this.zip == null || this.zip.IsFolder || string.IsNullOrEmpty(this.zip.FilePath))
+            {
+                return true;
+            }
+            this.CommitPartEdit(PartReload.Now);
+            string path = Path.GetFullPath(this.zip.FilePath);
+            bool changed = this.zip.IsModified || this.xmlDirty;
+            ModCar mod = ModCarOf(path);
+            if (saveTargets.ContainsKey(path) || (!changed && (mod == null || !mod.Pending)))
+            {
+                return true;
+            }
+            try
+            {
+                if (mod != null)
+                {
+                    // a copy of a game car: Save wrote a mod pack without asking
+                    string gameZip = (mod.PackageFile == null) ? GamePaths.FindCar(mod.Root, mod.Media) : null;
+                    if (gameZip == null || !File.Exists(gameZip) || this.zip.Find(ModCarDb.EntryName) != null)
+                    {
+                        return true;
+                    }
+                    SaveTarget? answer = this.AskSaveTarget(mod.Media, gameZip, ModPack.Find(mod.Content, mod.Media) != null);
+                    if (answer == null)
+                    {
+                        return false;
+                    }
+                    saveTargets[path] = answer.Value;
+                    return true;
+                }
+                // the game's own car zip, opened as a file
+                string root = GamePaths.FindRoot(path);
+                string media = Path.GetFileNameWithoutExtension(path);
+                string car = GamePaths.FindCar(root, media);
+                if (car == null || !string.Equals(Path.GetFullPath(car), path, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                ForzaGame game = GameInfo.Detect(root);
+                string content = ModPackGame(game) ? InstalledDlc.ContentFolder(game) : null;
+                if (content == null)
+                {
+                    return true;    // no Xenia content folder set: only the game's file can be written
+                }
+                SaveTarget? choice = this.AskSaveTarget(media, path, ModPack.Find(content, media) != null);
+                if (choice == null)
+                {
+                    return false;
+                }
+                if (choice.Value == SaveTarget.Overwrite)
+                {
+                    saveTargets[path] = SaveTarget.Overwrite;
+                    return true;
+                }
+                // mod pack: this Save writes a copy (the game's zip stays as it is) and the copy writes the mod pack
+                string copy = Path.GetFullPath(Path.Combine(Path.Combine(PackageCarsRoot, "Game"), media + ".zip"));
+                Directory.CreateDirectory(Path.GetDirectoryName(copy));
+                ModCar made = new ModCar();
+                made.Content = content;
+                made.Media = media;
+                made.PackageTitle = "the game's own car (" + Path.GetFileName(path) + ")";
+                made.Root = root;
+                modCars[copy] = made;
+                packageCarRoots[copy] = root;
+                saveTargets[copy] = SaveTarget.ModPack;
+                redirect = copy;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Save", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return false;
+            }
+        }
+
+        private SaveTarget? AskSaveTarget(string media, string gameZip, bool modPackInstalled)
+        {
+            using (Form form = new Form())
+            {
+                form.Text = "Save " + media;
+                form.StartPosition = FormStartPosition.CenterParent;
+                form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                form.ShowInTaskbar = false;
+                form.MinimizeBox = false;
+                form.MaximizeBox = false;
+                form.Font = ForzaTheme.Regular;
+                form.ClientSize = new System.Drawing.Size(560, 236);
+                Label text = new Label();
+                text.Location = new System.Drawing.Point(16, 14);
+                text.Size = new System.Drawing.Size(528, 164);
+                text.Text = "Where does this car go?\r\n\r\n"
+                    + "MOD PACK - a package in Xenia that replaces the car in the game. The game's files are not touched; "
+                    + "uninstall the mod pack (File > Mod Packs) to get the original car back.\r\n\r\n"
+                    + "OVERWRITE - writes the game's file " + Path.GetFileName(gameZip) + " (the previous version goes in bak\\)."
+                    + (modPackInstalled ? "\r\n\r\nA mod pack of this car is installed: the game shows the mod pack, not the game's file. A new mod pack replaces it." : "")
+                    + "\r\n\r\nAsked once: the next saves of this car go the same way until the editor is closed.";
+                Button pack = new Button();
+                pack.Text = "Mod Pack";
+                pack.Size = new System.Drawing.Size(120, 28);
+                pack.Location = new System.Drawing.Point(16, 194);
+                pack.DialogResult = DialogResult.Yes;
+                Button over = new Button();
+                over.Text = "Overwrite";
+                over.Size = new System.Drawing.Size(120, 28);
+                over.Location = new System.Drawing.Point(146, 194);
+                over.DialogResult = DialogResult.No;
+                Button cancel = new Button();
+                cancel.Text = "Cancel";
+                cancel.Size = new System.Drawing.Size(84, 28);
+                cancel.Location = new System.Drawing.Point(460, 194);
+                cancel.DialogResult = DialogResult.Cancel;
+                form.Controls.Add(text);
+                form.Controls.Add(pack);
+                form.Controls.Add(over);
+                form.Controls.Add(cancel);
+                form.AcceptButton = pack;
+                form.CancelButton = cancel;
+                form.BackColor = ForzaTheme.Background;
+                ForzaTheme.Apply(form);
+                DialogResult result = form.ShowDialog(this);
+                return (result == DialogResult.Yes) ? SaveTarget.ModPack : (result == DialogResult.No) ? (SaveTarget?) SaveTarget.Overwrite : null;
+            }
+        }
+
+        // After a save of a game car's copy with Overwrite chosen: the copy goes over the game's own zip.
+        private bool OverwriteGameCar(ModCar car)
+        {
+            string gameZip = GamePaths.FindCar(car.Root, car.Media);
+            if (gameZip == null || !File.Exists(gameZip))
+            {
+                MessageBox.Show(this, "The game's file of " + car.Media + " was not found: nothing written.", "Save", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return false;
+            }
+            if (!XeniaGuard.Confirm(this, "Save", "the game's file " + Path.GetFileName(gameZip) + " (the copy of " + car.Media + " is already saved)"))
+            {
+                car.Pending = true;
+                this.SetStatus(car.Media + ": copy saved, the game's file NOT written yet (close the game in Xenia, then Save again).");
+                return false;
+            }
+            try
+            {
+                Cursor.Current = Cursors.WaitCursor;
+                string stamp = BackupStamp();
+                string backup = BackupFile(gameZip, Path.GetFileName(gameZip), stamp);
+                File.Copy(this.zip.FilePath, gameZip, true);
+                bool manifest = this.UpdateZipManifest(gameZip, stamp);
+                car.Pending = false;
+                this.SetStatus(string.Format("{0}: saved over the game's file {1}{2}{3}. No mod pack written.", car.Media, gameZip,
+                    (backup != null) ? " (previous version: bak\\" + Path.GetFileName(backup) + ")" : "", manifest ? ", zipmanifest.xml updated" : ""));
+                return true;
+            }
+            catch (Exception exception)
+            {
+                car.Pending = true;
+                MessageBox.Show(this, "The copy is saved but the game's file was not written:\n\n" + exception.Message, "Save", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return false;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+        }
+
         // File > Database of This Car (user 2026-11-11): the database of the car copy open (a game or original DLC car whose
         // Save writes a mod pack). A copy of the game's database (+ the original package's merge + the car's mod pack merge)
         // kept in the car copy zip as ModCarDb.EntryName; edits are saved with the car, and Save puts every row of the car
@@ -489,7 +673,7 @@ namespace ForzaStudio
             this.NavigateFrom(delegate
             {
                 this.OpenArchive(opened);
-                this.SetStatus(string.Format("{0}: a copy of {1}. Save writes a mod pack in Xenia (priority {2}); the game's files are never written. Its database rows: File > Database of This Car.",
+                this.SetStatus(string.Format("{0}: a copy of {1}. Save asks once: a mod pack in Xenia (priority {2}; the game's files are not written) or the game's own file. Its database rows: File > Database of This Car.",
                     media, from, ModPack.Priority));
             });
             return true;

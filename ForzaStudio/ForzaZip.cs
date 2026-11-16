@@ -12,7 +12,7 @@ namespace ForzaStudio
     //
     // It can also wrap a plain folder (the game disc with uncompressed car folders): the entries are
     // the files below it, named by relative path, and saving writes back only the replaced files.
-    public class ForzaZip
+    public partial class ForzaZip
     {
         public const int MethodStored = 0;
         public const int MethodDeflate = 8;
@@ -241,6 +241,10 @@ namespace ForzaStudio
 
         public byte[] Read(Entry entry)
         {
+            if (this.BeforeRead != null)
+            {
+                this.BeforeRead(entry);   // the editor writes a part move still in preview first
+            }
             if (entry.Replacement != null)
             {
                 return entry.Replacement;
@@ -295,6 +299,7 @@ namespace ForzaStudio
                     byte[] followed = CarbinModel.FollowSplit(this.Read(settings), name, renamed);
                     if (followed != null)
                     {
+                        this.Record(settings);
                         settings.deleted = false;
                         settings.Replacement = followed;
                     }
@@ -320,6 +325,7 @@ namespace ForzaStudio
 
         public void Replace(Entry entry, byte[] data)
         {
+            this.Record(entry);
             data = this.ForGame(entry.Name, data);   // every carbin written: glass draw pass + part flag right, long meshes split
             entry.deleted = false;
             entry.Replacement = data;
@@ -329,6 +335,7 @@ namespace ForzaStudio
         // without it (a zip) or removes the file (a folder; RemoveDeleted). A file added and not saved just goes.
         public void MarkDeleted(Entry entry)
         {
+            this.Record(entry);
             if (entry.IsNew)
             {
                 this.Entries.Remove(entry);
@@ -360,6 +367,7 @@ namespace ForzaStudio
 
         public void Remove(Entry entry)
         {
+            this.Record(entry);
             this.Entries.Remove(entry);
         }
 
@@ -375,6 +383,7 @@ namespace ForzaStudio
             {
                 throw new ArgumentException("The archive already has " + name + ".");
             }
+            this.Record(entry);
             byte[] bytes = System.Text.Encoding.UTF8.GetBytes(name);
             entry.LocalHeader = Respell(entry.LocalHeader, 30, 26, bytes);
             entry.CentralRecord = Respell(entry.CentralRecord, 46, 28, bytes);
@@ -396,11 +405,13 @@ namespace ForzaStudio
         // Takes the deletion mark off (a replaced file keeps its replacement).
         public void Undelete(Entry entry)
         {
+            this.Record(entry);
             entry.deleted = false;
         }
 
         public void Revert(Entry entry)
         {
+            this.Record(entry);
             entry.Replacement = null;
             entry.deleted = false;
             if (entry.IsNew)
@@ -438,6 +449,7 @@ namespace ForzaStudio
                 entry.LocalHeader = BuildLocalHeader(template, name, entry.Method);
                 entry.CentralRecord = BuildCentralRecord(template, name, entry.Method);
             }
+            this.Record(entry, true);
             this.Entries.Insert(this.InsertPosition(name), entry);
             return entry;
         }
@@ -577,6 +589,7 @@ namespace ForzaStudio
         // Folder mode: writes every replaced file (through a temporary file) and returns them.
         public List<Entry> SaveFolder()
         {
+            this.ClearHistory();
             List<Entry> saved = this.ModifiedEntries;
             saved.RemoveAll(delegate(Entry entry) { return entry.deleted; });
             foreach (Entry entry in saved)
@@ -598,6 +611,7 @@ namespace ForzaStudio
         // and leave the archive. Returns them.
         public List<Entry> RemoveDeleted(Action<string> deleteFile)
         {
+            this.ClearHistory();
             List<Entry> gone = this.Entries.FindAll(delegate(Entry entry) { return entry.deleted; });
             foreach (Entry entry in gone)
             {
@@ -617,6 +631,7 @@ namespace ForzaStudio
             {
                 throw new InvalidOperationException("Use SaveFolder for a folder.");
             }
+            this.ClearHistory();
             string temp = path + ".tmp";
             using (Stream source = OpenRead(this.FilePath))
             using (FileStream file = new FileStream(temp, FileMode.Create, FileAccess.Write))

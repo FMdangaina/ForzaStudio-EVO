@@ -36,6 +36,8 @@ namespace ForzaStudio
         private readonly Set<long> faceSelection = new Set<long>();
         private List<VertexPositionColor> faceLines;     // the selected faces' edges, rebuilt when the selection changes
         private List<VertexPositionColor> faceFill;      // the selected faces as red translucent triangles, rebuilt with faceLines
+        private VertexPositionColor[] vertexDots;            // Vertex level: every point, rebuilt with faceLines
+        private VertexPositionColor[] vertexDotsSelected;    // Vertex level: the selected points
         private readonly SelectionRegion region = new SelectionRegion();
         private bool faceDragging;
 
@@ -61,9 +63,10 @@ namespace ForzaStudio
             this.chkFrontFaces.Size = new Size(SideWidth, 22);
 
             side.Controls.Add(SideHeading("Faces", true));
+            side.Controls.Add(this.BuildMeshToolStrip());
             side.Controls.Add(this.lblFaceSelection);
             side.Controls.Add(this.chkFrontFaces);
-            side.Controls.Add(SideNote("The tools (select all / none / linked, delete, detach, UV mapper) are in the tool bar above the view, with their keys in the hints. Click: pick a face. Ctrl (or Shift): add. Alt: remove (as in 3ds Max). Drag: the region chosen in the tool bar (rectangle, circle, fence, lasso or brush; same keys; Esc cancels, a fence closes with a double click or Enter). Middle drag: move the view, Alt + middle drag: turn it, wheel: zoom. Delete and Detach touch only the LOD of the mesh the faces are in; pending until File > Save."));
+            side.Controls.Add(SideNote("Tools above: vertex / edge / face / polygon / element, selection region, select all / none / linked, delete, detach (keys in their hints; the UV Mapper stays in the bar over the view). Click: pick a face. Ctrl (or Shift): add. Alt: remove (as in 3ds Max). Drag: the region chosen in the tool bar (rectangle, circle, fence, lasso or brush; same keys; Esc cancels, a fence closes with a double click or Enter). Middle drag: move the view, Alt + middle drag: turn it, wheel: zoom. Delete and Detach touch only the LOD of the mesh the faces are in; pending until File > Save."));
             SubObject.LevelChanged += this.SubLevelChanged;
             this.Disposed += delegate { SubObject.LevelChanged -= this.SubLevelChanged; };
             this.UpdateFaceSelectionLabel();
@@ -887,6 +890,57 @@ namespace ForzaStudio
             }
         }
 
+        // Vertex level: a dot on every point of the checked meshes (blue), the selected ones red, larger and always
+        // on top, as 3ds Max shows them (user 2026-11-16).
+        private void BuildVertexDots(Microsoft.Xna.Framework.Graphics.Color red)
+        {
+            if (!this.EnsurePickData())
+            {
+                return;
+            }
+            Microsoft.Xna.Framework.Graphics.Color blue = new Microsoft.Xna.Framework.Graphics.Color(70, 130, 255, 255);
+            List<VertexPositionColor> all = new List<VertexPositionColor>();
+            List<VertexPositionColor> selected = new List<VertexPositionColor>();
+            foreach (PickMesh mesh in this.pickMeshes)
+            {
+                int[] group = this.GroupsOf(mesh);
+                Dictionary<int, bool> done = new Dictionary<int, bool>();
+                foreach (int[] t in mesh.Triangles)
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        int a = group[t[i]];
+                        if (done.ContainsKey(a))
+                        {
+                            continue;
+                        }
+                        done[a] = true;
+                        Vector3 p = PointOf(mesh.Positions, t[i]);
+                        if (this.vertexSelection.Contains(FaceKey(mesh.Section, mesh.Sub, a)))
+                        {
+                            selected.Add(new VertexPositionColor(p, red));
+                        }
+                        else
+                        {
+                            all.Add(new VertexPositionColor(p, blue));
+                        }
+                    }
+                }
+            }
+            this.vertexDots = all.ToArray();
+            this.vertexDotsSelected = selected.ToArray();
+        }
+
+        // The dots of the Vertex level, made with MeshEditOverlayLines (call it first).
+        private VertexPositionColor[] MeshEditVertexDots(bool selected)
+        {
+            if (SubObject.CurrentLevel != SubLevel.Vertex || this.faceLines == null)
+            {
+                return null;
+            }
+            return selected ? this.vertexDotsSelected : this.vertexDots;
+        }
+
         // The selected faces filled red (Face, Polygon, Element), made with MeshEditOverlayLines.
         private VertexPositionColor[] MeshEditFaceFill()
         {
@@ -900,11 +954,18 @@ namespace ForzaStudio
             Microsoft.Xna.Framework.Graphics.Color red = new Microsoft.Xna.Framework.Graphics.Color(240, 30, 30, 255);     // as 3ds Max shows a selection
             if (this.faceLines == null)
             {
-                this.faceLines = new List<VertexPositionColor>();
-                this.faceFill = new List<VertexPositionColor>();
-                if (!SubObject.SelectsFaces(SubObject.CurrentLevel))
+                // built in local lists: EnsurePickData() clears this.faceLines when the checked meshes changed
+                List<VertexPositionColor> builtLines = new List<VertexPositionColor>();
+                List<VertexPositionColor> builtFill = new List<VertexPositionColor>();
+                this.vertexDots = null;
+                this.vertexDotsSelected = null;
+                if (SubObject.CurrentLevel == SubLevel.Vertex)
                 {
-                    this.AddSubObjectLines(this.faceLines, red);
+                    this.BuildVertexDots(red);
+                }
+                else if (!SubObject.SelectsFaces(SubObject.CurrentLevel))
+                {
+                    this.AddSubObjectLines(builtLines, red);
                 }
                 else if (this.faceSelection.Count > 0 && this.EnsurePickData())
                 {
@@ -925,17 +986,19 @@ namespace ForzaStudio
                         int[] t = mesh.Triangles[f];
                         Vector3 a = PointOf(mesh.Positions, t[0]), b = PointOf(mesh.Positions, t[1]), c = PointOf(mesh.Positions, t[2]);
                         Microsoft.Xna.Framework.Graphics.Color fill = new Microsoft.Xna.Framework.Graphics.Color(240, 30, 30, 110);
-                        this.faceFill.Add(new VertexPositionColor(a, fill));
-                        this.faceFill.Add(new VertexPositionColor(b, fill));
-                        this.faceFill.Add(new VertexPositionColor(c, fill));
-                        this.faceLines.Add(new VertexPositionColor(a, red));
-                        this.faceLines.Add(new VertexPositionColor(b, red));
-                        this.faceLines.Add(new VertexPositionColor(b, red));
-                        this.faceLines.Add(new VertexPositionColor(c, red));
-                        this.faceLines.Add(new VertexPositionColor(c, red));
-                        this.faceLines.Add(new VertexPositionColor(a, red));
+                        builtFill.Add(new VertexPositionColor(a, fill));
+                        builtFill.Add(new VertexPositionColor(b, fill));
+                        builtFill.Add(new VertexPositionColor(c, fill));
+                        builtLines.Add(new VertexPositionColor(a, red));
+                        builtLines.Add(new VertexPositionColor(b, red));
+                        builtLines.Add(new VertexPositionColor(b, red));
+                        builtLines.Add(new VertexPositionColor(c, red));
+                        builtLines.Add(new VertexPositionColor(c, red));
+                        builtLines.Add(new VertexPositionColor(a, red));
                     }
                 }
+                this.faceLines = builtLines;
+                this.faceFill = builtFill;
             }
             lines.AddRange(this.faceLines);
             if (this.region.Active && (this.region.Mode == RegionMode.Fence || !this.region.WasClick))

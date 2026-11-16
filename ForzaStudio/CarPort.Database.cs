@@ -207,6 +207,7 @@ namespace ForzaStudio
             }
             this.CopyReferences(from, to);
             this.PortMake(from, to);
+            this.PortPartLogos();
             if (this.motorsport3)
             {
                 this.FillMotorsport4Columns(from, to);
@@ -217,6 +218,111 @@ namespace ForzaStudio
             this.AddSwaps();
             this.GenericUpgrades();
             this.ReviewDatabase();
+        }
+
+        // Upgrade part makers of the ported car (PartLogos): the List_PartManufacturer row must exist in the target, and its
+        // logo pair in the target's UI\Textures.zip; a logo FM4 dropped (FM3 Cayenne's Edo Competition, decal122) is copied
+        // from the source game's Textures.zip, converted to FM4's form and size (PartLogos.Fm3ToFm4). A missing row or
+        // name is reported, not invented.
+        private void PortPartLogos()
+        {
+            if (!TableExists(this.target, "List_PartManufacturer"))
+            {
+                return;
+            }
+            List<long> makers = PartLogos.CarManufacturers(this.target, this.carId);
+            if (makers.Count == 0)
+            {
+                return;
+            }
+            string targetTextures = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "UI"), "Textures.zip");
+            string sourceTextures = Path.Combine(Path.Combine(Path.Combine(this.SourceRoot, "Media"), "UI"), "Textures.zip");
+            ForzaZip check;
+            try
+            {
+                check = new ForzaZip(this.In(targetTextures));
+            }
+            catch (IOException)
+            {
+                this.Line("  WARNING part logos: UI\\Textures.zip unreadable, not checked");
+                return;
+            }
+            ForzaZip sourceZip = null;
+            ForzaZip to2 = null;
+            List<string> copied = new List<string>();
+            List<string> missing = new List<string>();
+            foreach (long id in makers)
+            {
+                object[] row = FirstRow(this.target, "SELECT PartManufacturer, LogoPath FROM List_PartManufacturer WHERE Id = ?", id);
+                if (row == null)
+                {
+                    missing.Add(id.ToString(CultureInfo.InvariantCulture) + " (no List_PartManufacturer row)");
+                    continue;
+                }
+                string logo = (row[1] == null || row[1] is DBNull) ? null : (string) row[1];
+                if (string.IsNullOrEmpty(logo))
+                {
+                    continue;
+                }
+                foreach (string folder in PartLogos.Folders)
+                {
+                    string entryName = PartLogos.EntryName(folder, logo);
+                    if (check.Find(entryName) != null)
+                    {
+                        continue;
+                    }
+                    if (this.skipThumbnail)
+                    {
+                        missing.Add(entryName + " (Textures.zip in use)");
+                        continue;
+                    }
+                    if (sourceZip == null && File.Exists(sourceTextures))
+                    {
+                        sourceZip = new ForzaZip(sourceTextures);
+                    }
+                    ForzaZip.Entry source = (sourceZip != null) ? sourceZip.Find(entryName) : null;
+                    if (source == null)
+                    {
+                        missing.Add(entryName + " (not in the source game either)");
+                        continue;
+                    }
+                    if (to2 == null)
+                    {
+                        to2 = this.OpenChanged(targetTextures);
+                    }
+                    // Size of the target game's logos in this folder (its first one).
+                    ForzaZip.Entry reference = to2.Find(PartLogos.EntryName(folder, "decal001"));
+                    XdsTexture size = new XdsTexture(to2.Read(reference ?? source));
+                    byte[] data = sourceZip.Read(source);
+                    string note;
+                    if (this.motorsport3)
+                    {
+                        data = PartLogos.Fm3ToFm4(data, entryName, size.Width, size.Height, out note);
+                    }
+                    else
+                    {
+                        note = "as is";
+                    }
+                    this.Put(to2, entryName, data);
+                    copied.Add(string.Format(CultureInfo.InvariantCulture, "{0} {1} [{2}]", id, entryName.Substring(10), note));
+                }
+            }
+            foreach (string line in copied)
+            {
+                this.Line("  part logo copied: {0}", line);
+            }
+            this.Line(missing.Count == 0 ? "  part makers: {0} used, all with name row and logos" : "  WARNING part makers: " + string.Join("; ", missing.ToArray()), makers.Count);
+        }
+
+        private static bool TableExists(SqliteDatabase db, string table)
+        {
+            return Convert.ToInt64(db.Scalar("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table)) > 0;
+        }
+
+        private static object[] FirstRow(SqliteDatabase db, string sql, params object[] args)
+        {
+            List<object[]> rows = db.Query(sql, args).Rows;
+            return (rows.Count > 0) ? rows[0] : null;
         }
 
         // Logo folders of UI\Textures.zip the game builds from IconPathBase (L_MAN_<base>_Logo.xds).

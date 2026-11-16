@@ -1400,7 +1400,7 @@ namespace ForzaStudio
         // FM4's cockpit parts (_cockpit file, never in _lod0; measured on the 313 cars of the game):
         // interior, steering wheel, mirrors, hood, seats, windscreen and front side windows (glass or
         // lexan), the side mirror glass, the A pillars, the roll cage and the gauge needles.
-        private static bool CockpitPart(string name)
+        internal static bool CockpitPart(string name)
         {
             string part = Regex.Replace(name, "[0-9]+$", "");
             foreach (string prefix in new string[] { "interior", "steering_wheel", "mirror", "hood", "seat", "a_pillar", "cage", "tach_", "speed_", "fuel_" })

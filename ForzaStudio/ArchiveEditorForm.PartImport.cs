@@ -15,6 +15,7 @@ namespace ForzaStudio
         {
             side.Controls.Add(SideHeading("Import / export part", false));
             side.Controls.Add(SideWideButton("Copy Part From Another Car...", delegate { this.ImportPartFromCar(); }));
+            side.Controls.Add(SideWideButton("Fill Missing LOD0 Parts From LOD1...", delegate { this.FillLod0FromLod1(); }));
             side.Controls.Add(SideButtonRow(PartButton("Export OBJ...", delegate { this.ExportPartObj(); }), PartButton("Import OBJ...", delegate { this.ImportObjIntoPart(); })));
             side.Controls.Add(SideNote("The whole model: Model > Export Model to OBJ Folder."));
         }
@@ -847,16 +848,23 @@ namespace ForzaStudio
             regions.Text = "Use this car's texture regions for its materials";
             regions.Checked = true;
             regions.AutoSize = true;
-            regions.Location = new System.Drawing.Point(0, 84);
+            regions.Location = new System.Drawing.Point(0, 106);
+            CheckBox fit = new CheckBox();
+            fit.Text = "Also scale it to the replaced part's size (same proportions)";
+            fit.Checked = false;
+            fit.AutoSize = true;
+            fit.Location = new System.Drawing.Point(0, 84);
             Label multiNote = new Label();
             multiNote.Text = "Several parts (tick them): each keeps its name and replaces this car's part of the same name, if any.";
             multiNote.AutoSize = true;
-            multiNote.Location = new System.Drawing.Point(0, 106);
-            extra.Controls.AddRange(new Control[] { replaceLabel, replace, nameLabel, name, align, regions, multiNote });
+            multiNote.Location = new System.Drawing.Point(0, 128);
+            extra.Size = new Size(620, 148);
+            extra.Controls.AddRange(new Control[] { replaceLabel, replace, nameLabel, name, align, fit, regions, multiNote });
 
             // part (source) -> its name in this car and the part it replaces (null = added)
             List<string[]> plan = new List<string[]>();
             bool alignChecked;
+            bool fitChecked;
             bool regionsChecked;
             using (PickDialog pick = new PickDialog("Import Part From " + sourceLabel, new string[] { "Part", "Materials", "Damage" }, new int[] { 160, 260, 90 }, rows, extra))
             {
@@ -887,91 +895,116 @@ namespace ForzaStudio
                     }
                 }
                 alignChecked = align.Checked;
+                fitChecked = fit.Checked;
                 regionsChecked = regions.Checked;
             }
-            List<string> newNames = new List<string>();
-            foreach (string[] step in plan)
-            {
-                if (step[1] != step[2] && targetNames.Contains(step[1]))
-                {
-                    MessageBox.Show(this, "This car already has a part named " + step[1] + ": choose it in \"Replace\" or use another name.", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-                if (newNames.Contains(step[1]))
-                {
-                    MessageBox.Show(this, "Two parts would be named " + step[1] + " in this car.", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-                newNames.Add(step[1]);
-            }
+            this.RunPartImport(source, sourceFiles, targetFiles, sourceLabel, plan, alignChecked, fitChecked, regionsChecked);
+        }
 
-            // One placement per part for every file: source part center -> replaced part center (main files).
-            List<Matrix> moves = new List<Matrix>();
-            foreach (string[] step in plan)
-            {
-                Matrix move = Matrix.Identity;
-                CarbinModel.Section from = sourceMain.Find(step[0]);
-                CarbinModel.Section to = (step[2] != null) ? targetMain.Find(step[2]) : null;
-                if (alignChecked && from != null && to != null)
-                {
-                    move = Matrix.CreateTranslation(new Vector3(to.Bounds[0] - from.Bounds[0], to.Bounds[1] - from.Bounds[1], to.Bounds[2] - from.Bounds[2]));
-                }
-                moves.Add(move);
-            }
-
-            List<string> report = new List<string>();
+        // Builds the whole import first (PartImport: all files, checks), asks on which LODs a moved part is moved,
+        // shows the log as a preview, and only then puts the files in the archive (pending until Save).
+        private void RunPartImport(ForzaZip source, Dictionary<string, ForzaZip.Entry> sourceFiles, Dictionary<string, ForzaZip.Entry> targetFiles, string sourceLabel, List<string[]> plan, bool alignChecked, bool fitChecked, bool regionsChecked)
+        {
+            PartImport import = new PartImport();
+            import.UseOwnRegions = regionsChecked;
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
+                foreach (KeyValuePair<string, ForzaZip.Entry> pair in sourceFiles)
+                {
+                    import.Source[pair.Key] = source.Read(pair.Value);
+                }
                 foreach (KeyValuePair<string, ForzaZip.Entry> pair in targetFiles)
                 {
-                    ForzaZip.Entry sourceEntry;
-                    if (!sourceFiles.TryGetValue(pair.Key, out sourceEntry))
-                    {
-                        continue;
-                    }
-                    CarbinModel sourceModel = new CarbinModel(source.Read(sourceEntry));
-                    CarbinModel model = null;
-                    for (int i = 0; i < plan.Count; i++)
-                    {
-                        string part = plan[i][0];
-                        string newName = plan[i][1];
-                        string replaced = plan[i][2];
-                        if (sourceModel.Find(part) == null)
-                        {
-                            continue;
-                        }
-                        if (model == null)
-                        {
-                            model = new CarbinModel(this.zip.Read(pair.Value));
-                        }
-                        if (replaced != null && model.Find(replaced) != null)
-                        {
-                            model.RemoveSection(replaced);
-                        }
-                        model.ImportSection(sourceModel, part, newName, regionsChecked);
-                        if (moves[i] != Matrix.Identity)
-                        {
-                            model.TransformSection(newName, moves[i]);
-                        }
-                    }
-                    if (model == null)
-                    {
-                        continue;
-                    }
-                    this.zip.Replace(pair.Value, model.ToBytes());
-                    this.RefreshEntryNode(pair.Value);
-                    report.Add(pair.Value.Name.Substring(pair.Value.Name.LastIndexOf('/') + 1));
+                    import.Target[pair.Key] = this.zip.Read(pair.Value);
                 }
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+            }
+            bool anyMove = false;
+            foreach (string[] step in plan)
+            {
+                PartImport.Step s = new PartImport.Step();
+                s.Part = step[0];
+                s.NewName = step[1];
+                s.Replaced = step[2];
+                s.Align = alignChecked;
+                s.Fit = fitChecked;
+                import.Steps.Add(s);
+                anyMove |= s.Replaced != null && (alignChecked || fitChecked);
+            }
+
+            // User rule (ST-03): moving / scaling is never applied to every LOD silently - ask which files.
+            if (anyMove)
+            {
+                List<string> moveIn = this.AskMoveLods(import, sourceLabel);
+                if (moveIn == null)
+                {
+                    return;
+                }
+                foreach (PartImport.Step s in import.Steps)
+                {
+                    s.MoveIn = moveIn;
+                }
+            }
+
+            try
+            {
+                Cursor.Current = Cursors.WaitCursor;
+                import.Run();
             }
             catch (Exception exception)
             {
-                MessageBox.Show(this, exception.Message, "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                Cursor.Current = Cursors.Default;
+                MessageBox.Show(this, exception.Message + "\n\nNothing was changed.", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return;
             }
             finally
             {
                 Cursor.Current = Cursors.Default;
+            }
+
+            System.Text.StringBuilder text = new System.Text.StringBuilder();
+            text.AppendFormat("Import from {0}\r\n\r\n", sourceLabel);
+            foreach (string line in import.Log)
+            {
+                text.AppendLine(line);
+            }
+            if (import.Warnings.Count > 0)
+            {
+                text.AppendLine();
+                text.AppendLine("WARNINGS:");
+                foreach (string line in import.Warnings)
+                {
+                    text.AppendLine("  " + line);
+                }
+            }
+            text.AppendLine();
+            text.AppendLine("Files that change: " + string.Join(", ", new List<string>(import.Result.Keys).ConvertAll(PartImport.FileLabel).ToArray()));
+            // The preview stays (user 2026-11-16: "anteprima andava bene"; the whole flow will be reworked, UI_WORKFLOW C).
+            if (!this.ConfirmReport("Import Part - preview", text.ToString(), "Apply"))
+            {
+                this.SetStatus("Import Part cancelled: nothing changed");
+                return;
+            }
+
+            List<string> report = new List<string>();
+            foreach (KeyValuePair<string, byte[]> pair in import.Result)
+            {
+                ForzaZip.Entry entry = targetFiles[pair.Key];
+                this.zip.Replace(entry, pair.Value);
+                this.RefreshEntryNode(entry);
+                report.Add(entry.Name.Substring(entry.Name.LastIndexOf('/') + 1));
+            }
+            try
+            {
+                File.AppendAllText(Path.Combine(System.Windows.Forms.Application.StartupPath, "PartImport.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " " + (this.zip.FilePath ?? "") + "\r\n" + text + "\r\n");
+            }
+            catch (Exception)
+            {
+                // the log is a convenience: the import stays
             }
             this.editSection = null;
             this.ReloadModelKeepingView();
@@ -980,7 +1013,268 @@ namespace ForzaStudio
             {
                 done.Add((step[0] == step[1]) ? step[0] : step[0] + " -> " + step[1]);
             }
-            this.SetStatus(string.Format("{0} from {1} in {2} (pending: Save to write the archive)", string.Join(", ", done.ToArray()), sourceLabel, string.Join(", ", report.ToArray())));
+            this.SetStatus(string.Format("{0} from {1} in {2}{3}   (Ctrl+Z: undo; details in PartImport.log)", string.Join(", ", done.ToArray()), sourceLabel, string.Join(", ", report.ToArray()),
+                (import.Warnings.Count > 0) ? "   " + import.Warnings.Count + " WARNING(S): " + import.Warnings[0] : ""));
+        }
+
+        // Parts the main model draws (LOD 1-5) that their close-up model lacks: up close they vanish (many cars ported
+        // from FM2). The chosen ones get a copy of their LOD 1 as LOD 0 (Lod0Fill): cockpit parts (hood, interior,
+        // mirrors...) in _cockpit, the others in _lod0, as in FM4 (user 2026-11-15: hoods go to the cockpit model).
+        private void FillLod0FromLod1()
+        {
+            const string title = "Parts Missing in LOD0";
+            Dictionary<string, ForzaZip.Entry> files = this.CarModelFiles(this.zip, this.ModelFolder);
+            if (!files.ContainsKey("") || (!files.ContainsKey("_lod0") && !files.ContainsKey("_cockpit")))
+            {
+                MessageBox.Show(this, "Open an FM4 car with its main model and its _lod0 / _cockpit models (e.g. toy_suprarz_98.carbin + toy_suprarz_98_lod0.carbin).", title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            Dictionary<string, byte[]> data = new Dictionary<string, byte[]>();
+            foreach (KeyValuePair<string, ForzaZip.Entry> pair in files)
+            {
+                data[pair.Key] = this.zip.Read(pair.Value);
+            }
+            List<Lod0Fill.Candidate> missing;
+            try
+            {
+                missing = Lod0Fill.Missing(data);
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return;
+            }
+            if (missing.Count == 0)
+            {
+                MessageBox.Show(this, "Every part of the main model is also in its close-up model (lod0, or cockpit for cockpit parts): nothing to copy.", title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            Panel panel = new Panel();
+            Label intro = new Label();
+            intro.Text = "These parts are in the main model (LOD 1-5) but not in their close-up model, so they vanish up close.\n"
+                + "Ticked parts get a copy of their LOD 1 as LOD 0 (same position, materials and UVs): cockpit parts in the cockpit model, the others in lod0.";
+            intro.AutoSize = true;
+            intro.Location = new System.Drawing.Point(0, 0);
+            CheckedListBox list = new CheckedListBox();
+            list.CheckOnClick = true;
+            list.Location = new System.Drawing.Point(0, 40);
+            list.Size = new Size(640, Math.Min(22 * missing.Count + 8, 360));
+            list.IntegralHeight = false;
+            List<Lod0Fill.Candidate> rows = new List<Lod0Fill.Candidate>();
+            foreach (Lod0Fill.Candidate c in missing)
+            {
+                List<string> lods = c.MainLods.ConvertAll(delegate(uint l) { return l.ToString(); });
+                string note = !c.HasLod1 ? "  - no LOD 1: cannot be copied" : "";
+                list.Items.Add(string.Format("{0}  -> {1}   (LOD {2}; {3}){4}", c.Part, PartImport.FileLabel(c.Target), string.Join(",", lods.ToArray()), string.Join(", ", c.Materials.ToArray()), note), c.HasLod1);
+                rows.Add(c);
+            }
+            list.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
+            {
+                if (!rows[e.Index].HasLod1)
+                {
+                    e.NewValue = CheckState.Unchecked;
+                }
+            };
+            Button all = new Button();
+            all.Text = "Tick all";
+            all.Size = new Size(90, 26);
+            all.Location = new System.Drawing.Point(0, list.Bottom + 6);
+            all.Click += delegate { for (int i = 0; i < list.Items.Count; i++) { list.SetItemChecked(i, rows[i].HasLod1); } };
+            Button none = new Button();
+            none.Text = "Untick all";
+            none.Size = new Size(90, 26);
+            none.Location = new System.Drawing.Point(96, list.Bottom + 6);
+            none.Click += delegate { for (int i = 0; i < list.Items.Count; i++) { list.SetItemChecked(i, false); } };
+            panel.Controls.AddRange(new Control[] { intro, list, all, none });
+            panel.Size = new Size(640, all.Bottom + 4);
+            if (!this.ShowOptions(title, panel))
+            {
+                return;
+            }
+            Lod0Fill fill = new Lod0Fill();
+            fill.Files = data;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (list.GetItemChecked(i) && rows[i].HasLod1)
+                {
+                    fill.Parts.Add(rows[i].Part);
+                }
+            }
+            if (fill.Parts.Count == 0)
+            {
+                this.SetStatus(title + ": no part ticked, nothing changed");
+                return;
+            }
+            try
+            {
+                fill.Run();
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message + "\n\nNothing was changed.", title, MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return;
+            }
+
+            System.Text.StringBuilder text = new System.Text.StringBuilder();
+            foreach (string line in fill.Log)
+            {
+                text.AppendLine(line);
+            }
+            if (fill.Warnings.Count > 0)
+            {
+                text.AppendLine();
+                text.AppendLine("WARNINGS");
+                foreach (string line in fill.Warnings)
+                {
+                    text.AppendLine("  " + line);
+                }
+            }
+            List<string> changed = new List<string>();
+            foreach (string key in fill.Result.Keys)
+            {
+                changed.Add(files[key].Name.Substring(files[key].Name.LastIndexOf('/') + 1));
+            }
+            string fileName = string.Join(", ", changed.ToArray());
+            text.AppendLine();
+            text.AppendLine("Files that change: " + fileName + " (the main model is not touched)");
+            if (!this.ConfirmReport(title + " - preview", text.ToString(), "Apply"))
+            {
+                this.SetStatus(title + " cancelled: nothing changed");
+                return;
+            }
+            foreach (KeyValuePair<string, byte[]> pair in fill.Result)
+            {
+                this.zip.Replace(files[pair.Key], pair.Value);
+                this.RefreshEntryNode(files[pair.Key]);
+            }
+            try
+            {
+                File.AppendAllText(Path.Combine(System.Windows.Forms.Application.StartupPath, "PartImport.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " " + (this.zip.FilePath ?? "") + " LOD1 -> LOD0\r\n" + text + "\r\n");
+            }
+            catch (Exception)
+            {
+                // the log is a convenience: the change stays
+            }
+            this.editSection = null;
+            this.ReloadModelKeepingView();
+            this.SetStatus(string.Format("{0} copied from LOD 1 into {1}{2}   (Ctrl+Z: undo; details in PartImport.log)", string.Join(", ", fill.Parts.ToArray()), fileName,
+                (fill.Warnings.Count > 0) ? "   " + fill.Warnings.Count + " WARNING(S): " + fill.Warnings[0] : ""));
+        }
+
+        // Which model files get the move / scale. Every file is listed with the LODs the copied parts draw there.
+        private List<string> AskMoveLods(PartImport import, string sourceLabel)
+        {
+            Dictionary<string, List<uint>> lods = new Dictionary<string, List<uint>>();
+            foreach (PartImport.Step step in import.Steps)
+            {
+                foreach (KeyValuePair<string, List<uint>> pair in PartImport.PartLods(import.Source, step.Part))
+                {
+                    if (!import.Target.ContainsKey(pair.Key))
+                    {
+                        continue;
+                    }
+                    List<uint> list;
+                    if (!lods.TryGetValue(pair.Key, out list))
+                    {
+                        list = new List<uint>();
+                        lods[pair.Key] = list;
+                    }
+                    foreach (uint lod in pair.Value)
+                    {
+                        if (!list.Contains(lod))
+                        {
+                            list.Add(lod);
+                        }
+                    }
+                    list.Sort();
+                }
+            }
+            Panel panel = new Panel();
+            Label intro = new Label();
+            intro.Text = "The copied part is moved to the replaced part's position" + (import.Steps[0].Fit ? " and scaled" : "") + ".\nApply the move on which LODs? (unticked = kept where it is in " + sourceLabel + ")";
+            intro.AutoSize = true;
+            intro.Location = new System.Drawing.Point(0, 0);
+            panel.Controls.Add(intro);
+            Dictionary<string, CheckBox> boxes = new Dictionary<string, CheckBox>();
+            int y = 44;
+            foreach (string key in new string[] { "", "_lod0", "_cockpit" })
+            {
+                List<uint> list;
+                if (!lods.TryGetValue(key, out list))
+                {
+                    continue;
+                }
+                CheckBox box = new CheckBox();
+                box.Text = string.Format("{0} model: LOD {1}", PartImport.FileLabel(key), PartImport.LodText(list));
+                box.Checked = true;
+                box.AutoSize = true;
+                box.Location = new System.Drawing.Point(0, y);
+                panel.Controls.Add(box);
+                boxes[key] = box;
+                y += 24;
+            }
+            panel.Size = new Size(520, y + 4);
+            if (!this.ShowOptions("Import Part - move on which LODs?", panel))
+            {
+                return null;
+            }
+            List<string> chosen = new List<string>();
+            foreach (KeyValuePair<string, CheckBox> pair in boxes)
+            {
+                if (pair.Value.Checked)
+                {
+                    chosen.Add(pair.Key);
+                }
+            }
+            return chosen;
+        }
+
+        private bool ConfirmReport(string title, string text, string accept)
+        {
+            using (Form form = new Form())
+            {
+                form.Text = title;
+                form.StartPosition = FormStartPosition.CenterParent;
+                form.ShowInTaskbar = false;
+                form.MinimizeBox = false;
+                form.Font = ForzaTheme.Regular;
+                form.ClientSize = new Size(760, 480);
+                TextBox box = new TextBox();
+                box.Multiline = true;
+                box.ReadOnly = true;
+                box.ScrollBars = ScrollBars.Both;
+                box.WordWrap = false;
+                box.Font = new Font(FontFamily.GenericMonospace, 9f);
+                box.Dock = DockStyle.Fill;
+                box.Text = text;
+                Panel bottom = new Panel();
+                // Full width BEFORE the anchored buttons go in: a panel born 200 wide moved them off screen
+                // when it docked (the user saw no Apply button, 2026-11-15).
+                bottom.Size = new Size(form.ClientSize.Width, 44);
+                bottom.Dock = DockStyle.Bottom;
+                Button ok = new Button();
+                ok.Text = accept;
+                ok.Size = new Size(84, 28);
+                ok.Location = new System.Drawing.Point(form.ClientSize.Width - 186, 8);
+                ok.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                ok.DialogResult = DialogResult.OK;
+                Button cancel = new Button();
+                cancel.Text = "Cancel";
+                cancel.Size = new Size(84, 28);
+                cancel.Location = new System.Drawing.Point(form.ClientSize.Width - 96, 8);
+                cancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                cancel.DialogResult = DialogResult.Cancel;
+                bottom.Controls.Add(ok);
+                bottom.Controls.Add(cancel);
+                form.Controls.Add(box);
+                form.Controls.Add(bottom);
+                form.AcceptButton = ok;
+                form.CancelButton = cancel;
+                form.BackColor = ForzaTheme.Background;
+                ForzaTheme.Apply(form);
+                return form.ShowDialog(this) == DialogResult.OK;
+            }
         }
     }
 }

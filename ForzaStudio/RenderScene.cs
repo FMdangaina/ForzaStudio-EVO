@@ -337,6 +337,28 @@ namespace ForzaStudio
             state.CullMode = cull;
         }
 
+        // Square dots of a fixed size in pixels, whatever the zoom.
+        private void DrawPoints(VertexPositionColor[] vertexData, float pixels)
+        {
+            RenderState state = this.Graphics.RenderState;
+            state.FillMode = FillMode.Solid;
+            state.PointSize = pixels;
+            state.DepthBias = -0.00004f;
+            state.DepthBufferWriteEnable = false;
+            this.ColoredVertices.Begin();
+            foreach (EffectPass pass in this.ColoredVertices.CurrentTechnique.Passes)
+            {
+                pass.Begin();
+                this.Graphics.VertexDeclaration = new VertexDeclaration(this.Graphics, VertexPositionColor.VertexElements);
+                this.Graphics.DrawUserPrimitives<VertexPositionColor>(PrimitiveType.PointList, vertexData, 0, vertexData.Length);
+                pass.End();
+            }
+            this.ColoredVertices.End();
+            state.PointSize = 1f;
+            state.DepthBias = 0f;
+            state.DepthBufferWriteEnable = true;
+        }
+
         private void DrawLines(VertexPositionColor[] vertexData)
         {
             this.Graphics.RenderState.FillMode = FillMode.Solid;
@@ -455,10 +477,20 @@ namespace ForzaStudio
                         {
                             this.DrawFaces(this.OverlayFaces);
                         }
+                        if (this.OverlayPoints != null && this.OverlayPoints.Length >= 1)
+                        {
+                            this.DrawPoints(this.OverlayPoints, 4f);      // hidden by the model in front of them
+                        }
                         if (this.Overlay != null && this.Overlay.Length >= 2)
                         {
                             this.Graphics.RenderState.DepthBufferEnable = false;
                             this.DrawLines(this.Overlay);
+                            this.Graphics.RenderState.DepthBufferEnable = true;
+                        }
+                        if (this.OverlayPointsOnTop != null && this.OverlayPointsOnTop.Length >= 1)
+                        {
+                            this.Graphics.RenderState.DepthBufferEnable = false;
+                            this.DrawPoints(this.OverlayPointsOnTop, 7f);
                             this.Graphics.RenderState.DepthBufferEnable = true;
                         }
                         this.Graphics.Present();
@@ -481,6 +513,11 @@ namespace ForzaStudio
 
         // Triangles drawn over the model with blending (their colour carries the alpha), e.g. the selected faces.
         public VertexPositionColor[] OverlayFaces { get; set; }
+
+        // Dots a few pixels wide: the mesh's points (depth tested) and the selected ones (always on top).
+        public VertexPositionColor[] OverlayPoints { get; set; }
+
+        public VertexPositionColor[] OverlayPointsOnTop { get; set; }
 
         public Panel Viewport { get; private set; }
     }

@@ -98,25 +98,42 @@ namespace ForzaStudio
 
             strip.Items.Add(this.btnOrtho);
             strip.Items.Add(new ToolStripSeparator());
+            // The face tools (sub-object levels, region, select all / none / linked, delete, detach) live in the MESH
+            // tab (user 2026-11-16: "questi vanno spostati in mesh"): BuildMeshToolStrip. The UV Mapper stays here.
+            this.btnToolUv = ToolButton(ToolIcons.Uv(), "UV Mapper: edit the UV of the selected faces, or of the part selected in the tree  (U)", delegate { this.OpenUvMapper(); });
+            strip.Items.Add(this.btnToolUv);
+            this.toolsStrip = strip;
+            this.UpdateFaceSelectionLabel();
+            return strip;
+        }
+
+        // The face tools of the MESH tab, two rows of icons with their keys in the hints.
+        private ToolStrip BuildMeshToolStrip()
+        {
+            ToolStrip strip = new ToolStrip();
+            strip.GripStyle = ToolStripGripStyle.Hidden;
+            strip.ShowItemToolTips = true;
+            strip.ImageScalingSize = new Size(22, 22);
+            strip.Dock = DockStyle.None;
+            strip.LayoutStyle = ToolStripLayoutStyle.Flow;
+            strip.AutoSize = false;
+            strip.Size = new Size(SideWidth, 64);
+            strip.Margin = new Padding(0, 2, 0, 2);
+            strip.Renderer = ForzaTheme.Renderer;
             foreach (ToolStripButton level in SubObject.CreateButtons(false))
             {
                 strip.Items.Add(level);
             }
             strip.Items.Add(SelectionRegion.CreateButton());
-            strip.Items.Add(ToolButton(ToolIcons.Select(true), "Select all the faces shown (MESH tab)  (Ctrl+A)", delegate { this.SelectAllFaces(); }));
+            strip.Items.Add(ToolButton(ToolIcons.Select(true), "Select all the faces shown  (Ctrl+A)", delegate { this.SelectAllFaces(); }));
             this.btnToolNone = ToolButton(ToolIcons.Select(false), "Select no face  (Ctrl+Shift+A)", delegate { this.ClearFaceSelection(); });
             this.btnToolLinked = ToolButton(ToolIcons.Linked(), "Select the pieces the selected faces belong to  (L)", delegate { this.SelectLinkedFaces(); });
             this.btnToolDelete = ToolButton(ToolIcons.Delete(), "Delete the selected faces  (Delete)", delegate { this.DeleteSelectedFaces(); });
             this.btnToolDetach = ToolButton(ToolIcons.Detach(), "Detach the selected faces into a mesh of their own, in the same part  (P)", delegate { this.DetachSelectedFaces(); });
-            this.btnToolUv = ToolButton(ToolIcons.Uv(), "UV Mapper: edit the UV of the selected faces, or of the part selected in the tree  (U)", delegate { this.OpenUvMapper(); });
             strip.Items.Add(this.btnToolNone);
             strip.Items.Add(this.btnToolLinked);
             strip.Items.Add(this.btnToolDelete);
             strip.Items.Add(this.btnToolDetach);
-            strip.Items.Add(new ToolStripSeparator());
-            strip.Items.Add(this.btnToolUv);
-            this.toolsStrip = strip;
-            this.UpdateFaceSelectionLabel();
             return strip;
         }
 
