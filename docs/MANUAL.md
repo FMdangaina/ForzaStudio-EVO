@@ -407,10 +407,15 @@ one of its materials to edit only that material.
   data. First choose where from: *This pack* (the other cars of the zip being edited), a game, or
   *(another file...)* (a file dialog for a car zip, pack zip, DLC package or `_lod0.carbin`). For a game
   only its cars are read and listed: `Media\cars` of its folders (the open car's game, Tools > Settings >
-  Folders, the FM4 folder of the port window) and its packages installed in Xenia (disc 2 and DLC; FM2 is
-  not listed). Several parts can be picked at once (Ctrl/Shift + click): each keeps its name and replaces
-  this car's part of the same name, if there is one:
-  - add it as a new part, or replace one of this car's parts;
+  Folders, the FM4 folder of the port window) and its packages installed in Xenia (disc 2 and DLC). FM2,
+  FM3 and FH1 / FH2 cars are listed but refused for now, with a message. On the right of the part list the
+  source car is shown in a small viewport (materials, no textures) with the highlighted and ticked parts in
+  orange; drag (or Alt + middle drag) to turn it, middle drag to move, wheel to zoom:
+  - by default nothing is replaced: the part is added as a new part, under its own name when this car has
+    none like it, else the next free one (`exhausta` here already: `exhaustb`; `seatL`: `seatL_2`). The
+    name is in *Name in this car* and can be changed;
+  - to replace one of this car's parts, choose it in *Replace in this car* (only then);
+  - several parts can be picked at once (tick them): each is added as a new part the same way;
   - optionally place it at the replaced part's center;
   - optionally use this car's texture regions for its materials.
 - **Export OBJ...** and **Import OBJ...** (one part):

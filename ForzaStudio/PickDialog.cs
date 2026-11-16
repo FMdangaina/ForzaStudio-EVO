@@ -66,7 +66,13 @@ namespace ForzaStudio
                 }
                 this.items.Add(item);
             }
-            this.list.DoubleClick += delegate { this.Accept(); };
+            this.list.DoubleClick += delegate
+            {
+                if (this.DoubleClickAccepts)
+                {
+                    this.Accept();
+                }
+            };
             this.list.ItemCheck += this.OnItemCheck;
             this.list.SelectedIndexChanged += delegate { this.RaiseSelectionChanged(); };
 
@@ -177,6 +183,76 @@ namespace ForzaStudio
 
         // The rows picked now changed (to enable the extra fields that only fit one row).
         public event EventHandler SelectionChanged;
+
+        // While the dialog is open: the keys of the ticked rows and of the highlighted ones (for a preview).
+        public List<object> MarkedKeys
+        {
+            get
+            {
+                List<object> keys = new List<object>();
+                if (this.list.CheckBoxes)
+                {
+                    foreach (ListViewItem item in this.Ticked())
+                    {
+                        keys.Add(item.Tag);
+                    }
+                }
+                foreach (ListViewItem item in this.list.SelectedItems)
+                {
+                    if (!keys.Contains(item.Tag))
+                    {
+                        keys.Add(item.Tag);
+                    }
+                }
+                return keys;
+            }
+        }
+
+        // A preview of the marked rows on the right of the list, full height (Copy Part: the part on the car).
+        // A double-click on a row is the accept button (default). Off where a stray double-click must not act
+        // (Copy Part, user 2026-11-16: an accidental double-click copied the part).
+        public bool DoubleClickAccepts = true;
+
+        public void AddPreview(Control preview, int width)
+        {
+            // as big as the screen allows, the list keeping its width (user 2026-11-16: the preview was too small)
+            System.Drawing.Rectangle screen = Screen.FromControl(this).WorkingArea;
+            int room = Math.Max(300, screen.Width - this.Width - 40);
+            width = Math.Min(width, room);
+            preview.Dock = DockStyle.Right;
+            preview.Width = width;
+            Splitter splitter = new Splitter();
+            splitter.Dock = DockStyle.Right;
+            splitter.Width = 4;
+            // docked before the list (which fills what is left); the last added docks first
+            this.Controls.Add(splitter);
+            this.Controls.Add(preview);
+            this.Width += width + 4;
+            this.Height = Math.Max(this.Height, Math.Min(screen.Height - 40, 860));
+            this.StartPosition = FormStartPosition.CenterScreen;
+            // scalable (user 2026-11-16): the preview keeps its share of the width when the window is resized or
+            // maximised; dragging the splitter sets a new share. The list keeps at least 300 px.
+            float share = (float) width / Math.Max(1, this.Width);
+            bool sizing = false;
+            splitter.SplitterMoved += delegate
+            {
+                if (!sizing)
+                {
+                    share = (float) preview.Width / Math.Max(1, this.ClientSize.Width);
+                }
+            };
+            this.Resize += delegate
+            {
+                int client = this.ClientSize.Width;
+                if (client <= 0)
+                {
+                    return;
+                }
+                sizing = true;
+                preview.Width = Math.Max(150, Math.Min((int) (client * share), client - 300));
+                sizing = false;
+            };
+        }
 
         // The ticked rows, kept here: ListViewItem.Checked asks the list for the row's state and throws (index -1) for
         // a row the list is adding (handle creation, search filter) - the crash of 2026-11-11.

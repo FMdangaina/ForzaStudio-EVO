@@ -10,7 +10,8 @@ namespace ForzaStudio
     // load everything"): the other cars of the pack zip being edited, one game, or another file. Only then are that
     // game's cars read: GAME:\Media\cars\*.zip of its folders (the open car's game, Tools > Settings > Folders, the FM4
     // folder of the port window) and the cars of its packages installed in Xenia (disc 2, DLC; read in place, a car is
-    // written to a cached copy under PackageCarsRoot when picked). FM2 is left out: CarbinModel does not read its carbin.
+    // written to a cached copy under PackageCarsRoot when picked). FM2, FM3 and FH1 / FH2 cars are listed but Copy Part
+    // refuses them for now with one message each (user 2026-11-16).
     public partial class ArchiveEditorForm
     {
         private enum CarSourceKind
@@ -49,7 +50,7 @@ namespace ForzaStudio
         // Xenia content folder -> the cars of its packages (mod packs left out), read once per session.
         private static readonly Dictionary<string, List<PackageCarEntry>> contentFolderCars = new Dictionary<string, List<PackageCarEntry>>(StringComparer.OrdinalIgnoreCase);
 
-        private static readonly ForzaGame[] CarSourceGames = { ForzaGame.Motorsport4, ForzaGame.Motorsport3, ForzaGame.Horizon1, ForzaGame.Horizon2 };
+        private static readonly ForzaGame[] CarSourceGames = { ForzaGame.Motorsport4, ForzaGame.Motorsport3, ForzaGame.Motorsport2, ForzaGame.Horizon1, ForzaGame.Horizon2 };
 
         // The cars of every package of a game in its Xenia content folder.
         private static List<PackageCarEntry> ContentFolderCars(string folder, uint title)

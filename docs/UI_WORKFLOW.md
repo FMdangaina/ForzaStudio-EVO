@@ -96,9 +96,14 @@ declaration per device (ForzaMesh.DeclarationFor, RenderScene.ColorDeclaration),
 Then: on release the view and tree showed everything (default LOD0 view) and came back = the full reload. Fixed:
 RefreshMeshesInPlace (MeshGizmo.cs) gives the tree's meshes the file's new vertices/indices, no tree rebuild; also
 for undo/redo of steps labelled "Mesh: " (UndoRedo.cs); full reload only if parts/materials differ. Exe 22:24,
-USER RECHECK PENDING.
-Everything after 8f6b3be is uncommitted; ask before committing (docs/FM3/PI_AND_RATINGS.md belongs to another chat).
-Fill LOD0 preview is fine as it is (its database rows: later); Copy Part preview left for step C.
+user "ok funziona". Step B COMMITTED 5e853ec.
+Step C = preview of the selected part in the Copy Part dialog (see C below; the donor-in-viewport idea was rejected
+and removed). Approved by the user ("ottimo lavoro") and committed with the Copy Part rules (see C). Open question
+to the user: moving a whole part node (exhausta) - was it picked in the tree or by a click on the car (a single
+click selects one material, a double-click the part)? Next after that: step D (TEXTURE / SHADER tabs), describe it
+to the user before building. The other chat's files (Fm3Perf.cs, Fm4Perf.cs, CarPerformance.cs, CarDuplicate*.cs,
+their csproj lines, docs/FM3 + docs/FM4 PI_AND_RATINGS.md, docs/TODO_WIDEBODY_FUTURE.md) are never committed here.
+Fill LOD0 preview is fine as it is (its database rows: later).
 
 ### UX direction after round 2
 
@@ -195,10 +200,39 @@ app test pending):
   Headless check `E:\DEV\fm4dev\ui\movevert\mv.exe <car.zip>`: NSX 35 meshes (LOD 1, lod0, cockpit), moved faces at
   the right place, other LODs unchanged, file reads back: 35/35 OK. App test pending.
 
-### C. Donor car next to this one
+### C. See the part in the Copy Part dialog (redefined by the user 2026-11-16)
 
-Open another car in the same tree and viewport (ghosted); click its part, drag it onto the part it replaces or onto a
-LOD for a new part. Replaces the car list + part table, where the part is chosen by name without seeing it.
+Old plan (donor car ghosted beside this one in the viewport, drag a part onto the one it replaces) was built and
+REJECTED by the user: "non devo sostituire. io volevo vedere anteprima del nodo selezionato nella schermata di
+selezione". Removed completely; do not propose it again.
+
+What C is: the Copy Part dialog stays as it was (car list, part table, Replace / Name / options, LOD question,
+preview report). On its right, PartPreviewControl is a small XNA viewport (RenderScene, the editor viewport's
+technique; user 2026-11-16 "usa tecnica viewport" after a first software z-buffer cut that was slow and ugly): the
+source car's main model, each part at its lowest LOD in that file, materials from its shadersettings.xml, NO
+TEXTURES (user: "non visualizzare texture sul nuovo viewport"); the highlighted and ticked rows drawn selected
+(orange). Left drag or Alt + middle turns, middle drag moves, wheel zooms; parts not in the main model are named in
+the bottom note. PickDialog.AddPreview + MarkedKeys. Smoke test E:\DEV\fm4dev\ui\donor\preview.exe <car.zip>
+<part...>: no exception, ~17 ms per redraw (Integra R). User 23:20: "funziona".
+
+Copy Part rules (user 2026-11-16, built 23:22, app test pending, uncommitted):
+- By default NOTHING is replaced. "Replace in this car" starts on "(nothing: add as a new part)" whatever part is
+  in edit; replacing only when the user picks a part there.
+- New part name = FreePartName against every part of this car's model files: own name if free, else the next
+  variant (exhausta -> exhaustb -> exhaustc; seatL -> seatL_2), proposed in "Name in this car" for the highlighted
+  row; a typed name that is taken is refused with a message. Several ticked parts: each added under its free name.
+- FH1 / FH2 source cars (FH carbin, IsHorizon) are refused with an FM3-style message ("Forza Horizon .carbin: it can
+  be read for study, but copying parts from FH models is not supported.").
+- FM2 is now in the game list (CarSourceGames; 310 cars of FM2_Extracted, main model found 310/310) and refused the
+  same way ("Forza Motorsport 2 .carbin: it can be read for study, but copying parts from FM2 models is not
+  supported."). Built 23:26. User: "il resto mi sembra molto buono".
+- User 2026-11-16: preview too small -> AddPreview asks 900 px, clamped to the screen's working area, dialog up to
+  860 px high, centred on the screen. A stray double-click on a row copied the part -> PickDialog.DoubleClickAccepts,
+  false for Copy Part (only the Copy button copies).
+- User "anteprima falla scalabile. ottimo lavoro": the preview keeps its share of the dialog width on resize /
+  maximise; dragging the splitter sets a new share; list at least 300 px. Off-screen check (fm4dev\ui\donor\scale.exe):
+  1458 -> 900, 1924 -> 1174, 884 -> 539. Exe 23:33.
+- Open question to the user: "regression" on moving a whole part node (exhausta) vs only its materials.
 
 ### D. Materials and textures
 

@@ -543,6 +543,36 @@ namespace ForzaStudio
             return false;
         }
 
+        // The name a copied part gets: its own when free here, else the next free variant as SuggestPartName gives it
+        // (exhausta -> exhaustb, else name_2, name_3...), against the names of all this car's model files.
+        private static string FreePartName(string name, ICollection<string> taken)
+        {
+            if (!taken.Contains(name))
+            {
+                return name;
+            }
+            char last = name[name.Length - 1];
+            if (last >= 'a' && last < 'z')
+            {
+                for (char c = (char) (last + 1); c <= 'z'; c++)
+                {
+                    string candidate = name.Substring(0, name.Length - 1) + c;
+                    if (!taken.Contains(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+            for (int i = 2; ; i++)
+            {
+                string candidate = name + "_" + i;
+                if (!taken.Contains(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
         // A free name for a sibling part: exhausta -> exhaustb (next variant letter), else name_2, name_3...
         private string SuggestPartName(string name)
         {
@@ -761,7 +791,6 @@ namespace ForzaStudio
 
         private void ImportPartFromCar()
         {
-            string selected = this.editSection;
             ForzaZip source;
             string sourceFolder;
             string sourceLabel;
@@ -780,13 +809,39 @@ namespace ForzaStudio
             CarbinModel targetMain;
             try
             {
-                sourceMain = new CarbinModel(source.Read(sourceFiles[""]));
+                byte[] sourceData = source.Read(sourceFiles[""]);
+                // FM2 cars: refused like FM3 ones, for now (user 2026-11-16)
+                if (CarbinFormat.Identify(sourceData).Family == CarbinFamily.Motorsport2)
+                {
+                    throw new NotSupportedException("Forza Motorsport 2 .carbin: it can be read for study, but copying parts from FM2 models is not supported.");
+                }
+                sourceMain = new CarbinModel(sourceData);
                 targetMain = new CarbinModel(this.zip.Read(targetFiles[""]));
+                // FH1 / FH2 cars (FH carbin, type 5): refused like FM3 ones, for now (user 2026-11-16)
+                if (sourceMain.IsHorizon)
+                {
+                    throw new NotSupportedException("Forza Horizon .carbin: it can be read for study, but copying parts from FH models is not supported.");
+                }
             }
             catch (Exception exception)
             {
                 MessageBox.Show(this, exception.Message, "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return;
+            }
+            // every part name of this car's model files: a copied part is added under a free name (never replaces by itself)
+            HashSet<string> taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, ForzaZip.Entry> pair in targetFiles)
+            {
+                try
+                {
+                    foreach (CarbinModel.Section section in ((pair.Key.Length == 0) ? targetMain : new CarbinModel(this.zip.Read(pair.Value))).Sections)
+                    {
+                        taken.Add(section.Name);
+                    }
+                }
+                catch (NotSupportedException)
+                {
+                }
             }
 
             List<object[]> rows = new List<object[]>();
@@ -822,7 +877,8 @@ namespace ForzaStudio
             }
             targetNames.Sort(StringComparer.OrdinalIgnoreCase);
             replace.Items.AddRange(targetNames.ToArray());
-            replace.SelectedIndex = (selected != null && targetNames.Contains(selected)) ? targetNames.IndexOf(selected) + 1 : 0;
+            // user 2026-11-16: by default nothing is replaced; replacing is the user's choice in this box
+            replace.SelectedIndex = 0;
             Label nameLabel = new Label();
             nameLabel.Text = "Name in this car:";
             nameLabel.AutoSize = true;
@@ -831,12 +887,17 @@ namespace ForzaStudio
             name.Location = new System.Drawing.Point(130, 33);
             name.Width = 200;
             name.BorderStyle = BorderStyle.FixedSingle;
-            name.Text = (replace.SelectedIndex > 0) ? (string) replace.SelectedItem : "";
+            name.Text = "";
+            string currentPart = null;     // the highlighted row: its free name is proposed while nothing is replaced
             replace.SelectedIndexChanged += delegate
             {
                 if (replace.SelectedIndex > 0)
                 {
                     name.Text = (string) replace.SelectedItem;
+                }
+                else if (currentPart != null)
+                {
+                    name.Text = FreePartName(currentPart, taken);
                 }
             };
             CheckBox align = new CheckBox();
@@ -855,7 +916,7 @@ namespace ForzaStudio
             fit.AutoSize = true;
             fit.Location = new System.Drawing.Point(0, 84);
             Label multiNote = new Label();
-            multiNote.Text = "Several parts (tick them): each keeps its name and replaces this car's part of the same name, if any.";
+            multiNote.Text = "Several parts (tick them): each is added as a new part, under its name or the next free one.";
             multiNote.AutoSize = true;
             multiNote.Location = new System.Drawing.Point(0, 128);
             extra.Size = new Size(620, 148);
@@ -870,11 +931,50 @@ namespace ForzaStudio
             {
                 pick.MultiSelect = true;
                 pick.AcceptLabel = delegate(int n) { return (n == 1) ? "Copy part" : "Copy " + n + " parts"; };
+                // the source car in a small viewport, the highlighted / ticked parts selected (orange); no textures
+                // (user 2026-11-16: see the part being picked, "usa tecnica viewport", "non visualizzare texture")
+                PartPreviewControl preview = new PartPreviewControl();
+                try
+                {
+                    string mainName = sourceFiles[""].Name;
+                    ForzaZip.Entry settingsEntry = source.Find(mainName.Substring(0, mainName.LastIndexOf('/') + 1) + "shadersettings.xml");
+                    ShaderSettings settings = null;
+                    try
+                    {
+                        settings = (settingsEntry != null) ? ShaderSettings.Parse(source.Read(settingsEntry)) : null;
+                    }
+                    catch (Exception)
+                    {
+                        settings = null;   // the default look of each material
+                    }
+                    preview.LoadModel(mainName, source.Read(sourceFiles[""]), delegate(string technique) { return ShaderValues(settings, technique); });
+                }
+                catch (Exception)
+                {
+                    // no picture: the list works as before
+                }
+                pick.DoubleClickAccepts = false;     // only the Copy button copies (a stray double-click did)
+                pick.AddPreview(preview, 900);
+                pick.SelectionChanged += delegate
+                {
+                    preview.ShowParts(pick.MarkedKeys.ConvertAll(delegate(object key) { return (string) key; }));
+                };
                 pick.SelectionChanged += delegate
                 {
                     bool one = pick.SelectedCount <= 1;
                     replace.Enabled = one;
                     name.Enabled = one;
+                    List<object> marked = pick.MarkedKeys;
+                    string part = (marked.Count > 0) ? (string) marked[marked.Count - 1] : null;
+                    if (one && part != null && part != currentPart)
+                    {
+                        currentPart = part;
+                        if (replace.SelectedIndex == 0)
+                        {
+                            // exhausta here already: exhaustb (if free); not here: its own name
+                            name.Text = FreePartName(part, taken);
+                        }
+                    }
                 };
                 if (pick.ShowDialog(this) != DialogResult.OK)
                 {
@@ -884,14 +984,27 @@ namespace ForzaStudio
                 {
                     string part = (string) pick.SelectedKey;
                     string newName = name.Text.Trim();
-                    plan.Add(new string[] { part, (newName.Length == 0) ? part : newName, (replace.SelectedIndex > 0) ? (string) replace.SelectedItem : null });
+                    bool replacing = replace.SelectedIndex > 0;
+                    if (newName.Length == 0)
+                    {
+                        newName = replacing ? (string) replace.SelectedItem : FreePartName(part, taken);
+                    }
+                    if (!replacing && taken.Contains(newName))
+                    {
+                        MessageBox.Show(this, "This car already has a part named " + newName + ". Give the new part a free name, or choose it in \"Replace in this car\".", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    plan.Add(new string[] { part, newName, replacing ? (string) replace.SelectedItem : null });
                 }
                 else
                 {
+                    // several: each added as a new part, its own name or the next free one (none replaced)
                     foreach (object key in pick.SelectedKeys)
                     {
                         string part = (string) key;
-                        plan.Add(new string[] { part, part, targetNames.Contains(part) ? part : null });
+                        string newName = FreePartName(part, taken);
+                        taken.Add(newName);
+                        plan.Add(new string[] { part, newName, null });
                     }
                 }
                 alignChecked = align.Checked;
