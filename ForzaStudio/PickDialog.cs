@@ -297,11 +297,28 @@ namespace ForzaStudio
             }
         }
 
+        // A row selected (and focused) when the dialog opens, so Enter / the accept button takes it; null = none.
+        public object Preselect;
+
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
             this.filling = false;
             this.search.Focus();
+            if (this.Preselect != null)
+            {
+                foreach (ListViewItem item in this.list.Items)
+                {
+                    if (object.Equals(item.Tag, this.Preselect))
+                    {
+                        item.Selected = true;
+                        item.Focused = true;
+                        item.EnsureVisible();
+                        this.list.Focus();
+                        break;
+                    }
+                }
+            }
         }
 
         private void Filter()

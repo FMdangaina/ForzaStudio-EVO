@@ -809,24 +809,73 @@ namespace ForzaStudio
             }
             Dictionary<string, ForzaZip.Entry> sourceFiles = this.CarModelFiles(source, sourceFolder);
             Dictionary<string, ForzaZip.Entry> targetFiles = this.CarModelFiles(this.zip, this.ModelFolder);
+            // the model file open in the viewer: the copy goes ONLY into it (user 2026-11-17: "mi sta bene la regola
+            // import solo su lod aperto"); main when no _lod0 / _cockpit file is open
+            string fileKey = "";
+            foreach (KeyValuePair<string, ForzaZip.Entry> pair in targetFiles)
+            {
+                if (pair.Value == this.currentEntry)
+                {
+                    fileKey = pair.Key;
+                }
+            }
             if (!sourceFiles.ContainsKey("") || !targetFiles.ContainsKey(""))
             {
                 MessageBox.Show(this, "Both cars need their main model (.carbin next to the _lod0.carbin).", "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+            // the source file is the user's choice (user 2026-11-17: "mi fai scegliere il file main, lod0 o cockpit, per
+            // assurdo anche freni e dischi"; an FM2 car has only its main model)
+            string sourceKey = this.PickPartSourceFile(source, sourceFolder, sourceFiles, fileKey, sourceLabel);
+            if (sourceKey == null)
+            {
+                return;
+            }
+            Dictionary<string, ForzaZip.Entry> chosenFiles = new Dictionary<string, ForzaZip.Entry>();
+            chosenFiles[""] = sourceFiles[""];          // the game check and the conversion read the main model
+            chosenFiles[sourceKey] = sourceFiles[sourceKey];
+            sourceFiles = chosenFiles;
             CarbinModel sourceMain;
             CarbinModel targetMain;
+            // The source car's model files in this car's game form (ST-03, PartSource): an FM4 car as it is, an FM3
+            // or FH1 / FH2 car converted in memory as the ports convert it. FM2 cars are still refused there.
+            Dictionary<string, byte[]> sourceData = new Dictionary<string, byte[]>();
+            List<string> sourceNotes = new List<string>();
+            Dictionary<string, List<string>> sourceUnknown = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             try
             {
-                byte[] sourceData = source.Read(sourceFiles[""]);
-                // FM2 cars: refused like FM3 ones, for now (user 2026-11-16)
-                if (CarbinFormat.Identify(sourceData).Family == CarbinFamily.Motorsport2)
+                Cursor.Current = Cursors.WaitCursor;
+                foreach (KeyValuePair<string, ForzaZip.Entry> pair in sourceFiles)
                 {
-                    throw new NotSupportedException("Forza Motorsport 2 .carbin: it can be read for study, but copying parts from FM2 models is not supported.");
+                    sourceData[pair.Key] = source.Read(pair.Value);
                 }
-                sourceMain = new CarbinModel(sourceData);
-                targetMain = new CarbinModel(this.zip.Read(targetFiles[""]));
-                // FH1 / FH2 cars (FH carbin, type 5): refused like FM3 ones, for now (user 2026-11-16)
+                byte[] targetMainData = this.zip.Read(targetFiles[""]);
+                CarbinFamily sourceGame = CarbinFormat.Identify(sourceData[""]).Family;
+                CarbinFamily targetGame = CarbinFormat.Identify(targetMainData).Family;
+                if (sourceGame != targetGame && targetGame != CarbinFamily.Motorsport4)
+                {
+                    throw new NotSupportedException(string.Format("Copying a part from a {0} car into a {1} car is not supported yet (today: FM4, FM3, FH1 and FH2 into FM4).", PartSource.GameName(sourceGame), PartSource.GameName(targetGame)));
+                }
+                if (sourceGame != targetGame)
+                {
+                    // this car's model files: an FH part takes its damage words from them (PartSource)
+                    Dictionary<string, byte[]> targetData = new Dictionary<string, byte[]>();
+                    foreach (KeyValuePair<string, ForzaZip.Entry> pair in targetFiles)
+                    {
+                        targetData[pair.Key] = (pair.Key.Length == 0) ? targetMainData : this.zip.Read(pair.Value);
+                    }
+                    sourceData = PartSource.ForMotorsport4(sourceData, sourceNotes, sourceUnknown, targetData);
+                    sourceLabel += " (" + PartSource.GameName(sourceGame) + ")";
+                }
+                // the list and the preview show the chosen source file; the copy goes into the open file only
+                sourceMain = new CarbinModel(sourceData[sourceKey]);
+                targetMain = new CarbinModel((fileKey.Length == 0) ? targetMainData : this.zip.Read(targetFiles[fileKey]));
+                if (sourceMain.DrawLists.Count / 2 == 1 && targetMain.DrawLists.Count / 2 > 1)
+                {
+                    throw new NotSupportedException(string.Format("The source's {0} model has LOD 0 only, and this car's main model needs LODs 1-5. Open this car's lod0 or cockpit model to copy into it, or choose the source's main model.", PartImport.FileLabel(sourceKey)));
+                }
+                sourceLabel += " - " + PartImport.FileLabel(sourceKey) + " model, into this car's " + PartImport.FileLabel(fileKey);
+                // FH1 / FH2 cars into an FH car: refused, for now (user 2026-11-16). Into FM4 they arrive converted above.
                 if (sourceMain.IsHorizon)
                 {
                     throw new NotSupportedException("Forza Horizon .carbin: it can be read for study, but copying parts from FH models is not supported.");
@@ -834,8 +883,13 @@ namespace ForzaStudio
             }
             catch (Exception exception)
             {
+                Cursor.Current = Cursors.Default;
                 MessageBox.Show(this, exception.Message, "Import Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return;
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
             }
             // every part name of this car's model files: a copied part is added under a free name (never replaces by itself)
             HashSet<string> taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -843,7 +897,7 @@ namespace ForzaStudio
             {
                 try
                 {
-                    foreach (CarbinModel.Section section in ((pair.Key.Length == 0) ? targetMain : new CarbinModel(this.zip.Read(pair.Value))).Sections)
+                    foreach (CarbinModel.Section section in ((pair.Key == fileKey) ? targetMain : new CarbinModel(this.zip.Read(pair.Value))).Sections)
                     {
                         taken.Add(section.Name);
                     }
@@ -914,11 +968,8 @@ namespace ForzaStudio
             align.Checked = true;
             align.AutoSize = true;
             align.Location = new System.Drawing.Point(0, 62);
-            CheckBox regions = new CheckBox();
-            regions.Text = "Use this car's texture regions for its materials";
-            regions.Checked = true;
-            regions.AutoSize = true;
-            regions.Location = new System.Drawing.Point(0, 106);
+            // no "Use this car's texture regions" box any more: a copied part's UV1 / UV2 are never touched (user rule
+            // 2026-11-17, PartImport)
             CheckBox fit = new CheckBox();
             fit.Text = "Also scale it to the replaced part's size (same proportions)";
             fit.Checked = false;
@@ -927,15 +978,14 @@ namespace ForzaStudio
             Label multiNote = new Label();
             multiNote.Text = "Several parts (tick them): each is added as a new part, under its name or the next free one.";
             multiNote.AutoSize = true;
-            multiNote.Location = new System.Drawing.Point(0, 128);
-            extra.Size = new Size(620, 148);
-            extra.Controls.AddRange(new Control[] { replaceLabel, replace, nameLabel, name, align, fit, regions, multiNote });
+            multiNote.Location = new System.Drawing.Point(0, 106);
+            extra.Size = new Size(620, 126);
+            extra.Controls.AddRange(new Control[] { replaceLabel, replace, nameLabel, name, align, fit, multiNote });
 
             // part (source) -> its name in this car and the part it replaces (null = added)
             List<string[]> plan = new List<string[]>();
             bool alignChecked;
             bool fitChecked;
-            bool regionsChecked;
             using (PickDialog pick = new PickDialog("Import Part From " + sourceLabel, new string[] { "Part", "Materials", "Damage" }, new int[] { 160, 260, 90 }, rows, extra))
             {
                 pick.MultiSelect = true;
@@ -945,7 +995,7 @@ namespace ForzaStudio
                 PartPreviewControl preview = new PartPreviewControl();
                 try
                 {
-                    string mainName = sourceFiles[""].Name;
+                    string mainName = sourceFiles[sourceKey].Name;
                     ForzaZip.Entry settingsEntry = source.Find(mainName.Substring(0, mainName.LastIndexOf('/') + 1) + "shadersettings.xml");
                     ShaderSettings settings = null;
                     try
@@ -956,7 +1006,7 @@ namespace ForzaStudio
                     {
                         settings = null;   // the default look of each material
                     }
-                    preview.LoadModel(mainName, source.Read(sourceFiles[""]), delegate(string technique) { return ShaderValues(settings, technique); });
+                    preview.LoadModel(mainName, sourceData[sourceKey], delegate(string technique) { return ShaderValues(settings, technique); });
                 }
                 catch (Exception)
                 {
@@ -1018,23 +1068,81 @@ namespace ForzaStudio
                 }
                 alignChecked = align.Checked;
                 fitChecked = fit.Checked;
-                regionsChecked = regions.Checked;
             }
-            this.RunPartImport(source, sourceFiles, targetFiles, sourceLabel, plan, alignChecked, fitChecked, regionsChecked);
+            this.RunPartImport(sourceData, sourceNotes, sourceUnknown, targetFiles, sourceLabel, plan, alignChecked, fitChecked, fileKey, sourceKey);
+        }
+
+        // The source car's model file to copy from: main, lod0, cockpit and its brake files (calipers, rotors), the one
+        // of the open file's kind proposed. Keys: "" / "_lod0" / "_cockpit" as CarModelFiles, a brake file "_<rest>"
+        // ("_caliperlf_lod0"). Adds the brake entries to 'files'. One file only (FM2): taken without asking. Null = cancel.
+        private string PickPartSourceFile(ForzaZip source, string folder, Dictionary<string, ForzaZip.Entry> files, string openKey, string sourceLabel)
+        {
+            string mainName = files[""].Name;
+            string carBase = mainName.Substring(0, mainName.Length - ".carbin".Length);
+            foreach (ForzaZip.Entry entry in source.Entries)
+            {
+                string name = entry.Name;
+                string lower = name.ToLowerInvariant();
+                if (!lower.StartsWith(folder.ToLowerInvariant()) || !lower.EndsWith(".carbin") || name.IndexOf('/', folder.Length) >= 0
+                    || lower.Substring(folder.Length).StartsWith("stripped_") || files.ContainsValue(entry))
+                {
+                    continue;
+                }
+                string rest = name.StartsWith(carBase, StringComparison.OrdinalIgnoreCase) ? name.Substring(carBase.Length) : "_" + name.Substring(folder.Length);
+                string key = rest.Substring(0, rest.Length - ".carbin".Length);
+                if (!files.ContainsKey(key))
+                {
+                    files[key] = entry;
+                }
+            }
+            if (files.Count == 1)
+            {
+                return "";
+            }
+            List<object[]> rows = new List<object[]>();
+            Dictionary<string, string> keyOf = new Dictionary<string, string>();
+            foreach (string key in new string[] { "", "_lod0", "_cockpit" })
+            {
+                if (files.ContainsKey(key))
+                {
+                    keyOf[PartImport.FileLabel(key)] = key;
+                    rows.Add(new object[] { PartImport.FileLabel(key), files[key].Name.Substring(folder.Length), (key.Length == 0) ? "LODs 1-5" : "LOD 0 (close up)" });
+                }
+            }
+            List<string> others = new List<string>(files.Keys);
+            others.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (string key in others)
+            {
+                if (key != "" && key != "_lod0" && key != "_cockpit")
+                {
+                    keyOf[PartImport.FileLabel(key)] = key;
+                    rows.Add(new object[] { PartImport.FileLabel(key), files[key].Name.Substring(folder.Length), "brake" });
+                }
+            }
+            using (PickDialog pick = new PickDialog("Copy From Which File Of " + sourceLabel + " (into this car's " + PartImport.FileLabel(openKey) + " model)", new string[] { "File", "Name", "Kind" }, new int[] { 140, 300, 120 }, rows, null))
+            {
+                pick.Preselect = files.ContainsKey(openKey) ? PartImport.FileLabel(openKey) : PartImport.FileLabel("");
+                if (pick.ShowDialog(this) != DialogResult.OK)
+                {
+                    return null;
+                }
+                return keyOf[(string) pick.SelectedKey];
+            }
         }
 
         // Builds the whole import first (PartImport: all files, checks), asks on which LODs a moved part is moved,
         // shows the log as a preview, and only then puts the files in the archive (pending until Save).
-        private void RunPartImport(ForzaZip source, Dictionary<string, ForzaZip.Entry> sourceFiles, Dictionary<string, ForzaZip.Entry> targetFiles, string sourceLabel, List<string[]> plan, bool alignChecked, bool fitChecked, bool regionsChecked)
+        private void RunPartImport(Dictionary<string, byte[]> sourceData, List<string> sourceNotes, Dictionary<string, List<string>> sourceUnknown, Dictionary<string, ForzaZip.Entry> targetFiles, string sourceLabel, List<string[]> plan, bool alignChecked, bool fitChecked, string onlyFile, string sourceFile)
         {
             PartImport import = new PartImport();
-            import.UseOwnRegions = regionsChecked;
+            import.SourceFile = sourceFile;     // the source car's chosen file (may differ in kind from onlyFile)
+            import.OnlyFile = onlyFile;     // the open file's kind only (null = every file, as before)
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
-                foreach (KeyValuePair<string, ForzaZip.Entry> pair in sourceFiles)
+                foreach (KeyValuePair<string, byte[]> pair in sourceData)
                 {
-                    import.Source[pair.Key] = source.Read(pair.Value);
+                    import.Source[pair.Key] = pair.Value;     // already in this car's game form (PartSource)
                 }
                 foreach (KeyValuePair<string, ForzaZip.Entry> pair in targetFiles)
                 {
@@ -1059,7 +1167,15 @@ namespace ForzaStudio
             }
 
             // User rule (ST-03): moving / scaling is never applied to every LOD silently - ask which files.
-            if (anyMove)
+            // One file chosen (the open one): the move applies to that file, the one the user is working on.
+            if (anyMove && onlyFile != null)
+            {
+                foreach (PartImport.Step s in import.Steps)
+                {
+                    s.MoveIn = new List<string> { onlyFile };
+                }
+            }
+            else if (anyMove)
             {
                 List<string> moveIn = this.AskMoveLods(import, sourceLabel);
                 if (moveIn == null)
@@ -1088,8 +1204,17 @@ namespace ForzaStudio
                 Cursor.Current = Cursors.Default;
             }
 
+            // A part from another game: a material of it that no FM4 car uses is said (it may render black).
+            foreach (string warning in PartSource.UnknownMaterialWarnings(import.Source, import.Steps, sourceUnknown))
+            {
+                import.Warnings.Add(warning);
+            }
             System.Text.StringBuilder text = new System.Text.StringBuilder();
             text.AppendFormat("Import from {0}\r\n\r\n", sourceLabel);
+            foreach (string line in sourceNotes)
+            {
+                text.AppendLine(line);
+            }
             foreach (string line in import.Log)
             {
                 text.AppendLine(line);

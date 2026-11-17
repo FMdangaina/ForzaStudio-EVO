@@ -25,7 +25,20 @@ namespace ForzaStudio
         public Dictionary<string, byte[]> Source = new Dictionary<string, byte[]>();
         public Dictionary<string, byte[]> Target = new Dictionary<string, byte[]>();
         public List<Step> Steps = new List<Step>();
-        public bool UseOwnRegions = true;
+        // NO UV region remap (user rule 2026-11-17: "UV1 e UV2 non devono essere toccati"). Until then the copy took,
+        // by default, the UV offset / scale of this car's material of the same name ("Use this car's texture regions"),
+        // which squeezed the part's UV1 / UV2 into another layout. A copied part keeps its UVs exactly; harness pi3
+        // checks every vertex.
+        // The one model file of THIS car the parts go into: the file open in the viewer ("" main, "_lod0", "_cockpit").
+        // User 2026-11-17: "mi sta bene la regola import solo su lod aperto". The replaced part and the placement are
+        // that file's. null = every file that has the part, placed by the main model (the behaviour before 2026-11-17).
+        public string OnlyFile;
+        // The source car's file the parts come from, chosen by the user (user 2026-11-17: "mi fai scegliere il file
+        // main, lod0 o cockpit, per assurdo anche freni e dischi"): any key of Source. null = the same kind as OnlyFile.
+        // Main -> lod0 / cockpit: the part's LOD 1 becomes its close-up geometry (CarbinModel.CloseUpFromLod1, as
+        // Lod0Fill); one-LOD files (lod0, cockpit, brakes) -> lod0 / cockpit: as they are; one-LOD -> main: refused
+        // (the main model needs LODs 1-5).
+        public string SourceFile;
 
         public Dictionary<string, byte[]> Result;      // changed target files (null until Run succeeds)
         public List<string> Log = new List<string>();  // copied resources and changed references
@@ -45,17 +58,28 @@ namespace ForzaStudio
             this.Log.Clear();
             this.Warnings.Clear();
             this.Moves.Clear();
-            if (!this.Source.ContainsKey("") || !this.Target.ContainsKey(""))
+            string refKey = this.OnlyFile ?? "";
+            string sourceKey = (this.OnlyFile != null) ? (this.SourceFile ?? this.OnlyFile) : "";
+            if ((this.OnlyFile == null && !this.Source.ContainsKey("")) || !this.Target.ContainsKey(""))
             {
                 throw new InvalidOperationException("Both cars need their main model (.carbin next to the _lod0.carbin).");
+            }
+            if (!this.Source.ContainsKey(sourceKey))
+            {
+                throw new InvalidOperationException("The source car has no " + FileLabel(sourceKey) + " model.");
+            }
+            if (!this.Target.ContainsKey(refKey))
+            {
+                throw new InvalidOperationException("This car has no " + FileLabel(refKey) + " model to copy into.");
             }
             if (this.Steps.Count == 0)
             {
                 throw new InvalidOperationException("No part chosen.");
             }
             Dictionary<string, string> sourceHash = Hashes(this.Source);
-            CarbinModel sourceMain = Open(this.Source[""], "source main model");
-            CarbinModel targetMain = Open(this.Target[""], "this car's main model (it must be editable)");
+            // the reference files: the parts must exist in the source one and are placed by it (main, or the chosen file)
+            CarbinModel targetMain = Open(this.Target[refKey], "this car's " + FileLabel(refKey) + " model (it must be editable)");
+            CarbinModel sourceMain = this.SourceModel(sourceKey, refKey, targetMain);
 
             // Plan checks: the parts exist, names stay unique.
             List<string> targetNames = new List<string>();
@@ -68,7 +92,8 @@ namespace ForzaStudio
             {
                 if (sourceMain.Find(step.Part) == null)
                 {
-                    throw new InvalidOperationException("The source car has no part " + step.Part + " in its main model.");
+                    throw new InvalidOperationException("The source car has no part " + step.Part + " in its " + FileLabel(sourceKey) + " model"
+                        + ((sourceKey.Length == 0 && refKey.Length > 0) ? " with a LOD 1 to use up close." : "."));
                 }
                 if (string.IsNullOrEmpty(step.NewName))
                 {
@@ -142,17 +167,25 @@ namespace ForzaStudio
             foreach (string key in Order)
             {
                 byte[] targetBytes;
-                if (!this.Target.TryGetValue(key, out targetBytes))
+                if ((this.OnlyFile != null && key != this.OnlyFile) || !this.Target.TryGetValue(key, out targetBytes))
                 {
                     continue;
                 }
-                byte[] sourceBytes;
-                if (!this.Source.TryGetValue(key, out sourceBytes))
+                CarbinModel sourceModel;
+                if (this.OnlyFile != null)
                 {
-                    this.Warnings.Add(string.Format("{0}: the source car has no such file, nothing copied there", FileLabel(key)));
-                    continue;
+                    sourceModel = sourceMain;     // the chosen source file, in this file's LOD layout (SourceModel)
                 }
-                CarbinModel sourceModel = Open(sourceBytes, "source " + FileLabel(key));
+                else
+                {
+                    byte[] sourceBytes;
+                    if (!this.Source.TryGetValue(key, out sourceBytes))
+                    {
+                        this.Warnings.Add(string.Format("{0}: the source car has no such file, nothing copied there", FileLabel(key)));
+                        continue;
+                    }
+                    sourceModel = Open(sourceBytes, "source " + FileLabel(key));
+                }
                 CarbinModel model = null;
                 for (int i = 0; i < this.Steps.Count; i++)
                 {
@@ -171,7 +204,7 @@ namespace ForzaStudio
                         model.RemoveSection(step.Replaced);
                         this.Log.Add(string.Format("{0}: part {1} removed", FileLabel(key), step.Replaced));
                     }
-                    string report = model.ImportSection(sourceModel, step.Part, step.NewName, this.UseOwnRegions);
+                    string report = model.ImportSection(sourceModel, step.Part, step.NewName, false);
                     foreach (string line in report.Split(new string[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries))
                     {
                         this.Log.Add(FileLabel(key) + ": " + line);
@@ -260,7 +293,7 @@ namespace ForzaStudio
             }
             foreach (string material in missingMaterials)
             {
-                this.Warnings.Add("material " + material + " is not used by this car: the part keeps the source car's region of it (texture may look wrong)");
+                this.Warnings.Add("material " + material + " is not used by this car: this car has no texture laid out for it (the part's UVs are kept as they are)");
             }
             if (result.Count == 0)
             {
@@ -275,6 +308,37 @@ namespace ForzaStudio
                 }
             }
             this.Result = result;
+        }
+
+        // The chosen source file in the LOD layout of this car's target file (see SourceFile).
+        private CarbinModel SourceModel(string sourceKey, string targetKey, CarbinModel target)
+        {
+            CarbinModel source = Open(this.Source[sourceKey], "source " + FileLabel(sourceKey) + " model");
+            int sourceLods = source.DrawLists.Count / 2;
+            int targetLods = target.DrawLists.Count / 2;
+            if (sourceLods == targetLods)
+            {
+                return source;      // same layout: main -> main, lod0 / cockpit / brake -> lod0 / cockpit
+            }
+            if (targetLods == 1 && sourceLods > 1)
+            {
+                // a main-model part up close: its LOD 1 as LOD 0, materials named as in a close-up file (as Lod0Fill)
+                List<string> parts = new List<string>();
+                foreach (Step step in this.Steps)
+                {
+                    parts.Add(step.Part);
+                }
+                CarbinModel closeUp = source.CloseUpFromLod1(target.Head, delegate(string name) { return parts.Contains(name); });
+                foreach (CarbinModel.Section section in closeUp.Sections)
+                {
+                    List<string> renamed = Lod0Fill.CloseUpMaterials(section, (targetKey == "_cockpit") ? "_cockpit" : "_lod0");
+                    this.Log.Add(string.Format("{0}: LOD 1 of the source's main model used as its {1} geometry{2}", section.Name, FileLabel(targetKey),
+                        (renamed.Count > 0) ? " (materials " + string.Join(", ", renamed.ToArray()) + ")" : ""));
+                }
+                return closeUp;
+            }
+            throw new InvalidOperationException(string.Format("A part of the source's {0} model has LOD 0 only; this car's {1} model needs LODs 1 to {2}. Open this car's lod0 or cockpit model, or copy from the source's main model.",
+                FileLabel(sourceKey), FileLabel(targetKey), targetLods));
         }
 
         private static CarbinModel Open(byte[] bytes, string what)

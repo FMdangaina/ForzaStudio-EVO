@@ -90,3 +90,106 @@ Sprint 2 is `ROADMAP.md` goal 21.
 
 What is left of ST-03 when it resumes: the in-game checks above (FM4 import on two cars, the Cayenne's Edo logo, an
 FM2-ported car up close), then part import for FM3, then FM2.
+
+## RESUMED 2026-11-17 (workflow steps A-E closed)
+
+SCOPE set by the user: copy parts FROM FH1 / FH2 into every Motorsport, and between the Motorsports in both
+directions: 2 -> 3, 3 -> 2, 2 -> 4, 4 -> 2, 3 -> 4, 4 -> 3. Order: one pair at a time, each checked by the user.
+
+| Source -> target | State |
+|---|---|
+| FM4 -> FM4 | done (2026-11-15), in-game check pending |
+| FM3 -> FM4 | done 2026-11-17, OK in app + game (Abarth 500) |
+| FH1 / FH2 -> FM4 | done 2026-11-17, OK in app + game (Abarth 500) |
+| FM2 -> FM4 | to do: FM2 has only the main model and its port goes through OBJ onto a donor (Fm2Source) |
+| any -> FM3, any -> FM2 | to do: CarbinModel does not edit FM3 / FM2 models today (the targets must become editable first) |
+
+### FM3 -> FM4 (2026-11-17)
+
+- `PartSource.cs`: `ForMotorsport4(files, notes, unknown)` gives the source car's model files ("" / _lod0 / _cockpit)
+  in FM4 form. An FM4 car: as it is. An FM3 car: every file through `CarPort.ConvertModel`, the conversion of the
+  FM3 -> FM4 car port (header, sections, vertices, FM4 material names, _lod0 light variants in the _lod0 file), so
+  the copied part is what it would be in the ported car. FM2 / FH: still refused with the old messages.
+- Copy Part (`ImportPartFromCar`): the source files are read once, converted in memory when the source game differs
+  from this car's (target must be FM4), and the same bytes feed the part list, the viewport preview and PartImport.
+  The source label gets the game name; the report starts with "source ... model converted from Forza Motorsport 3".
+- A copied part carrying a material no FM4 car uses gets a WARNING (`UnknownMaterialWarnings`: "may render black,
+  Rename Material in the tree"). No name is invented.
+- Nothing of the FM3 car is written. Textures are NOT copied: the part uses this car's textures through its
+  materials, as in FM4 -> FM4 (option "Use this car's texture regions").
+- Harness `E:\DEV\fm4dev\ST03\fm3\pi3.exe <FM4 root> <FM3 root> [cars] [seed] [FM2 root] [FH root]` (read-only):
+  10 random FM4_DEV targets x random FM3 sources, a part both have, runs A-D as pi.exe plus: every converted file
+  re-reads as FM4 with the FM3 file's parts and vertex counts, an unmoved copy sits where the FM3 file has it,
+  FM3 bytes unchanged, FM2 / FH sources refused. 2026-11-17: runs 72, fails 0 (pi3_10.txt). "All cars" run: ask.
+
+### FH1 / FH2 -> FM4 (2026-11-17)
+
+User rules: "deformazione di fh1 e 2 prende sempre da donor i punti" and "parti stripped non devono manco essere
+considerate".
+
+- `PartSource.ForMotorsport4(files, notes, unknown, target)`: an FH car goes through `CarPort.ConvertModel` as an FM3
+  one. Before that, every stripped FH mesh (no index list, `SubSection.Stripped`) is removed, and a part made only of
+  them goes (`WithoutStripped`); nothing is said about them. `stripped_*.carbin` files were never read (CarModelFiles).
+- Damage words: an FH part never keeps its own words. The target car's model file of the same kind (main / _lod0 /
+  _cockpit) is the reference, `DamageByShape = true` (another car: matched by place in the section box), as the FH ->
+  FM4 port does with its donor. The report says where the words came from; when the target lacks that file (no
+  _cockpit) the FH words stay and the report says the part may deform badly.
+- Copy Part (`ImportPartFromCar`) passes this car's model files to PartSource. FH into an FH car is still refused.
+- Harness `pi3.exe <FM4 root> <FH root> [cars] [seed]` (same pi3, the source root may be FM3 or FH): also checks no
+  stripped mesh is left, parts with stripped meshes keep the others, and the damage note for each file.
+
+### The open file decides (2026-11-17)
+
+User: "quando chiedo di portare da auto devi permettermi di scegliere il file .carbin" (with the FM4 _lod0 open and
+the FM3 8C as source only the main model's parts were listed: a seat or a steering wheel living in the cockpit could
+not be copied), then "se apro lod0 copi da lod0, se apro cockpit copi da cockpit, se apro normale copi da normale",
+and "solo nel file scelto".
+
+- `ImportPartFromCar`: the kind of model file open in the viewer (main / _lod0 / _cockpit; main when none of them is
+  open) is the one the part list, the preview and the copy use. The source car without that file: a message.
+- `PartImport.OnlyFile`: parts, replaced part and placement are that file's; only that file is written. null keeps
+  the old "every file that has the part" behaviour (harness only today).
+- With one file there is no "move on which LODs" question: the move applies to the open file, the one chosen.
+- F1 help GOOD TO KNOW: "Copy Part file", "Copy Part from FH".
+- Harness pi3 run E: a random part of the source _lod0 / _cockpit copied with OnlyFile, only that file written,
+  other parts untouched. 2026-11-17, 10 random targets each: FH1 90/0, FH2 90/0, FM3 91/0 (pih1_10.txt,
+  pih2_10.txt, pi3_10b.txt); no FH car model file had stripped meshes (only stripped_*.carbin files have them).
+
+### UV1 / UV2 never touched (2026-11-17, user: "si sballa il uv map quando portiamo pezzi da gioco a gioco... UV1 e UV2 non devono essere toccati")
+
+- Cause: Copy Part had "Use this car's texture regions for its materials", ticked by default: `ImportSection` gave
+  each copied subsection the UV offset / scale of this car's material of the same name, so UV1 and UV2 were squeezed
+  into another layout (old exe in harness pi3: up to 4.8 UV units moved, 75-126 failing runs per game).
+- Fix: the box is gone and `PartImport` always calls `ImportSection(..., false)`; the UV params and the raw UV bytes
+  of a copied part are the source's. The "material not used by this car" warning now says the UVs are kept.
+- Harness pi3 compares UV1 + UV2 at every index position of every copied part (all modes, E and X below):
+  2026-11-17 0 differences (FH1 669k, FH2 373k, FM3 656k vertex uses).
+- Conversion to FM4 form (PartSource -> CarPort.ConvertModel, the ports' own conversion):
+  - FH1 / FH2: exact (max difference 0 on 3.3M / 4.3M vertex uses).
+  - FM3: FM3 stores UVs as half floats, FM4 as unorm16 inside each subsection group's min..max range. Where an FM3
+    group spans a huge range (FOR_FocusRS_09 lod0 bumperFrace chrome U: -28304..39232; BMW_M3E30_91 UV2 holds
+    values like -40..83, and 55370 on frame) the 16-bit step grows: harness max 0.06 (seed 20261117) and 0.51 (Focus
+    chrome) UV units, median 0.0035, on 38 of the sampled section files. This is the FM3 -> FM4 port's behaviour too,
+    a precision limit of the FM4 encoding, not a remap. User 2026-11-17: "lascia così le uv fm3" - kept as is.
+- Diagnostic `E:\DEV\fm4dev\ST03\fm3\uvdiag.exe <FM3 zip> <main|_lod0|_cockpit> <section>` lists the worst vertices.
+
+### Source file chosen, target = the open file (2026-11-17, replaces "The open file decides" above)
+
+User: "non fare che se apro cockpit mi dai solo cockpit dell'altra auto... da fm2 non ho cockpit non ho manco lod0...
+mi fai scegliere il file main, lod0 o cockpit (per assurdo anche freni e dischi). mi sta bene la regola import solo
+su lod aperto".
+
+- After the car, `PickPartSourceFile` lists the source car's main, lod0, cockpit and brake files (calipers, rotors;
+  key "_<rest>"), the open file's kind preselected (`PickDialog.Preselect`); one file only (FM2): no question.
+- `PartImport.SourceFile` (source key) + `OnlyFile` (this car's open file, the only one written). `SourceModel`:
+  same LOD layout -> as is (lod0 <-> cockpit, brake -> lod0 / cockpit); main -> lod0 / cockpit -> LOD 1 through
+  `CloseUpFromLod1` with the close-up material names (`Lod0Fill.CloseUpMaterials`, shared with Lod0Fill);
+  one-LOD file -> main: refused with a message (to be decided with the user).
+- Harness pi3 run X: main->lod0, main->cockpit, lod0->cockpit, cockpit->lod0, brake->lod0 (copied, only the target
+  file written, other parts untouched, UVs identical), lod0->main (refused). 2026-11-17, 10 random targets each:
+  FH1 150/0, FH2 150/0, FM3 150 runs with 38 fails all "UV moved by the conversion" (above), copy fails 0.
+
+### App + in-game check 2026-11-17 (user, FM4 Abarth 500)
+
+Seats + steering wheel from FM3, front bumper from FH1, rear wing from FH2, file choice: OK in the app. In game:
+damage OK, the FH1 bumper deforms correctly. FM3 -> FM4 and FH1 / FH2 -> FM4 part copy: CLOSED.

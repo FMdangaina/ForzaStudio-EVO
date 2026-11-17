@@ -338,6 +338,7 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.PartEdit.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.PartImport.cs" />
     <Compile Include="ForzaStudio\PartImport.cs" />
+    <Compile Include="ForzaStudio\PartSource.cs" />
     <Compile Include="ForzaStudio\PartLogos.cs" />
     <Compile Include="ForzaStudio\Lod0Fill.cs" />
     <Compile Include="ForzaStudio\ForzaZip.History.cs" />

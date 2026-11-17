@@ -123,11 +123,39 @@ namespace ForzaStudio
             this.Result = result;
         }
 
+        // The material names a LOD 1 part takes in a close-up file (key "_lod0" or "_cockpit"); returns "old -> new"
+        // for each change. Also used by Copy Part when a main-model part goes into a lod0 / cockpit file.
+        public static List<string> CloseUpMaterials(CarbinModel.Section section, string key)
+        {
+            string fileName = "x" + key + ".carbin";
+            bool cockpit = key == "_cockpit";
+            List<string> renamed = new List<string>();
+            foreach (CarbinModel.SubSection sub in section.SubSections)
+            {
+                string name = sub.Name;
+                // FM4 light names in close-up files: tail_light_lod0 (lod0 + cockpit), reverse_light_lod0 (lod0).
+                sub.Name = CarPort.LodVariant(sub.Name, fileName);
+                // As the port does: a LOD 1 tire in LOD 0 draws the separate FM4 tire and renders black ->
+                // inner_rim (CarPort.RenameLod0Tire); the LOD 1 interior has no cockpit_ technique -> leather.
+                if (sub.Name == "tire")
+                {
+                    sub.Name = "inner_rim";
+                }
+                if (cockpit && string.Equals(sub.Name, "interior", StringComparison.OrdinalIgnoreCase))
+                {
+                    sub.Name = "leather";
+                }
+                if (sub.Name != name)
+                {
+                    renamed.Add(name + " -> " + sub.Name);
+                }
+            }
+            return renamed;
+        }
+
         private byte[] FillFile(CarbinModel main, string key, List<string> parts)
         {
             string label = PartImport.FileLabel(key);
-            string fileName = "x" + key + ".carbin";
-            bool cockpit = key == "_cockpit";
             CarbinModel target = new CarbinModel(this.Files[key]);
             List<string> before = new List<string>();
             List<string> ownMaterials = new List<string>();
@@ -171,27 +199,7 @@ namespace ForzaStudio
             Dictionary<string, int> expectedVertices = new Dictionary<string, int>();
             foreach (CarbinModel.Section section in closeUp.Sections)
             {
-                List<string> renamed = new List<string>();
-                foreach (CarbinModel.SubSection sub in section.SubSections)
-                {
-                    string name = sub.Name;
-                    // FM4 light names in close-up files: tail_light_lod0 (lod0 + cockpit), reverse_light_lod0 (lod0).
-                    sub.Name = CarPort.LodVariant(sub.Name, fileName);
-                    // As the port does: a LOD 1 tire in LOD 0 draws the separate FM4 tire and renders black ->
-                    // inner_rim (CarPort.RenameLod0Tire); the LOD 1 interior has no cockpit_ technique -> leather.
-                    if (sub.Name == "tire")
-                    {
-                        sub.Name = "inner_rim";
-                    }
-                    if (cockpit && string.Equals(sub.Name, "interior", StringComparison.OrdinalIgnoreCase))
-                    {
-                        sub.Name = "leather";
-                    }
-                    if (sub.Name != name)
-                    {
-                        renamed.Add(name + " -> " + sub.Name);
-                    }
-                }
+                List<string> renamed = CloseUpMaterials(section, key);
                 expectedVertices[section.Name] = section.Lod0.Count;
                 string report = target.ImportSection(closeUp, section.Name, section.Name, false);
                 this.Log.Add(label + ": " + report.Replace("\r\n", "; ").TrimEnd(' ', ';') + " (from LOD 1 of the main model)");
