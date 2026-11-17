@@ -101,7 +101,7 @@ directions: 2 -> 3, 3 -> 2, 2 -> 4, 4 -> 2, 3 -> 4, 4 -> 3. Order: one pair at a
 | FM4 -> FM4 | done (2026-11-15), in-game check pending |
 | FM3 -> FM4 | done 2026-11-17, OK in app + game (Abarth 500) |
 | FH1 / FH2 -> FM4 | done 2026-11-17, OK in app + game (Abarth 500) |
-| FM2 -> FM4 | to do: FM2 has only the main model and its port goes through OBJ onto a donor (Fm2Source) |
+| FM2 -> FM4 | done 2026-11-17, OK in app + game (user) |
 | any -> FM3, any -> FM2 | to do: CarbinModel does not edit FM3 / FM2 models today (the targets must become editable first) |
 
 ### FM3 -> FM4 (2026-11-17)
@@ -193,3 +193,43 @@ su lod aperto".
 
 Seats + steering wheel from FM3, front bumper from FH1, rear wing from FH2, file choice: OK in the app. In game:
 damage OK, the FH1 bumper deforms correctly. FM3 -> FM4 and FH1 / FH2 -> FM4 part copy: CLOSED.
+
+### FM2 -> FM4 (2026-11-17)
+
+- `PartSource.FromMotorsport2`: the FM2 port's own model step (`Fm2Source.Stage`). The one FM2 .carbin (LODs 1-5)
+  is exported to OBJ in a temp folder (`CarModelFolder.ExportLegacy`) and rebuilt onto a copy of THIS car's main
+  model as donor (`CarModelFolder.Prepare` / `Apply`, any material allowed): tangent frames, baked light and damage
+  words from the nearest vertex of this car (the donor rule), UV1 as FM2 has it (no fit), UV2 0 as in FM2. Only the
+  FM2 parts are kept, then `CarPort.ConvertModel` maps the material names as the port does. Temp folder deleted.
+- No file question for an FM2 car (one file). Into this car's main: LODs 1-5 as FM2 has them; into lod0 / cockpit:
+  the part's LOD 1 (`PartImport.SourceModel`, as for any main source).
+- F1 help GOOD TO KNOW "Copy Part from FM2".
+
+#### FM2 UV decoding fixed (affects the viewer, OBJ export and the FM2 port too)
+
+- FM2 UV0 is sign + magnitude / 1310.72 (docs/CARBIN_ALL_GAMES.md, `Fm2CarbinModel`). The legacy reader
+  (`ForzaVertex`, version Two) read it as a half float and `ForzaCarSection` "fixed" it with * or / 12800: exact
+  only below 1.5625 in size. Larger UVs (grilles, rubber trim, lights, tiled glass) came out wrong, up to millions
+  (toy_altezza_04 bumperFd U -161996800), and in FM4's 16-bit encoding they squeezed the whole part's UV range
+  (bumperFd max U 5.80 became 1.66).
+- Now `ForzaVertex.Fm2Uv` decodes sign + magnitude directly; `ForzaCarSection` keeps the viewer convention
+  (u = -value, v = 1 + value). Below 1.5625 the values are the same as before, so already-correct UVs do not move.
+  FM2 cars ported before 2026-11-17 with such parts have wrong UVs on them: a re-port fixes them.
+- Harness pi3 with FM2 sources: per part and LOD the U / V range of the faces of the FM2 OBJ export vs the converted
+  FM4 part: before the fix 51 fails (millions), after it 0, max difference 1.3e-6. 10 random FM4_DEV targets,
+  seed 20261117: 90 runs, 0 fails (pi2_10.txt), copies main->main, main->lod0, main->cockpit with UVs identical.
+- `E:\DEV\fm4dev\ST03\fm3\fm2uv.exe <FM2 car zip>`: UV range per material with both decodings.
+
+- 2026-11-17 user: copy from an FM2 car OK in the app (main and lod0, UV map) and in game; Sparco Evo re-port with the signed-magnitude UV fix OK in game (grilles, carbon fibre hood and trunk).
+
+#### FM2 UV: the magnitude is signed (2026-11-17, Sparco Evo carbon fibre hood / trunk "corruzioni")
+
+- After the first fix the user re-ported the FM2 Sparco Evo: grilles fixed, but smeared carbon fibre on the hood
+  (cockpit) and trunk (main, lod0). `fm2sat.exe`: those vertices read ~24-25 (raw 0x7C19, 0x7FEA...) while their
+  triangle neighbours read ~0: 24.91 is -0.09 wrapped. The 15-bit magnitude is itself signed: 0x7FEA = -22 / 1310.72.
+- `ForzaVertex.Fm2Uv` now reads bits 0-14 as signed 15-bit (>= 0x4000 -> -0x8000), bit 15 still flips the sign.
+  `fm2span.exe` over the 310 FM2 cars (23.9M triangles): values above 12.5: 288764 -> 0; triangles with a UV span
+  above 2 inside one triangle: 64804 -> 39954; Sparco Evo 427 -> 0. Values below 12.5 are unchanged (grilles stay).
+- The 39954 wide triangles left (lam_gallardo_05 1869, lam_murcielago_05 1575, ...) may be real tiling; not checked
+  in game yet.
+- docs/CARBIN_ALL_GAMES.md FM2 vertex row updated. pi3 with FM2 sources after the change: 90 runs, 0 fails.

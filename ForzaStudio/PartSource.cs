@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 
 namespace ForzaStudio
@@ -7,8 +8,8 @@ namespace ForzaStudio
     // ST-03: the model files of a Copy Part SOURCE car in the form of the target game, so that PartImport (which
     // works between files of one game) can take parts from another game's car.
     // Scope set by the user 2026-11-17: parts FROM FH1 / FH2 into every Motorsport, and between the Motorsports
-    // (2 <-> 3, 2 <-> 4, 3 <-> 4). Done so far: FM3 -> FM4, FH1 / FH2 -> FM4. The others are refused with a message
-    // until they are built.
+    // (2 <-> 3, 2 <-> 4, 3 <-> 4). Done so far: FM3 -> FM4, FH1 / FH2 -> FM4, FM2 -> FM4. FM3 / FM2 targets are
+    // refused with a message until they are built.
     //
     // FM3 -> FM4: each file goes through CarPort.ConvertModel, the conversion the FM3 -> FM4 car port uses (header,
     // sections, 40-byte vertices, FM4 material names, _lod0 light variants in the _lod0 file), so a copied part is
@@ -51,11 +52,13 @@ namespace ForzaStudio
             {
                 return files;
             }
+            if (family == CarbinFamily.Motorsport2)
+            {
+                return FromMotorsport2(files, notes, unknown, target);
+            }
             if (family != CarbinFamily.Motorsport3 && family != CarbinFamily.Horizon)
             {
-                // FM2: next ST-03 step (the message is the one the Copy Part dialog always gave)
-                throw new NotSupportedException(GameName(family) + " .carbin: it can be read for study, but copying parts from "
-                    + (family == CarbinFamily.Motorsport2 ? "FM2" : "these") + " models is not supported.");
+                throw new NotSupportedException(GameName(family) + " .carbin: copying parts from these models is not supported.");
             }
             Dictionary<string, byte[]> converted = new Dictionary<string, byte[]>();
             foreach (KeyValuePair<string, byte[]> pair in files)
@@ -96,6 +99,93 @@ namespace ForzaStudio
                 }
             }
             return converted;
+        }
+
+        // FM2 -> FM4 (ST-03, 2026-11-17): the FM2 port's own model step (Fm2Source.Stage). The one FM2 .carbin (LODs 1-5)
+        // is exported to OBJ (CarModelFolder.ExportLegacy) and rebuilt onto a copy of THIS car's main model as donor
+        // (CarModelFolder.Prepare / Apply, any material allowed): tangent frames, baked light and damage words from the
+        // nearest vertex of this car (the donor rule of the FH parts), UV1 as the OBJ has it (no fit; FM2 has no UV2, it
+        // is always 0). Only the FM2 parts are kept, then CarPort.ConvertModel maps the material names as the port does.
+        // Returns the main model only: an FM2 car has no _lod0 / _cockpit; Copy Part takes LOD 1 for those (PartImport).
+        private static Dictionary<string, byte[]> FromMotorsport2(Dictionary<string, byte[]> files, List<string> notes, Dictionary<string, List<string>> unknown, Dictionary<string, byte[]> target)
+        {
+            foreach (string key in files.Keys)
+            {
+                if (key.Length > 0)
+                {
+                    throw new NotSupportedException("An FM2 car: only its main model can be copied from.");
+                }
+            }
+            byte[] own;
+            if (target == null || !target.TryGetValue("", out own))
+            {
+                throw new InvalidOperationException("Copying from an FM2 car needs this car's main model (the parts are rebuilt on it).");
+            }
+            string work = Path.Combine(Path.GetTempPath(), "ForzaStudioEVO_fm2part_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string objDir = Path.Combine(work, "fm2");
+                int objs = CarModelFolder.ExportLegacy(files[""], "fm2.carbin", objDir, "FM2");
+                List<string> fm2Parts = new List<string>();
+                foreach (string lod in Directory.GetDirectories(objDir))
+                {
+                    foreach (string file in Directory.GetFiles(lod, "*.obj"))
+                    {
+                        string part = Path.GetFileNameWithoutExtension(file).ToLowerInvariant();
+                        if (!fm2Parts.Contains(part))
+                        {
+                            fm2Parts.Add(part);
+                        }
+                    }
+                }
+                Dictionary<string, CarbinModel> models = new Dictionary<string, CarbinModel>();
+                models[CarModelFolder.Main] = new CarbinModel(own);
+                Dictionary<string, string> folders = new Dictionary<string, string>();
+                folders[CarModelFolder.Main] = objDir;
+                CarModelFolder.Plan plan = CarModelFolder.Prepare(folders, models, true, true);
+                if (plan.Errors.Count > 0)
+                {
+                    throw new InvalidOperationException("The FM2 model does not fit: " + string.Join("; ", plan.Errors.ToArray()));
+                }
+                StringBuilder build = new StringBuilder();
+                CarModelFolder.Apply(plan, models, build);
+                CarbinModel main = models[CarModelFolder.Main];
+                foreach (CarbinModel.Section section in new List<CarbinModel.Section>(main.Sections))
+                {
+                    if (!fm2Parts.Contains(section.Name.ToLowerInvariant()))
+                    {
+                        main.RemoveSection(section.Name);      // this car's own parts: not part of the source
+                    }
+                }
+                StringBuilder report = new StringBuilder();
+                byte[] converted = CarPort.ConvertModel(main.ToBytes(), false, report, null, null, unknown);
+                if (notes != null)
+                {
+                    notes.Add(string.Format("source main model rebuilt from Forza Motorsport 2 ({0} OBJ files, {1} parts) on this car's main model, as the FM2 port does", objs, fm2Parts.Count));
+                    notes.Add("  damage words and baked light: from the nearest vertex of this car (FM2 has none of FM4's); UV1 as in FM2, UV2 0 as in FM2");
+                    foreach (string line in report.ToString().Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (line.TrimStart().StartsWith("materials:", StringComparison.Ordinal))
+                        {
+                            notes.Add("  " + line.Trim());
+                        }
+                    }
+                }
+                Dictionary<string, byte[]> result = new Dictionary<string, byte[]>();
+                result[""] = converted;
+                return result;
+            }
+            finally
+            {
+                try
+                {
+                    Directory.Delete(work, true);
+                }
+                catch (Exception)
+                {
+                    // a leftover temp folder only (TempCleanup)
+                }
+            }
         }
 
         // The FH model without its stripped subsections (no index list, no FM4 form); a part left with none goes.

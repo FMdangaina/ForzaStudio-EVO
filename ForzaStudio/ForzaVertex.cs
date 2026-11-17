@@ -71,8 +71,13 @@ namespace ForzaStudio
                             num3 = this.ConvertHalfToFloat(stream.ReadUInt16());
                             num4 = this.ConvertHalfToFloat(stream.ReadUInt16());
                             this.position = new Vector3(num * num4, num2 * num4, num3 * num4);
-                            this.texture0 = new Vector2(this.ConvertHalfToFloat(stream.ReadUInt16()), this.ConvertHalfToFloat(stream.ReadUInt16()));
-                            this.texture1 = new Vector2(this.ConvertHalfToFloat(stream.ReadUInt16()), this.ConvertHalfToFloat(stream.ReadUInt16()));
+                            // FM2 UVs are sign + magnitude / 1310.72 (docs/CARBIN_ALL_GAMES.md), raw values: ForzaCarSection
+                            // turns them into the viewer's u = -value, v = 1 + value. Until 2026-11-17 they were read as half
+                            // floats and "fixed" with * or / 12800, exact only below 1.5625 in size: larger UVs (grilles,
+                            // rubber trim, lights, tiled glass) came out as garbage up to millions, and in the FM2 port and
+                            // Copy Part they squeezed the whole part's UV range in FM4's 16-bit encoding.
+                            this.texture0 = new Vector2(Fm2Uv(stream.ReadUInt16()), Fm2Uv(stream.ReadUInt16()));
+                            this.texture1 = new Vector2(Fm2Uv(stream.ReadUInt16()), Fm2Uv(stream.ReadUInt16()));
                             this.normal = this.ToN3(stream.ReadUInt32());
                             stream.Position += 4L;
                             stream.Position += 4L;
@@ -309,6 +314,22 @@ namespace ForzaStudio
             }
             uint num3 = ((uint) (((value & 0x8000) << 0x10) | ((num2 + 0x70) << 0x17))) | (num << 13);
             return *(((float*) &num3));
+        }
+
+        // FM2 UV value: bit 15 sign, bits 0-14 a SIGNED 15-bit magnitude, / 1310.72 (2^24 / 12800). The magnitude's own
+        // sign (2026-11-17): 0x7FEA is -22, not +32746; read unsigned, such vertices sat near +-25 next to neighbours near 0
+        // and smeared carbon fibre on the FM2 Sparco Evo's hood and trunk. Over the 310 FM2 cars (23.9M triangles,
+        // fm4dev\ST03\fm3\fm2span.exe) the signed read leaves no value above 12.5 (288764 before) and cuts triangles
+        // with a UV span above 2 from 64804 to 39954 (Sparco Evo 427 -> 0). Values below 12.5 are unchanged.
+        public static float Fm2Uv(ushort raw)
+        {
+            int magnitude = raw & 0x7FFF;
+            if (magnitude >= 0x4000)
+            {
+                magnitude -= 0x8000;
+            }
+            float value = magnitude / 1310.72f;
+            return ((raw & 0x8000) != 0) ? -value : value;
         }
 
         private Vector3 ToN3(uint u)

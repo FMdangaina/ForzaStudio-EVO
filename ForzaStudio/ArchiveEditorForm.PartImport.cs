@@ -838,7 +838,8 @@ namespace ForzaStudio
             CarbinModel sourceMain;
             CarbinModel targetMain;
             // The source car's model files in this car's game form (ST-03, PartSource): an FM4 car as it is, an FM3
-            // or FH1 / FH2 car converted in memory as the ports convert it. FM2 cars are still refused there.
+            // or FH1 / FH2 car converted in memory as the ports convert it; an FM2 car rebuilt on this car's main model as
+            // the FM2 port rebuilds it on its donor.
             Dictionary<string, byte[]> sourceData = new Dictionary<string, byte[]>();
             List<string> sourceNotes = new List<string>();
             Dictionary<string, List<string>> sourceUnknown = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -1078,6 +1079,10 @@ namespace ForzaStudio
         private string PickPartSourceFile(ForzaZip source, string folder, Dictionary<string, ForzaZip.Entry> files, string openKey, string sourceLabel)
         {
             string mainName = files[""].Name;
+            if (CarbinFormat.Identify(source.Read(files[""])).Family == CarbinFamily.Motorsport2)
+            {
+                return "";      // an FM2 car: one .carbin (LODs 1-5), its parts are rebuilt from it (PartSource)
+            }
             string carBase = mainName.Substring(0, mainName.Length - ".carbin".Length);
             foreach (ForzaZip.Entry entry in source.Entries)
             {

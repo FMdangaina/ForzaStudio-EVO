@@ -32,7 +32,7 @@ namespace ForzaStudio
 
         // 60-byte vertex, offsets:
         public const int VertexPosition = 0;        // 4 halves: x, y, z, w; position = part origin + xyz * w
-        public const int VertexUv0 = 8;             // 2 x u16: sign bit + magnitude / 1310.72
+        public const int VertexUv0 = 8;             // 2 x u16: sign bit + signed 15-bit magnitude / 1310.72 (ForzaVertex.Fm2Uv)
         public const int VertexUv1 = 12;            // always 0
         public const int VertexNormal = 16;         // 11 / 11 / 10 signed bits, x low
         public const int VertexDamage = 20;         // damage direction, the FM4 morph word (docs/CARBIN_ALL_GAMES.md section 5)

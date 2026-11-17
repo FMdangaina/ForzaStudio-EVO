@@ -199,38 +199,12 @@ namespace ForzaStudio
                     section.Vertices[m].position += vector;
                     if (car.Version == ForzaVersion.Two)
                     {
-                        if (Math.Abs(section.Vertices[m].texture0.X) < 12800f)
-                        {
-                            section.Vertices[m].texture0.X = 0f - (section.Vertices[m].texture0.X * 12800f);
-                        }
-                        else
-                        {
-                            section.Vertices[m].texture0.X = 0f - (section.Vertices[m].texture0.X / 12800f);
-                        }
-                        if (Math.Abs(section.Vertices[m].texture0.Y) < 12800f)
-                        {
-                            section.Vertices[m].texture0.Y = 1f + (section.Vertices[m].texture0.Y * 12800f);
-                        }
-                        else
-                        {
-                            section.Vertices[m].texture0.Y = 1f + (section.Vertices[m].texture0.Y / 12800f);
-                        }
-                        if (Math.Abs(section.Vertices[m].texture1.X) < 12800f)
-                        {
-                            section.Vertices[m].texture1.X = 0f - (section.Vertices[m].texture1.X * 12800f);
-                        }
-                        else
-                        {
-                            section.Vertices[m].texture1.X = 0f - (section.Vertices[m].texture1.X / 12800f);
-                        }
-                        if (Math.Abs(section.Vertices[m].texture1.Y) < 12800f)
-                        {
-                            section.Vertices[m].texture1.Y = 1f + (section.Vertices[m].texture1.Y * 12800f);
-                        }
-                        else
-                        {
-                            section.Vertices[m].texture1.Y = 1f + (section.Vertices[m].texture1.Y / 12800f);
-                        }
+                        // ForzaVertex.Fm2Uv values (sign + magnitude / 1310.72) in the viewer's convention; the same
+                        // numbers the old half * 12800 path gave below 1.5625, the right ones above it.
+                        section.Vertices[m].texture0.X = 0f - section.Vertices[m].texture0.X;
+                        section.Vertices[m].texture0.Y = 1f + section.Vertices[m].texture0.Y;
+                        section.Vertices[m].texture1.X = 0f - section.Vertices[m].texture1.X;
+                        section.Vertices[m].texture1.Y = 1f + section.Vertices[m].texture1.Y;
                     }
                     else
                     {

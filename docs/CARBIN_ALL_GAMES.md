@@ -87,7 +87,7 @@ index; from version 4 a damage position, from 5 two fade angles.
 | FM4 | 32 | position 4 x int16 (unit direction, radius / S), UV0, UV1 (u16), tangent frame quaternion (4 x int16), lighting SH0 (4 x SNORM16) |
 | FM3 | 40 | position 4 halves (unit direction, radius), UV0, UV1 (halves), normal 11:11:10, lighting (8 bytes), **damage word (+28)**, 4 bytes unknown, bitangent 11:11:10 |
 | FM3 | 44 / 16 | wheels / brakes: position, UV0, normal (+ lighting and 20 bytes on wheels) |
-| FM2 | 60 | position 4 halves, UV0 (sign + magnitude / 1310.72), UV1 (always 0), normal 11:11:10, **damage word (+20)**, 4 bytes unknown, lighting 16 x SNORM16 |
+| FM2 | 60 | position 4 halves, UV0 (sign bit + signed 15-bit magnitude / 1310.72, `ForzaVertex.Fm2Uv`), UV1 (always 0), normal 11:11:10, **damage word (+20)**, 4 bytes unknown, lighting 16 x SNORM16 |
 
 FM2's lighting is 16 values whose mean size falls in steps of 1, 3, 5, 7 values (0.44 / 0.21-0.27 / 0.08-0.13 / 0.03):
 baked spherical harmonics, bands 0 to 3. FM4 keeps only the first four (its SH0: a level and a direction).
