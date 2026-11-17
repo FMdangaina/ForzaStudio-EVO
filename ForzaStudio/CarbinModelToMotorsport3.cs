@@ -53,6 +53,35 @@ namespace ForzaStudio
             return report.ToString();
         }
 
+        // One part of this FM4 car model (main / lod0 / cockpit kind) put in FM3's section layout, for Copy Part into an FM3
+        // car (ST-03): the same section conversion as the whole-car FM4 -> FM3 port, nothing else of this model changes
+        // (header, other parts). The model is then a carrier only: the part goes into the FM3 file by ImportSection and the
+        // carrier is never written. flagName: the part's name in the FM3 car (FM3's Unk1c flag follows the part name).
+        public string ConvertPartToMotorsport3(string name, string flagName)
+        {
+            if (this.IsMotorsport3 || this.IsHorizon)
+            {
+                throw new InvalidOperationException("Not a Forza Motorsport 4 model.");
+            }
+            Section section = this.Find(name);
+            if (section == null)
+            {
+                throw new ArgumentException("The model has no part " + name + ".");
+            }
+            System.Text.StringBuilder report = new System.Text.StringBuilder();
+            string own = section.Name;
+            section.Name = flagName ?? own;
+            try
+            {
+                this.ConvertMotorsport4Section(section, false, false, report);
+            }
+            finally
+            {
+                section.Name = own;
+            }
+            return report.ToString().Trim();
+        }
+
         private byte[] ConvertMotorsport4Head(bool brake, bool wheel)
         {
             byte[] head = this.Head;
@@ -295,7 +324,10 @@ namespace ForzaStudio
                 if (stride == 40)
                 {
                     WritePacked111110(result.Data, o + 16, normal);
-                    Buffer.BlockCopy(buffer.Data, fm4 + 24, result.Data, o + 20, 8);
+                    if (buffer.Stride >= 32)
+                    {
+                        Buffer.BlockCopy(buffer.Data, fm4 + 24, result.Data, o + 20, 8);   // a brake part copied into a car file has none: 0
+                    }
                     if (damage != null && damage.Stride == 4 && i < damage.Count)
                     {
                         Buffer.BlockCopy(damage.Data, i * 4, result.Data, o + 28, 4);

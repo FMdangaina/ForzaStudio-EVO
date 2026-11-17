@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Xna.Framework;
 
 namespace ForzaStudio
@@ -39,8 +40,16 @@ namespace ForzaStudio
         // Lod0Fill); one-LOD files (lod0, cockpit, brakes) -> lod0 / cockpit: as they are; one-LOD -> main: refused
         // (the main model needs LODs 1-5).
         public string SourceFile;
+        // FM3 TARGET (Target holds this FM3 car's own files; Source the part's files in FM4 form, PartSource.ForMotorsport3).
+        // This car's file is opened in FM3's own layout, so its parts are written back byte-identical; the copied part is
+        // placed on the FM4 form of the file (TargetAsMotorsport4, computed when null) and put in FM3's layout by
+        // CarbinModel.ConvertPartToMotorsport3. SourceNative: the source car's FM3 files as they are, when it is an FM3 car
+        // too: the part is then copied as it is (not moved), or with only its positions rewritten (moved / LOD 1 used up
+        // close): UVs, normals, damage words stay the FM3 bytes (user rule: UV1 / UV2 never touched).
+        public Dictionary<string, byte[]> TargetAsMotorsport4;
+        public Dictionary<string, byte[]> SourceNative;
 
-        public Dictionary<string, byte[]> Result;      // changed target files (null until Run succeeds)
+        public Dictionary<string, byte[]> Result;     // changed target files (null until Run succeeds)
         public List<string> Log = new List<string>();  // copied resources and changed references
         public List<string> Warnings = new List<string>();
         public List<Matrix> Moves = new List<Matrix>();
@@ -77,8 +86,19 @@ namespace ForzaStudio
                 throw new InvalidOperationException("No part chosen.");
             }
             Dictionary<string, string> sourceHash = Hashes(this.Source);
+            // FM3 car: placed on the FM4 form of its files, written in its own layout (see TargetAsMotorsport4)
+            bool fm3 = CarbinModel.IsMotorsport3File(this.Target[refKey]);
+            Dictionary<string, byte[]> placing = this.Target;
+            if (fm3)
+            {
+                if (this.TargetAsMotorsport4 == null)
+                {
+                    this.TargetAsMotorsport4 = PartSource.Motorsport3AsMotorsport4(this.Target);
+                }
+                placing = this.TargetAsMotorsport4;
+            }
             // the reference files: the parts must exist in the source one and are placed by it (main, or the chosen file)
-            CarbinModel targetMain = Open(this.Target[refKey], "this car's " + FileLabel(refKey) + " model (it must be editable)");
+            CarbinModel targetMain = Open(placing[refKey], "this car's " + FileLabel(refKey) + " model (it must be editable)");
             CarbinModel sourceMain = this.SourceModel(sourceKey, refKey, targetMain);
 
             // Plan checks: the parts exist, names stay unique.
@@ -147,7 +167,7 @@ namespace ForzaStudio
                 byte[] bytes;
                 if (this.Target.TryGetValue(key, out bytes))
                 {
-                    foreach (CarbinModel.Section section in Open(bytes, FileLabel(key)).Sections)
+                    foreach (CarbinModel.Section section in OpenTarget(bytes, FileLabel(key)).Sections)
                     {
                         foreach (CarbinModel.SubSection sub in section.SubSections)
                         {
@@ -197,23 +217,29 @@ namespace ForzaStudio
                     }
                     if (model == null)
                     {
-                        model = Open(targetBytes, FileLabel(key));
+                        model = OpenTarget(targetBytes, FileLabel(key));
                     }
                     if (step.Replaced != null && model.Find(step.Replaced) != null)
                     {
                         model.RemoveSection(step.Replaced);
                         this.Log.Add(string.Format("{0}: part {1} removed", FileLabel(key), step.Replaced));
                     }
-                    string report = model.ImportSection(sourceModel, step.Part, step.NewName, false);
+                    bool moveHere = this.Moves[i] != Matrix.Identity && (step.MoveIn == null || step.MoveIn.Contains(key));
+                    string report = model.IsMotorsport3
+                        ? this.ImportIntoMotorsport3(model, sourceModel, step, moveHere ? this.Moves[i] : Matrix.Identity, (this.OnlyFile != null) ? sourceKey : key)
+                        : model.ImportSection(sourceModel, step.Part, step.NewName, false);
                     foreach (string line in report.Split(new string[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries))
                     {
                         this.Log.Add(FileLabel(key) + ": " + line);
                     }
                     if (this.Moves[i] != Matrix.Identity)
                     {
-                        if (step.MoveIn == null || step.MoveIn.Contains(key))
+                        if (moveHere)
                         {
-                            model.TransformSection(step.NewName, this.Moves[i]);
+                            if (!model.IsMotorsport3)
+                            {
+                                model.TransformSection(step.NewName, this.Moves[i]);   // FM3: moved in FM4 form, before its conversion
+                            }
                             this.Log.Add(string.Format("{0}: {1} moved (LODs {2})", FileLabel(key), step.NewName, LodText(Lods(from))));
                         }
                         else
@@ -222,7 +248,8 @@ namespace ForzaStudio
                         }
                     }
                     AddLods(sourceLods, step.NewName, from);
-                    foreach (CarbinModel.SubSection sub in from.SubSections)
+                    // the materials as they arrived in this file (an FM3 car: after FM3's material names)
+                    foreach (CarbinModel.SubSection sub in model.Find(step.NewName).SubSections)
                     {
                         if (!carMaterials.Contains(sub.Name) && !missingMaterials.Contains(sub.Name))
                         {
@@ -237,7 +264,7 @@ namespace ForzaStudio
                 byte[] bytes = model.ToBytes();
 
                 // Checks on the written file, read back.
-                CarbinModel check = Open(bytes, FileLabel(key) + " after the import");
+                CarbinModel check = OpenTarget(bytes, FileLabel(key) + " after the import");
                 check.CheckDrawLists();
                 List<string> seen = new List<string>();
                 foreach (CarbinModel.Section section in check.Sections)
@@ -351,6 +378,210 @@ namespace ForzaStudio
             {
                 throw new InvalidOperationException(what + ": " + exception.Message, exception);
             }
+        }
+
+        // This car's file: an FM3 file in its own layout (CarbinModel writes it back byte-identical), else as Open.
+        private static CarbinModel OpenTarget(byte[] bytes, string what)
+        {
+            try
+            {
+                return CarbinModel.IsMotorsport3File(bytes) ? new CarbinModel(bytes, true) : new CarbinModel(bytes);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException(what + ": " + exception.Message, exception);
+            }
+        }
+
+        // Materials FM4 added that FM3 draws with another name: the FM4 -> FM3 port's list (CarPortToFm3.MaterialNames).
+        private static readonly string[][] Motorsport3MaterialNames = { new string[] { "lights_glass", "detail_glass_clear" } };
+
+        // One part into an FM3 car's file (model, FM3 layout). sourceModel: the source file in FM4 form, in this file's
+        // LOD layout (SourceModel); move: already limited to this file (identity = not moved here).
+        //  - from an FM3 car, same kind of file, not moved: the FM3 section as it is (every byte);
+        //  - otherwise the FM4 form is moved, put in FM3's layout (ConvertPartToMotorsport3, the port's step) and, from an
+        //    FM3 car, every vertex gets its FM3 bytes back except the position (KeepNativeVertexBytes).
+        private string ImportIntoMotorsport3(CarbinModel model, CarbinModel sourceModel, Step step, Matrix move, string nativeKey)
+        {
+            CarbinModel native = null;
+            byte[] nativeBytes;
+            if (this.SourceNative != null && this.SourceNative.TryGetValue(nativeKey, out nativeBytes) && CarbinModel.IsMotorsport3File(nativeBytes))
+            {
+                native = new CarbinModel(nativeBytes, true);
+            }
+            CarbinModel.Section nativePart = (native != null) ? native.Find(step.Part) : null;
+            bool sameLayout = nativePart != null && native.DrawLists.Count == model.DrawLists.Count;
+            if (sameLayout && move == Matrix.Identity && CarVertices(nativePart))
+            {
+                return model.ImportSection(native, step.Part, step.NewName, false) + "\r\n" + step.NewName + ": FM3 part copied as it is (every byte of the source's FM3 section)";
+            }
+            CarbinModel carrier = new CarbinModel(sourceModel.ToBytes());
+            if (move != Matrix.Identity)
+            {
+                carrier.TransformSection(step.Part, move);
+            }
+            carrier.ConvertPartToMotorsport3(step.Part, step.NewName);
+            CarbinModel.Section part = carrier.Find(step.Part);
+            StringBuilder notes = new StringBuilder();
+            List<string> renamed = new List<string>();
+            foreach (CarbinModel.SubSection sub in part.SubSections)
+            {
+                foreach (string[] pair in Motorsport3MaterialNames)
+                {
+                    if (sub.Name == pair[0])
+                    {
+                        sub.Name = pair[1];
+                        if (!renamed.Contains(pair[0] + " -> " + pair[1]))
+                        {
+                            renamed.Add(pair[0] + " -> " + pair[1]);
+                        }
+                    }
+                }
+            }
+            if (renamed.Count > 0)
+            {
+                notes.AppendFormat("\r\n{0}: FM3 material names: {1}", step.NewName, string.Join(", ", renamed.ToArray()));
+            }
+            if (nativePart != null)
+            {
+                string failed = KeepNativeVertexBytes(part, nativePart, sameLayout);
+                if (failed == null)
+                {
+                    notes.AppendFormat("\r\n{0}: FM3 vertex data kept from the source's FM3 file, positions {1}", step.NewName, (move != Matrix.Identity) ? "rewritten (moved)" : "rewritten (LOD 1 used up close)");
+                }
+                else
+                {
+                    this.Warnings.Add(step.NewName + ": the FM3 vertex bytes could not be matched (" + failed + "): the part went through FM4 form, UVs with FM3's half precision");
+                }
+            }
+            else
+            {
+                notes.AppendFormat("\r\n{0}: put in FM3's layout (FM4 -> FM3 port conversion)", step.NewName);
+            }
+            return model.ImportSection(carrier, step.Part, step.NewName, false) + notes.ToString();
+        }
+
+        // FM3 car-part vertices (40 bytes) in every buffer of the section.
+        private static bool CarVertices(CarbinModel.Section section)
+        {
+            return (section.Lod.Count == 0 || section.Lod.Stride == 40) && (section.Lod0.Count == 0 || section.Lod0.Stride == 40);
+        }
+
+        // The part after ConvertPartToMotorsport3 (positions re-encoded, UVs as halves from FM4's 16-bit UVs) gets the FM3
+        // source's own bytes after the position back in every vertex: UV1 / UV2, normal, the 4 S16 values, damage word,
+        // the word FM4 dropped and the frame axis (a move is a translation + even scale: normals do not change). A brake
+        // file's 16-byte vertices give their UV1 only. Vertex order: the same buffers when the layout is the same; up close
+        // (main LOD 1 as LOD 0) the converted Lod0 = the native Lod vertices LOD 1 draws, in order (CloseUpFromLod1 keeps
+        // the order). Checked: every vertex a material draws must have the same UV1 within FM3's half precision, else
+        // nothing is changed and the reason is returned.
+        private static string KeepNativeVertexBytes(CarbinModel.Section part, CarbinModel.Section native, bool sameLayout)
+        {
+            List<object[]> pairs = new List<object[]>();
+            if (sameLayout)
+            {
+                pairs.Add(new object[] { part.Lod, native.Lod, null, false });
+                pairs.Add(new object[] { part.Lod0, native.Lod0, null, true });
+            }
+            else
+            {
+                if (part.Lod.Count != 0)
+                {
+                    return "LOD layout";
+                }
+                List<int> lod1 = new List<int>();
+                bool[] used = new bool[native.Lod.Count];
+                foreach (CarbinModel.SubSection sub in native.SubSections)
+                {
+                    if (sub.Lod == 1)
+                    {
+                        foreach (int index in sub.Indices)
+                        {
+                            if (index >= 0 && index < used.Length)
+                            {
+                                used[index] = true;
+                            }
+                        }
+                    }
+                }
+                for (int i = 0; i < used.Length; i++)
+                {
+                    if (used[i])
+                    {
+                        lod1.Add(i);
+                    }
+                }
+                pairs.Add(new object[] { part.Lod0, native.Lod, lod1.ToArray(), true });
+            }
+            foreach (object[] pair in pairs)
+            {
+                CarbinModel.VertexBuffer to = (CarbinModel.VertexBuffer) pair[0];
+                CarbinModel.VertexBuffer from = (CarbinModel.VertexBuffer) pair[1];
+                int[] map = (int[]) pair[2];
+                if (to.Count != ((map != null) ? map.Length : from.Count))
+                {
+                    return string.Format("{0} vertices, source {1}", to.Count, (map != null) ? map.Length : from.Count);
+                }
+                if (to.Count > 0 && (to.Stride < 12 || from.Stride < 12))
+                {
+                    return "vertex size " + from.Stride;
+                }
+                bool[] drawn = new bool[to.Count];
+                foreach (CarbinModel.SubSection sub in part.SubSections)
+                {
+                    if ((sub.Lod == 0) == (bool) pair[3])
+                    {
+                        foreach (int index in sub.Indices)
+                        {
+                            if (index >= 0 && index < drawn.Length)
+                            {
+                                drawn[index] = true;
+                            }
+                        }
+                    }
+                }
+                for (int i = 0; i < to.Count; i++)
+                {
+                    int n = (map != null) ? map[i] : i;
+                    if (drawn[i] && (!SameUv(to.Data, (i * to.Stride) + 8, from.Data, (n * from.Stride) + 8) || !SameUv(to.Data, (i * to.Stride) + 10, from.Data, (n * from.Stride) + 10)))
+                    {
+                        return "vertex " + i + " has another UV";
+                    }
+                }
+            }
+            foreach (object[] pair in pairs)
+            {
+                CarbinModel.VertexBuffer to = (CarbinModel.VertexBuffer) pair[0];
+                CarbinModel.VertexBuffer from = (CarbinModel.VertexBuffer) pair[1];
+                int[] map = (int[]) pair[2];
+                int end = (to.Stride == from.Stride) ? to.Stride : 12;
+                for (int i = 0; i < to.Count; i++)
+                {
+                    int n = (map != null) ? map[i] : i;
+                    Buffer.BlockCopy(from.Data, (n * from.Stride) + 8, to.Data, (i * to.Stride) + 8, end - 8);
+                }
+            }
+            return null;
+        }
+
+        // Two FM3 half UV values, the converted one within the 16-bit + half rounding of the FM4 form.
+        private static bool SameUv(byte[] a, int ao, byte[] b, int bo)
+        {
+            if (a[ao] == b[bo] && a[ao + 1] == b[bo + 1])
+            {
+                return true;
+            }
+            float x = Half(a, ao);
+            float y = Half(b, bo);
+            return Math.Abs(x - y) <= 0.01f + (0.002f * Math.Max(Math.Abs(x), Math.Abs(y)));
+        }
+
+        private static float Half(byte[] data, int offset)
+        {
+            int h = (data[offset] << 8) | data[offset + 1];
+            int exponent = (h >> 10) & 0x1F;
+            int mantissa = h & 0x3FF;
+            double value = (exponent == 0) ? mantissa * Math.Pow(2, -24) : ((exponent == 31) ? double.MaxValue : (1 + (mantissa / 1024.0)) * Math.Pow(2, exponent - 15));
+            return (float) (((h & 0x8000) != 0) ? -value : value);
         }
 
         private static Vector3 Center(CarbinModel.Section s)

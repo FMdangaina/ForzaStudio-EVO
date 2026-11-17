@@ -444,7 +444,7 @@ namespace ForzaStudio
                     CarbinModel model;
                     try
                     {
-                        model = new CarbinModel(this.zip.Read(entry));
+                        model = EditableModel(this.zip.Read(entry));
                     }
                     catch (NotSupportedException)
                     {
@@ -514,7 +514,7 @@ namespace ForzaStudio
                     CarbinModel model;
                     try
                     {
-                        model = new CarbinModel(this.zip.Read(entry));
+                        model = EditableModel(this.zip.Read(entry));
                     }
                     catch (NotSupportedException)
                     {
@@ -684,7 +684,7 @@ namespace ForzaStudio
                     CarbinModel model;
                     try
                     {
-                        model = new CarbinModel(this.zip.Read(entry));
+                        model = EditableModel(this.zip.Read(entry));
                     }
                     catch (NotSupportedException)
                     {
@@ -906,15 +906,30 @@ namespace ForzaStudio
             }
             try
             {
-                CarbinFile carbin = this.SelectionCarbin();
-                CarbinFile.Section found = carbin.FindSection(section);
-                if (found == null)
+                if (this.SelectionIsMotorsport3())
                 {
-                    throw new InvalidOperationException("Part not found in the file.");
+                    // FM3 (2026-11-18): the part's bounds from the model read in FM3's own layout (CarbinFile is FM4 / FH only)
+                    CarbinModel.Section part = this.SelectionModel().Find(section);
+                    if (part == null)
+                    {
+                        throw new InvalidOperationException("Part not found in the file.");
+                    }
+                    this.editSection = section;
+                    this.editCenter = new Vector3(part.Bounds[0], part.Bounds[1], part.Bounds[2]);
+                    this.editHalfSize = new Vector3(part.Bounds[6], part.Bounds[7], part.Bounds[8]);
                 }
-                this.editSection = section;
-                this.editCenter = new Vector3((float) found.Origin[0], (float) found.Origin[1], (float) found.Origin[2]);
-                this.editHalfSize = new Vector3((float) found.Max[0], (float) found.Max[1], (float) found.Max[2]);
+                else
+                {
+                    CarbinFile carbin = this.SelectionCarbin();
+                    CarbinFile.Section found = carbin.FindSection(section);
+                    if (found == null)
+                    {
+                        throw new InvalidOperationException("Part not found in the file.");
+                    }
+                    this.editSection = section;
+                    this.editCenter = new Vector3((float) found.Origin[0], (float) found.Origin[1], (float) found.Origin[2]);
+                    this.editHalfSize = new Vector3((float) found.Max[0], (float) found.Max[1], (float) found.Max[2]);
+                }
                 if (material != null)
                 {
                     // One material of the part: its own center is the default pivot.
@@ -984,12 +999,23 @@ namespace ForzaStudio
             return this.selectionCarbin;
         }
 
+        // FM3 files are edited in their own layout (part edits on FM3, user 2026-11-18); FM4 / FH as before. FM2 stays refused.
+        private static CarbinModel EditableModel(byte[] data)
+        {
+            return CarbinModel.IsMotorsport3File(data) ? new CarbinModel(data, true) : new CarbinModel(data);
+        }
+
+        private bool SelectionIsMotorsport3()
+        {
+            return this.SelectionModel().IsMotorsport3;
+        }
+
         private CarbinModel SelectionModel()
         {
             this.SelectionCacheValid();
             if (this.selectionModel == null)
             {
-                this.selectionModel = new CarbinModel(this.zip.Read(this.currentEntry));
+                this.selectionModel = EditableModel(this.zip.Read(this.currentEntry));
             }
             return this.selectionModel;
         }
@@ -1218,11 +1244,22 @@ namespace ForzaStudio
                         if (this.editMaterial != null)
                         {
                             // One material: vertices it shares with other materials get their own copies.
-                            CarbinModel model = new CarbinModel(this.zip.Read(entry));
+                            CarbinModel model = EditableModel(this.zip.Read(entry));
                             if (model.TransformSubSections(this.editSection, this.editMaterial, matrix) == 0)
                             {
                                 continue;
                             }
+                            edited = model.ToBytes();
+                        }
+                        else if (CarbinModel.IsMotorsport3File(this.zip.Read(entry)))
+                        {
+                            // FM3: positions and frames rewritten in FM3's own layout, UVs and the rest untouched
+                            CarbinModel model = new CarbinModel(this.zip.Read(entry), true);
+                            if (model.Find(this.editSection) == null)
+                            {
+                                continue;
+                            }
+                            model.TransformSection(this.editSection, matrix);
                             edited = model.ToBytes();
                         }
                         else

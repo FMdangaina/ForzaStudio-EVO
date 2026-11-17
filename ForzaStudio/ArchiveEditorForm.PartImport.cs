@@ -843,6 +843,10 @@ namespace ForzaStudio
             Dictionary<string, byte[]> sourceData = new Dictionary<string, byte[]>();
             List<string> sourceNotes = new List<string>();
             Dictionary<string, List<string>> sourceUnknown = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            // an FM3 car (ST-03, user 2026-11-17): its files in FM4 form for the placement and the list (memory only), the
+            // source FM3 files as they are when the source is an FM3 car too (their vertex bytes are kept)
+            Dictionary<string, byte[]> targetAsFm4 = null;
+            Dictionary<string, byte[]> sourceNative = null;
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
@@ -853,11 +857,26 @@ namespace ForzaStudio
                 byte[] targetMainData = this.zip.Read(targetFiles[""]);
                 CarbinFamily sourceGame = CarbinFormat.Identify(sourceData[""]).Family;
                 CarbinFamily targetGame = CarbinFormat.Identify(targetMainData).Family;
-                if (sourceGame != targetGame && targetGame != CarbinFamily.Motorsport4)
+                if (targetGame != CarbinFamily.Motorsport4 && targetGame != CarbinFamily.Motorsport3)
                 {
-                    throw new NotSupportedException(string.Format("Copying a part from a {0} car into a {1} car is not supported yet (today: FM4, FM3, FH1 and FH2 into FM4).", PartSource.GameName(sourceGame), PartSource.GameName(targetGame)));
+                    throw new NotSupportedException(string.Format("Copying a part into a {0} car is not supported yet (today: FM4, FM3, FM2, FH1 and FH2 cars into FM4 and FM3 cars).", PartSource.GameName(targetGame)));
                 }
-                if (sourceGame != targetGame)
+                if (targetGame == CarbinFamily.Motorsport3)
+                {
+                    Dictionary<string, byte[]> targetData = new Dictionary<string, byte[]>();
+                    foreach (KeyValuePair<string, ForzaZip.Entry> pair in targetFiles)
+                    {
+                        targetData[pair.Key] = (pair.Key.Length == 0) ? targetMainData : this.zip.Read(pair.Value);
+                    }
+                    targetAsFm4 = PartSource.Motorsport3AsMotorsport4(targetData);
+                    if (sourceGame == CarbinFamily.Motorsport3)
+                    {
+                        sourceNative = new Dictionary<string, byte[]>(sourceData);
+                    }
+                    sourceData = PartSource.ForMotorsport3(sourceData, sourceNotes, sourceUnknown, targetAsFm4);
+                    sourceLabel += " (" + PartSource.GameName(sourceGame) + ")";
+                }
+                else if (sourceGame != targetGame)
                 {
                     // this car's model files: an FH part takes its damage words from them (PartSource)
                     Dictionary<string, byte[]> targetData = new Dictionary<string, byte[]>();
@@ -870,7 +889,7 @@ namespace ForzaStudio
                 }
                 // the list and the preview show the chosen source file; the copy goes into the open file only
                 sourceMain = new CarbinModel(sourceData[sourceKey]);
-                targetMain = new CarbinModel((fileKey.Length == 0) ? targetMainData : this.zip.Read(targetFiles[fileKey]));
+                targetMain = new CarbinModel((targetAsFm4 != null) ? targetAsFm4[fileKey] : ((fileKey.Length == 0) ? targetMainData : this.zip.Read(targetFiles[fileKey])));
                 if (sourceMain.DrawLists.Count / 2 == 1 && targetMain.DrawLists.Count / 2 > 1)
                 {
                     throw new NotSupportedException(string.Format("The source's {0} model has LOD 0 only, and this car's main model needs LODs 1-5. Open this car's lod0 or cockpit model to copy into it, or choose the source's main model.", PartImport.FileLabel(sourceKey)));
@@ -898,7 +917,7 @@ namespace ForzaStudio
             {
                 try
                 {
-                    foreach (CarbinModel.Section section in ((pair.Key == fileKey) ? targetMain : new CarbinModel(this.zip.Read(pair.Value))).Sections)
+                    foreach (CarbinModel.Section section in ((pair.Key == fileKey) ? targetMain : new CarbinModel((targetAsFm4 != null) ? targetAsFm4[pair.Key] : this.zip.Read(pair.Value))).Sections)
                     {
                         taken.Add(section.Name);
                     }
@@ -1070,7 +1089,7 @@ namespace ForzaStudio
                 alignChecked = align.Checked;
                 fitChecked = fit.Checked;
             }
-            this.RunPartImport(sourceData, sourceNotes, sourceUnknown, targetFiles, sourceLabel, plan, alignChecked, fitChecked, fileKey, sourceKey);
+            this.RunPartImport(sourceData, sourceNotes, sourceUnknown, targetFiles, sourceLabel, plan, alignChecked, fitChecked, fileKey, sourceKey, targetAsFm4, sourceNative);
         }
 
         // The source car's model file to copy from: main, lod0, cockpit and its brake files (calipers, rotors), the one
@@ -1137,9 +1156,11 @@ namespace ForzaStudio
 
         // Builds the whole import first (PartImport: all files, checks), asks on which LODs a moved part is moved,
         // shows the log as a preview, and only then puts the files in the archive (pending until Save).
-        private void RunPartImport(Dictionary<string, byte[]> sourceData, List<string> sourceNotes, Dictionary<string, List<string>> sourceUnknown, Dictionary<string, ForzaZip.Entry> targetFiles, string sourceLabel, List<string[]> plan, bool alignChecked, bool fitChecked, string onlyFile, string sourceFile)
+        private void RunPartImport(Dictionary<string, byte[]> sourceData, List<string> sourceNotes, Dictionary<string, List<string>> sourceUnknown, Dictionary<string, ForzaZip.Entry> targetFiles, string sourceLabel, List<string[]> plan, bool alignChecked, bool fitChecked, string onlyFile, string sourceFile, Dictionary<string, byte[]> targetAsFm4, Dictionary<string, byte[]> sourceNative)
         {
             PartImport import = new PartImport();
+            import.TargetAsMotorsport4 = targetAsFm4;     // an FM3 car: its files in FM4 form (null otherwise)
+            import.SourceNative = sourceNative;           // FM3 -> FM3: the source's own FM3 files
             import.SourceFile = sourceFile;     // the source car's chosen file (may differ in kind from onlyFile)
             import.OnlyFile = onlyFile;     // the open file's kind only (null = every file, as before)
             try

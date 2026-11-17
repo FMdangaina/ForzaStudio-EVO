@@ -100,6 +100,7 @@ namespace ForzaStudio
                 "Copy Part UVs", "UV1 and UV2 of a copied part are never changed: it keeps its own layout on this car's textures",
                 "Copy Part from FH", "FH parts take their crash deformation from this car's file, never their own; FH stripped meshes are left out",
                 "Copy Part from FM2", "An FM2 car has one file (no file question): its parts are rebuilt on this car's main model as the FM2 port does, so crash deformation and baked light come from this car. Into lod0 / cockpit the part's LOD 1 is used",
+                "Copy Part into FM3", "This FM3 car's own parts stay exactly as they were. A part from another FM3 car keeps all its FM3 vertex data (when moved, only the positions change); a part from FM4, FH or FM2 is converted as the FM4 -> FM3 port does: its UVs become FM3 half numbers (a tiny rounding, the layout is the same). A material this FM3 car does not use may render black",
                 "Handles on MESH", "Vertex / edge / face moves change only the open LOD; part moves (PART tab) can also go to lod0 and cockpit",
                 "UV box (TEXTURE)", "Framed on the selection's UVs. Select one material for a close view: a part with several materials spreads over their textures",
                 "Ctrl + Shift + A", "Two meanings: Add File with the file tree active, Select none in the MESH tab with the view active",

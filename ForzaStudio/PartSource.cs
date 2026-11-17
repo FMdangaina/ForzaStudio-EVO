@@ -8,14 +8,80 @@ namespace ForzaStudio
     // ST-03: the model files of a Copy Part SOURCE car in the form of the target game, so that PartImport (which
     // works between files of one game) can take parts from another game's car.
     // Scope set by the user 2026-11-17: parts FROM FH1 / FH2 into every Motorsport, and between the Motorsports
-    // (2 <-> 3, 2 <-> 4, 3 <-> 4). Done so far: FM3 -> FM4, FH1 / FH2 -> FM4, FM2 -> FM4. FM3 / FM2 targets are
-    // refused with a message until they are built.
+    // (2 <-> 3, 2 <-> 4, 3 <-> 4). Done so far: FM3 -> FM4, FH1 / FH2 -> FM4, FM2 -> FM4, and every one of them plus
+    // FM4 -> FM3 (below). FM2 targets are refused with a message until they are built.
     //
     // FM3 -> FM4: each file goes through CarPort.ConvertModel, the conversion the FM3 -> FM4 car port uses (header,
     // sections, 40-byte vertices, FM4 material names, _lod0 light variants in the _lod0 file), so a copied part is
     // what the same part would be in the ported car. Nothing of the source car is written.
+    //
+    // FM3 TARGET (user 2026-11-17, approved plan): the FM3 car's file is edited in its own layout (CarbinModel reads and
+    // writes FM3 byte-identical), so its own parts never change. The copied part is prepared in FM4 form here
+    // (ForMotorsport3), placed by PartImport on the FM4 form of this car's file (Motorsport3AsMotorsport4, memory
+    // only), then put in FM3's layout by CarbinModel.ConvertPartToMotorsport3 (the FM4 -> FM3 port's section step).
+    // From an FM3 car the FM3 bytes of every vertex are kept (PartImport.SourceNative).
     public static class PartSource
     {
+        // An FM3 model file in FM4 form, the plain format conversion only (CarbinModel.ConvertMotorsport3ToMotorsport4):
+        // part and material names stay FM3's, vertices in the same order. Memory only; never written to a game file.
+        public static byte[] Motorsport3AsMotorsport4(byte[] data)
+        {
+            CarbinModel model = new CarbinModel(data, true);
+            if (!model.IsMotorsport3)
+            {
+                return data;
+            }
+            model.ConvertMotorsport3ToMotorsport4();
+            return model.ToBytes();
+        }
+
+        public static Dictionary<string, byte[]> Motorsport3AsMotorsport4(Dictionary<string, byte[]> files)
+        {
+            Dictionary<string, byte[]> converted = new Dictionary<string, byte[]>();
+            foreach (KeyValuePair<string, byte[]> pair in files)
+            {
+                converted[pair.Key] = Motorsport3AsMotorsport4(pair.Value);
+            }
+            return converted;
+        }
+
+        // The source car's model files for an FM3 target, in FM4 form (the form PartImport places and converts):
+        //  - FM3 car: the plain conversion (names kept: they are FM3's already; PartImport puts the FM3 vertex bytes back);
+        //  - FM4 car: as it is;
+        //  - FH1 / FH2 / FM2 car: as for an FM4 target (ForMotorsport4), the damage words / FM2 rebuild taken from
+        //    'targetAsMotorsport4' = this FM3 car's files in FM4 form (Motorsport3AsMotorsport4).
+        public static Dictionary<string, byte[]> ForMotorsport3(Dictionary<string, byte[]> files, List<string> notes, Dictionary<string, List<string>> unknown, Dictionary<string, byte[]> targetAsMotorsport4)
+        {
+            byte[] main;
+            if (!files.TryGetValue("", out main))
+            {
+                throw new InvalidOperationException("The source car has no main model.");
+            }
+            CarbinFamily family = CarbinFormat.Identify(main).Family;
+            if (family == CarbinFamily.Motorsport4)
+            {
+                if (notes != null)
+                {
+                    notes.Add("source part converted to FM3's layout as the FM4 -> FM3 port converts it (UVs become FM3 halves)");
+                }
+                return files;
+            }
+            if (family == CarbinFamily.Motorsport3)
+            {
+                if (notes != null)
+                {
+                    notes.Add("FM3 -> FM3: the part's FM3 vertex data (UVs, normals, damage words) is kept byte for byte; only the positions are rewritten when it is moved");
+                }
+                return Motorsport3AsMotorsport4(files);
+            }
+            Dictionary<string, byte[]> result = ForMotorsport4(files, notes, unknown, targetAsMotorsport4);
+            if (notes != null)
+            {
+                notes.Add("then put in FM3's layout as the FM4 -> FM3 port does (UVs become FM3 halves)");
+            }
+            return result;
+        }
+
         public static string GameName(CarbinFamily family)
         {
             switch (family)

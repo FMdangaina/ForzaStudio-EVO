@@ -1055,6 +1055,10 @@ namespace ForzaStudio
         // Model-space positions of a buffer, 3 doubles per vertex.
         public static double[] Positions(Section section, VertexBuffer buffer)
         {
+            if (IsMotorsport3Layout(section, buffer))
+            {
+                return Motorsport3Positions(section, buffer);   // an FM3 file opened in its own layout (part edits)
+            }
             double scale = Scale(section.Bounds);
             double[] positions = new double[buffer.Count * 3];
             for (int i = 0; i < buffer.Count; i++)
@@ -1072,6 +1076,11 @@ namespace ForzaStudio
 
         private static void Encode(Section section, VertexBuffer buffer, double[] positions)
         {
+            if (IsMotorsport3Layout(section, buffer))
+            {
+                Motorsport3Encode(section, buffer, positions);
+                return;
+            }
             double scale = Scale(section.Bounds);
             for (int i = 0; i < buffer.Count; i++)
             {
@@ -1123,6 +1132,12 @@ namespace ForzaStudio
             }
             if (min[0] > max[0])
             {
+                return;
+            }
+            if (Motorsport3NoBounds(section))
+            {
+                Encode(section, section.Lod, lod);   // FM3 brake parts: model space, bounds stay 0
+                Encode(section, section.Lod0, lod0);
                 return;
             }
             float[] origin;
@@ -3292,7 +3307,7 @@ namespace ForzaStudio
                     positions[i * 3] = p.X;
                     positions[(i * 3) + 1] = p.Y;
                     positions[(i * 3) + 2] = p.Z;
-                    TransformFrame(buffer.Data, (i * buffer.Stride) + 16, rotation, normalMatrix);
+                    TransformVertexFrame(section, buffer, i, rotation, normalMatrix);
                 }
                 all[b] = positions;
             }
@@ -3613,7 +3628,7 @@ namespace ForzaStudio
                 result[i * 3] = p.X;
                 result[(i * 3) + 1] = p.Y;
                 result[(i * 3) + 2] = p.Z;
-                TransformFrame(buffer.Data, (i * buffer.Stride) + 16, rotation, normalMatrix);
+                TransformVertexFrame(section, buffer, i, rotation, normalMatrix);
                 moved++;
             }
             return result;

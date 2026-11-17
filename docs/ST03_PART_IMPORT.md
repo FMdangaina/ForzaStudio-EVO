@@ -102,7 +102,8 @@ directions: 2 -> 3, 3 -> 2, 2 -> 4, 4 -> 2, 3 -> 4, 4 -> 3. Order: one pair at a
 | FM3 -> FM4 | done 2026-11-17, OK in app + game (Abarth 500) |
 | FH1 / FH2 -> FM4 | done 2026-11-17, OK in app + game (Abarth 500) |
 | FM2 -> FM4 | done 2026-11-17, OK in app + game (user) |
-| any -> FM3, any -> FM2 | to do: CarbinModel does not edit FM3 / FM2 models today (the targets must become editable first) |
+| FM4 / FM3 / FH1 / FH2 / FM2 -> FM3 | done 2026-11-17 (see "FM3 as target"), harness pi4 OK, OK in app + game 2026-11-18 (FM3 Supra, 15/15) |
+| any -> FM2 | to do (after FM3, user 2026-11-17); then lod0 / cockpit -> main (LOD0 -> LOD1 + reduced LODs 2-5) |
 
 ### FM3 -> FM4 (2026-11-17)
 
@@ -233,3 +234,58 @@ damage OK, the FH1 bumper deforms correctly. FM3 -> FM4 and FH1 / FH2 -> FM4 par
 - The 39954 wide triangles left (lam_gallardo_05 1869, lam_murcielago_05 1575, ...) may be real tiling; not checked
   in game yet.
 - docs/CARBIN_ALL_GAMES.md FM2 vertex row updated. pi3 with FM2 sources after the change: 90 runs, 0 fails.
+
+### FM3 as target (2026-11-17, plan approved by the user: "sì, procedi con FM3")
+
+How: this FM3 car's file is opened in FM3's own layout (`new CarbinModel(data, true)`, which writes all 3930 FM3
+carbins back byte-identical), so the car's own parts, header and trailer never change. Only the copied part is made:
+- `PartSource.ForMotorsport3`: the source files in FM4 form. FM3 car: the plain format conversion
+  (`Motorsport3AsMotorsport4` = `ConvertMotorsport3ToMotorsport4`, names kept, vertex order kept); FM4 car: as it is;
+  FH1 / FH2 / FM2 car: `ForMotorsport4` with this FM3 car's files in FM4 form as the damage / donor reference.
+- `PartImport` (Target = the FM3 files, `TargetAsMotorsport4` = their FM4 form for placement and names,
+  `SourceNative` = the FM3 source files): the part is moved in FM4 form, then
+  `CarbinModel.ConvertPartToMotorsport3` (the FM4 -> FM3 port's section step, Unk1c flag by the part's new name)
+  and FM3 material names (`lights_glass` -> `detail_glass_clear`, the port's list), then `ImportSection` into the
+  FM3 file.
+- FM3 -> FM3: same kind of file and not moved = the FM3 section as it is (every byte). Moved, or main LOD 1 used up
+  close: the converted part gets the FM3 source's bytes 8..39 back in every vertex (UV1, UV2, normal, the 4 S16
+  values, damage word, the dropped word, frame axis; a move is translation + even scale, normals do not change), so
+  only positions and bounds are new. Vertex order: same buffers, or (up close) the native Lod vertices LOD 1 draws in
+  ascending order (CloseUpFromLod1 keeps the order); checked on UV1 of every drawn vertex, else a warning and the
+  converted part stays. A brake file's 16-byte vertices give their UV1 only.
+- FM4 / FH / FM2 -> FM3: UVs become FM3 halves (FM3's own precision: up to 0.49 on UV2 values around 500, the
+  undercarriage AO sets; tiny below 2).
+- Moves still go only into the open file (the user's rule), the replaced part and placement are the open file's.
+- `Motorsport3Buffer`: a source vertex shorter than 32 bytes (a brake part into a car file) gets 0 S16 values.
+- F1 help GOOD TO KNOW "Copy Part into FM3".
+
+Harness `E:\DEV\fm4dev\ST03\fm3t\pi4.exe <FM3 root> <source root> [cars] [seed]` (read-only, the app's path), 10
+random FM3 targets per source game, seed 20261117: runs A main->main replace + move, B main->main new (not moved),
+C lod0->lod0 replace + move, D main->lod0, E main->cockpit, F brake->lod0. Checks: result is FM3 and re-reads, head /
+trailer / every other part identical, LODs, 40-byte vertices, positions vs FM4 form (+ move) within half precision,
+FM3 source bytes kept (B: whole buffers identical), UVs within half precision, result converts to FM4 form again,
+source unchanged. Results (pi4_<game>_10.txt): FM3 60/0, FM4 60/0, FH1 60/0, FH2 60/0, FM2 40/0 (no lod0 / brake
+in FM2). Worst position 1.6 mm (tolerance 1 mm + 0.15 % of the distance from the part centre).
+
+2026-11-18 user test (wizard, 15 steps) ALL OK: app (FM3 add/replace/main->lod0, FM4 main + cockpit, FH1 main, FH2 lod0,
+FM2 main, brake->lod0, undo/redo/save) and game (loads, visible far/near/cockpit, materials, damage) on the FM3 Supra (TOY_SupraRZ_98) in
+FM3_Extracted_DEV. Next (user 2026-11-17): FM2 as target, lod0 / cockpit -> main.
+
+### Part edits on FM3 cars (2026-11-18, user: "editor posizione, rotazione e dimensione non abilitato su FM3")
+
+The PART tab's move / rotate / scale (whole part or one material), Delete, Duplicate and Rename Part now work on FM3
+files, opened in FM3's own layout like Copy Part (`ArchiveEditorForm.EditableModel`). FM2 stays refused.
+- `CarbinModel.Positions` / `Encode` read and write FM3 positions (4 halves: unit direction + distance from origin +
+  bounds centre) on FM3 sections (`IsMotorsport3Layout`: marker 2 and 40 / 16 / 44-byte vertices; a section being
+  converted between the games has its new buffers in 32-byte form, so the ports read as before). Bounds and centroid
+  are refitted as for FM4; FM3 brake sections keep their 0 bounds (model space).
+- Frames (`TransformVertexFrame`): the FM3 normal (11:11:10 at 16, or 12 on 16 / 44-byte vertices) and the frame's
+  Z axis (at 36) are turned only when the edit rotates or scales unevenly; a move or an even scale leaves them as
+  they are. UV1 / UV2, the S16 values, the damage word and the word at 32 are never touched.
+- Selection bounds of an FM3 part come from the model (CarbinFile reads FM4 / FH only).
+- Harness `E:\DEV\fm4dev\ST03\fm3t\pe3.exe <FM3 root> [cars] [seed]` (read-only), 10 random FM3 cars x main / lod0 /
+  cockpit, a random part each: move, rotation, even scale, uneven scale, one material rotated: 150 runs, 0 fails
+  (pe3_10.txt). Positions within 0.85 mm, normals within 0.07 degrees, every other byte and every other part
+  identical. pi3 (FM3 -> FM4) and pi4 (into FM3) re-run after it: no change (pi3's 7 "moved by the conversion"
+  lines are the known FM3 -> FM4 UV precision, the same as uv_new_FM3.txt).
+- App + in-game check pending.

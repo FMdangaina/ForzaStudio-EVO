@@ -182,6 +182,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="ForzaStudio\CarbinModelMotorsport3.cs" />
+    <Compile Include="ForzaStudio\CarbinModelMotorsport3Edit.cs" />
     <Compile Include="ForzaStudio\CarbinModelToMotorsport3.cs" />
     <Compile Include="ForzaStudio\CarPortToFm3.cs" />
     <Compile Include="ForzaStudio\Fm3Textures.cs" />
