@@ -1,7 +1,9 @@
 # ST-01: material editing for FM2 and FM3 (2026-11-13)
 
 Short-term sprint item ST-01. State: **coded, automatic tests passed, name-only rename checked in game on FM2 and FM3
-(user, 2026-11-14); opaque -> see-through rename not tried in game yet.**
+(user, 2026-11-14); opaque -> see-through rename checked in game on FM2 on 2026-11-15 (Mustang GT 05 hood -> glass,
+`ST02_DUPLICATE_FM2_FM3.md`, in-game table row 7); not tried on FM3.** Committed in 41aaff7. Sprint 2 is `ROADMAP.md`
+goal 21.
 
 In game (user, 2026-11-14, "ha funzionato egregiamente"): FM2 `for_mustanggt_05` (FM2_Extracted_DEV) left mirror
 `body -> chrome`; FM3 Fiat 500 Abarth (FM3_Extracted_DEV) front bumper `-> chrome`.

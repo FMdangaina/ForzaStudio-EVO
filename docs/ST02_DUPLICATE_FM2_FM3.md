@@ -1,6 +1,11 @@
 # ST-02: Duplicate Car for FM3 and FM2 (analysis 2026-11-14)
 
-Short-term sprint item ST-02. State: **analysis done, nothing coded yet.** Same options as FM4's Duplicate Car (plain copy,
+> **State 2026-11-17: CLOSED** (2026-11-15, section "ST-02 state" and the in-game table further down; committed in
+> 41aaff7). After it: PI, class and ratings of a copy computed like each game (`FM2/PI_AND_RATINGS.md`,
+> `FM3/PI_AND_RATINGS.md`, `FM4/PI_AND_RATINGS.md`; commits 82df3d1, d5e3ae8). Sprint 2 is `ROADMAP.md` goal 21; the next
+> item is `ST03_PART_IMPORT.md`. The file is a log in date order: the first sections are the analysis as it was.
+
+Short-term sprint item ST-02. State on 2026-11-14 (morning): **analysis done, nothing coded yet.** Same options as FM4's Duplicate Car (plain copy,
 own engine, own gearbox, names, make, year, Id; game folder or DLC pack). Harnesses `E:\DEV\fm4dev\ST02`: `dbmap.exe`
 (tables, FM4 relations that hold, relations found by value), `own.exe` (rows each car owns, over every car), `q.exe` (SQL).
 

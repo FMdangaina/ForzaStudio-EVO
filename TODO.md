@@ -14,12 +14,21 @@ How we work:
 
 Status: ⬜ to do · 🔧 coded, not tested · 🧪 tested without the game, in game pending · ⏸ paused · 💤 maybe later · ✅ done (log only)
 
-Last review: 2026-11-05. Everything is committed and pushed (tag `v0.0.1`, commit 3818047); the doc review of 2026-11-05 comes after it.
+Last full review: 2026-11-05 (tag `v0.0.1`, commit 3818047). Aligned with the other files on 2026-11-17: version 0.0.7 (tag `v0.0.7`, 2026-11-11), the release list and the map of every document are in `ROADMAP.md` sections 4 and 5.
+
+**Where to look today (2026-11-17):**
+- To test now: the driver points, `URGENT.md` (also 6.2 below and `UNTESTED.md` D5b / D5c).
+- Just closed: the editor workflow 15.3 (`docs/UI_WORKFLOW.md`).
+- Next to resume: Sprint 2 ST-03 part import (`docs/ST03_PART_IMPORT.md`). Sprint 2 (ST-01, ST-02, ST-03: FM2 and FM3 edited in place) has no topic here: it is `ROADMAP.md` goal 21 and lives in its three documents.
+- The "NOW: FM4 first" list below is closed (2026-11-10); what it left open is in `PRERELEASE_TESTING.md` "Still open".
+- Numbers: topic 17 here is the side projects; the roadmap's goal 17 is the database editor (`ROADMAP.md` section 1).
 Build: `C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe ForzaStudioEVO.csproj /p:Configuration=Debug /p:Platform=x86` (the Framework MSBuild fails on resgen when the resource cache in `obj` is touched); Forza Studio must be closed.
 
 ---
 
-# NOW: FM4 first (2026-11-03; session results 2026-11-04 in `PRERELEASE_TESTING.md`)
+# NOW: FM4 first (2026-11-03; session results 2026-11-04 in `PRERELEASE_TESTING.md`) - CLOSED 2026-11-10
+
+Every point is closed or postponed (9). Since 2026-11-13 Sprint 2 works inside FM2 and FM3 (`ROADMAP.md` goal 21); goal 18 stays paused.
 
 FM4 was not finished when FM3 and the viewport tools came in. Until this list is closed, FM3 and "every game to every game" (goal 18) are **paused**: no new work there, only bug fixes. One item active at a time, closed (tested, committed, user says so) before the next. Goals in `ROADMAP.md`; test places: `FM4_Extracted_DEV`, Xenia closed before writes.
 
@@ -272,6 +281,11 @@ Ported traffic cars load and run (see D, topic 6). What stays open:
       the shifter point match the source scene's locators (2 mm); NEW **DRIVER tab** in the model view (`ArchiveEditorForm.Driver.cs`, like EXHAUST) to
       edit the rig points and the carattribs offsets by hand; compile-checked, not seen in the interface nor in game. A `driver.txt` for the port like
       `exhaust.txt`: not written.
+      2026-11-17 🧪 REOPENED for a test (user: a car made from scratch has the driver in different places close up and from a distance; commit bdb6278):
+      the game keeps two sets of points, LOD 0 in the cockpit header and LOD 1..5 in the main model's (survey of the 313 FM4 cars). The DRIVER tab now
+      edits both (main model = LOD 1..5; `_lod0` / `_cockpit` = LOD 0); the port rebuilds the LOD 0 points only for a cockpit it built from LOD 1 (FM2,
+      traffic without close-up models), a car with its own cockpit keeps its points; an FM2 stage takes the LOD 1..5 points from the FM2 model.
+      Compile-checked only: the seven checks are in `URGENT.md`, the findings in `docs/DRIVER_POSITION.md`, `UNTESTED.md` D5b / D5c.
 
 ### 7. DLC packages 🔧
 
@@ -490,16 +504,19 @@ Background C3 (research). Paused by the user 2026-10-19.
       `ColorSelectCams.xml`, per track `preracecams.xml` / `tracksegcams.xml`; thumbnails `Media\ThumbnailCamSettings.xml` (2 defaults + 24 per-car).
       A hood camera panel was written and dropped.
 
-### 15. Platform and UI ⏸
+### 15. Platform and UI 🔧
 
-Both points wait for a proper release (user 2026-10-28), not before.
+15.1 and 15.2 wait for a proper release (user 2026-10-28), not before. 15.3 was done on 2026-11-16/17.
 
 - [ ] 15.1 Conversion tool as MDI (child windows inside the main window)
 - [ ] 15.2 Recent .NET Framework: since 2026-11-01 (bbc56ae) the project targets **.NET Framework 4.8**, x86, with XNA 3.1 (loaded through `useLegacyV2RuntimeActivationPolicy` in app.config); check SQLite, HexBox. Last, it touches everything
-- [ ] 15.3 🔧 Editor workflow (user 2026-11-16: "le interfacce sono veramente difficili da usare... workflow macchinoso e poco
-      efficiente"). Plan and state: `docs/UI_WORKFLOW.md`, steps A-E, one at a time, each checked by the user in the app:
-      A no confirmations / previews where Undo exists + 3ds Max shortcuts + pick banner; B move / scale handles in the
-      viewport; C donor car shown next to this one, drag a part across; D materials and textures; E top menus become buttons.
+- [x] 15.3 ✅ 2026-11-17 (steps A-E done and checked in the app by the user, "funziona"; commits 8f6b3be, 5e853ec, 0a0ec6e,
+      b6632e5, fc8a87a, d8afe38) Editor workflow (user 2026-11-16: "le interfacce sono veramente difficili da usare... workflow
+      macchinoso e poco efficiente"). Plan and state: `docs/UI_WORKFLOW.md`, steps A-E, one at a time, each checked by the user
+      in the app: A no confirmations / previews where Undo exists + 3ds Max shortcuts + pick banner; B move / scale handles in
+      the viewport; C the part seen in a viewport preview inside the Copy Part dialog (redefined by the user: the first idea, the
+      donor car shown next to this one, was rejected); C.1 viewport commands help (F1); D the TEXTURE tab; E top menus become
+      buttons (top bar, FILES bar, Tools panel). Sprint 2 ST-03, paused for this, can resume (`docs/ST03_PART_IMPORT.md`).
 
 ### 16. Documentation and community 🔧
 

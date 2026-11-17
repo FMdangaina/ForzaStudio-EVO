@@ -1,7 +1,9 @@
-# URGENT (2026-10-31)
+# URGENT
 
-> **Closed, kept for history** (2026-11-05). Its open points live in `TODO.md`; the DLC pack items were closed in
-> game on 2026-11-04 (`PRERELEASE_TESTING.md` point 3).
+What has to be tested or fixed **now**. One section is open: the driver points of 2026-11-17, right below. Everything
+from "State after the string-key / make clash work" down is the chat of 2026-10-31, **closed and kept for history**
+(2026-11-05: its open points live in `TODO.md`; the DLC pack items were closed in game on 2026-11-04,
+`PRERELEASE_TESTING.md` point 3). The big picture is in `ROADMAP.md` section 2.
 
 ## TO TEST: driver points, LOD 0 and LOD 1..5 (2026-11-17)
 
@@ -14,6 +16,10 @@ Compile-checked only (no FM2 / FM3 / FH files and no running program on the mach
 5. **Port, traffic car without close-up models.** LOD 0 points rebuilt as before ("driver rig" line), hands on the wheel.
 6. **Port, FM2 car.** Stage log: "LOD 1..5 driver points: the FM2 model's own, not the donor's". If it says WARNING (the donor's stay), the FM2 anchors are not in the parts' axes: report the numbers of that line. In game the driver seen from a distance sits at this car's wheel.
 7. **Port report.** Every port has a "LOD 1..5 driver points" line; a WARNING there means the main model's points are to be set by hand.
+---
+
+# History: URGENT of 2026-10-31 (closed)
+
 State after the string-key / make clash work. Commits: 595172d (Data_Car.str keys), d0fc578 (makes, title rules, logos), 10071cc (combo type-to-search).
 
 ## Done

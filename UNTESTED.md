@@ -1,15 +1,20 @@
-# Changes made and NOT tested (started 2026-10-25, reviewed 2026-11-05)
+# Changes made and NOT tested (started 2026-10-25, reviewed 2026-11-05, aligned 2026-11-17)
 
 Everything below is coded, compiles and is committed. Use this file to resume: test each point, then tick it here
 and update `TODO.md` (state and date). Roadmap numbers in brackets. Review of 2026-11-05: the points closed by the
 pre-release tests of 2026-11-03/05 (`PRERELEASE_TESTING.md`) are ticked with the point that closed them; still open:
-C2, D5, D8 and the dash editor E1-E4 (experimental in the release).
+C2, D5, D8 and the dash editor E1-E4 (experimental in the release). Added 2026-11-17: D5b and D5c (driver points;
+the step-by-step test list is in `URGENT.md`).
+
+This file covers the work up to 2026-10-25 plus the driver points. Later work keeps its own "to test" notes: Sprint 2
+in `docs/ST01_MATERIALS_FM2_FM3.md` ("Open") and `docs/ST03_PART_IMPORT.md` (in-game checks left), the FM2 DLCBeta
+source in `docs/FM2/DLCBETA.md`. The big picture is in `ROADMAP.md` section 2.
 
 Build: Visual Studio 2022 MSBuild, .NET Framework 4.8, x86 (`README.md`). Test game: `F:\Xenia\Games\FM4_Extracted_DEV`.
 
 ---
 
-## A. Game database view (session 2026-10-23) [topic 18]
+## A. Game database view (session 2026-10-23) [goal 17, the database editor; "topic 18" when this was written]
 
 Code: `ForzaStudio/ArchiveEditorForm.GameDb.cs`, `ArchiveEditorForm.Creators.cs`, `ArchiveEditorForm.Navigation.cs`, `GameDatabase.cs`.
 The toolbar now has groups: **Cars Wheels Tracks Events | Engines Makes Countries Manufacturers | Tables**.

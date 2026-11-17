@@ -4,6 +4,13 @@ Goal (user, 2026-11-03): every game must be able to go to every other one, each 
 Games: FM2, FM3, FM4, FH1, FH2 (FM1 is read-only, see `docs/` FM1 notes). Reference car: **Supra RZ '98**
 (`TOY_SupraRZ_98`, Id 461 in all five games).
 
+> **State 2026-11-17: paused** since 2026-11-03 (`ROADMAP.md` goal 18); the matrix below is still 5 of 20. Done since
+> then, and useful here: one description of the `.carbin` of the five games (`CARBIN_ALL_GAMES.md`, 2026-11-10, its
+> section 6 is about this plan) and how FM4 reads it (`CARBIN_FROM_XEX.md`); the editor now works inside FM2 and FM3
+> (Sprint 2, `ROADMAP.md` goal 21: materials, Duplicate Car, packs), which is not a port but uses the same readers and
+> writers; each game's PI and ratings (`FM2/`, `FM3/`, `FM4/PI_AND_RATINGS.md`); the driver's two sets of points
+> (`DRIVER_POSITION.md`).
+
 This is a plan, nothing is coded yet. Related documents: `PORT_FM4_TO_FM3.md` (the only reverse port so far),
 `FH_vs_FM4_CARBIN.md`, `GR2_FH_vs_FM4.md`, `FM3/fm3_conversion.md`, `SHADERS_OTHER_GAMES.md`.
 

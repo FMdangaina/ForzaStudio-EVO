@@ -76,7 +76,7 @@ Use `FM4_Extracted_DEV` only, never `FM4_Extracted`. Check Xenia first.
   `Livery_Decals` row it points to (`Filename`, `DisplayName`). A pack: the carbin must be under
   `Media\Livery\decals\` with the number in `Filename`.
 - **Make id clash**: a port keeps the source make id (Bowler is 100 in FH2); the integrity check warns
-  that FM4's ids go to 105. Not new, see ROADMAP topic 18.
+  that FM4's ids go to 105. Not new, see `TODO.md` 1.1 (the Id rules; "ROADMAP topic 18" when this was written, renumbered since).
 
 ## Open points
 

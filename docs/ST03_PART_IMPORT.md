@@ -85,5 +85,8 @@ and LOD0-fill preview windows were removed in the first round and put back in th
 Copy Part one is reworked in workflow step C. Ctrl+Z undoes both, the report is in `PartImport.log`.
 The LOD question for moved parts stays. Fill LOD0 does not add database rows yet (to be decided later).
 
+2026-11-17: the workflow work is done (steps A to E, `docs/UI_WORKFLOW.md`; `TODO.md` 15.3 closed), so ST-03 can resume.
+Sprint 2 is `ROADMAP.md` goal 21.
+
 What is left of ST-03 when it resumes: the in-game checks above (FM4 import on two cars, the Cayenne's Edo logo, an
 FM2-ported car up close), then part import for FM3, then FM2.

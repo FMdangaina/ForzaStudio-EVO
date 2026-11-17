@@ -1,5 +1,10 @@
 # Editor workflow (TODO 15.3)
 
+> **State 2026-11-17: DONE.** Steps A to E are built, committed (8f6b3be, 5e853ec, 0a0ec6e, b6632e5, fc8a87a, d8afe38)
+> and were checked in the app by the user round by round ("funziona"). Where a step below still says "app test
+> pending" or "uncommitted", that was its state when the paragraph was written: the file is a log in date order.
+> Sprint 2 ST-03, paused for this work, can resume (`ST03_PART_IMPORT.md`). Big picture: `ROADMAP.md` goals 15 and 19.
+
 User 2026-11-16, after testing Attach / Merge pick modes, Undo / Redo and the move without Apply ("funziona"):
 "le interfacce sono veramente difficili da usare ... non è una questione di posizioni, workflow macchinoso e poco
 efficiente". Sprint 2 ST-03 (`docs/ST03_PART_IMPORT.md`) is PAUSED for this (user: "fermiamo st per questo").

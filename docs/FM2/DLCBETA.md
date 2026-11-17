@@ -1,6 +1,7 @@
 # FM2 DLCBeta -> FM4
 
-Status 2026-11-09: **paused, cars installed in FM4_Extracted_DEV but NOT visible in game.** Code change uncommitted.
+Status 2026-11-09: **paused, cars installed in FM4_Extracted_DEV but NOT visible in game.** The code was committed the same
+day (8288f87, release 0.0.6). FM2 as a source is `ROADMAP.md` goal 5.
 
 ## The package
 

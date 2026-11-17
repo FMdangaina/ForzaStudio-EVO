@@ -1,4 +1,8 @@
-# Pre-release testing (FM4 first) — state 2026-11-05, resume here
+# Pre-release testing (FM4 first) — state 2026-11-05
+
+> **Closed, kept for history** (2026-11-17). The round ended on 2026-11-10 with release 0.0.6 published (`TODO.md`
+> NOW points 12 and 13); the program is at 0.0.7. What is active now is in `ROADMAP.md` section 2; the list
+> "Still open" at the bottom is still valid.
 
 Sessions of 2026-11-03/04/05: the user went through the `TODO.md` "NOW: FM4 first" list point by point, in the
 editor and in game (`FM4_Extracted_DEV`, Xenia). FM3 and "every game to every game" (ROADMAP goal 18) are paused
@@ -19,7 +23,8 @@ until FM4 is done. Details of every point are in `TODO.md` section NOW; this fil
 | 9 | FM2 / FM1 close-up (5.3) | ⏸ postponed by the user (FM2 resumes after the release) |
 | 10 | Offroad / small tyres, generic brakes | ✅ solved with the Raptor tyres, tested on the Bowler (user) |
 | 11 | Checks 1.3 / 1.4, own engine from scratch 2.3.2, camera review 14.0 | ✅ 2026-11-05 |
-| 12 | Release 0.0.1 / 0.0.2 | 🔧 7.4 New Folder OK (user); 0.0.2 tagged with the doc review, v0.0.1 release deleted; left: publish the v0.0.2 draft |
+| 12 | Release 0.0.1 / 0.0.2 | ✅ closed 2026-11-10 (release 0.0.6 published; list of the releases in `ROADMAP.md` section 4). Was: 7.4 New Folder OK (user); 0.0.2 tagged with the doc review, v0.0.1 release deleted |
+| 13 | Analogue gauges (added 2026-11-07: needles of FH2 ports) | ✅ closed 2026-11-10 (GAUGES tab, one-tick port rule; `TODO.md` NOW 13) |
 
 ## 2026-11-03/04 (commit f84a191)
 

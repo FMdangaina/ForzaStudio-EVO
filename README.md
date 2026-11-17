@@ -22,6 +22,9 @@ the list is in [Known limitations](docs/MANUAL.md#13-known-limitations).
 User manual: [docs/MANUAL.md](docs/MANUAL.md). Quick start for the beta zip:
 [docs/INSTRUCTIONS.txt](docs/INSTRUCTIONS.txt).
 
+Where the project stands: [ROADMAP.md](ROADMAP.md) (goals, releases, what is being worked on and a map
+of every document in `docs/`); the work point by point is in [TODO.md](TODO.md).
+
 Derived from Forza Studio 4.6 by Mike Davis, with an earlier edit by JYSB59.
 Maintained by FMdangaina. The DLC package format was worked out with help from [Aiden-Piercee](https://github.com/Aiden-Piercee)
 and XTD (@xtd_ac) on Discord. The engine power calculation (the torque a

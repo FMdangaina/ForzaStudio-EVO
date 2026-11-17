@@ -8,6 +8,10 @@ Stato: tutto compilato e provato dall'utente a vista ("direi che ci siamo!"); re
 > **spente**: il gioco somma gli offset di `CameraOverrides` a un suo punto base che non è in nessun file, e l'anteprima
 > metteva l'occhio dentro l'auto (NSX '97). Restano cockpit (verificato in gioco) e thumbnail. Il punto 1 qui sotto è
 > la richiesta originale del 31/10.
+>
+> **Aggiornamento 2026-11-17.** Sessione chiusa. Il lavoro sul viewport è continuato altrove: anteprima LOD di gioco
+> (0.0.6), mesh tools (0.0.7), maniglie stile 3ds Max per parti, vertici, spigoli e facce e tutto il nuovo flusso
+> dell'editor (`UI_WORKFLOW.md`, TODO 15.3). Quadro generale: `ROADMAP.md` goal 19.
 
 ## 1. Richieste dell'utente (riassunto)
 

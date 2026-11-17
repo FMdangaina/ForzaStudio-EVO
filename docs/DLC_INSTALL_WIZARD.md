@@ -1,6 +1,12 @@
 # Validate DLC for Installation — stato e test da fare
 
-Data: 2026-10-31. Tutto **non committato**. Memoria: `dlc-install-wizard.md`.
+Data: 2026-10-31. Allora tutto **non committato**. Memoria: `dlc-install-wizard.md` (nota fuori dal repository).
+
+> **Aggiornamento 2026-11-17.** Tutto committato da tempo. Il wizard è stato provato in gioco dall'utente il
+> 2026-11-04 (`PRERELEASE_TESTING.md` punto 3: "ottimo lavoro"); le correzioni fatte dopo questo file sono in `URGENT.md`
+> (storia del 2026-11-01: `RepairMakes`, `RekeyStrings`, `MoveStrings`, `DropRedundantTables`). Resta aperto un Create DLC
+> che non abbia bisogno del wizard (`ROADMAP.md` goal 7, `BENCHMARK_STRING_TABLE.md`). Per l'uso: `dlc_validation.md` e
+> `DLC_PACKAGES.md`.
 
 ## Obiettivo
 Installare un DLC senza che i suoi id/nomi/file/stringhe si scontrino con il gioco o con gli altri DLC della cartella Xenia (`...\4D530910\00000002`). Si modifica **solo il DLC da installare**, mai quelli già presenti.

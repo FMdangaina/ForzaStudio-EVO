@@ -1,7 +1,8 @@
 # Task status - chat of 2026-10-27 (test queue of TODO.md), state at the end of the day
 
 > **Closed, kept for history** (2026-11-05). Everything below has been committed and pushed since (tag v0.0.1);
-> open points live in `TODO.md`.
+> open points live in `TODO.md`. Of "Still to see" below: 6.2 driver position was reworked on 2026-11-17
+> (`URGENT.md`, `docs/DRIVER_POSITION.md`); the current state of everything is in `ROADMAP.md`.
 
 The full lists are in `TODO.md`; this file is only this chat's state. Everything below is committed, nothing is pushed (the user pushes, D-4).
 

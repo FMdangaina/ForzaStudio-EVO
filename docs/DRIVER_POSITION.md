@@ -1,4 +1,8 @@
-# Driver position and hands (ROADMAP 6.2), first pass 2026-10-22
+# Driver position and hands (ROADMAP goal 6, TODO 6.2)
+
+First pass 2026-10-22; the names of the points and the two sets (LOD 0, LOD 1..5) were found later: read the section
+"Two rigs" first, it corrects the guesses marked *(later)* below. To test: `URGENT.md`, `UNTESTED.md` D5b / D5c. The
+header block as the game's code names it: `CARBIN_FROM_XEX.md`; the gauges that follow it: the GAUGES tab (`TODO.md` NOW 13).
 
 Data: the FM4 and FH1 Supra (`TOY_SupraRZ_98`) and, from the dev sources (`fm4_dev\samples`), the Supra's and the 918 Spyder's `Locators.xml`. Only one car has both the cockpit file and the locators, so what follows are observations, not a rule.
 
@@ -6,11 +10,11 @@ Data: the FM4 and FH1 Supra (`TOY_SupraRZ_98`) and, from the dev sources (`fm4_d
 
 | Where | What |
 |---|---|
-| `_cockpit.carbin` header 0x1C8-0x2FF | the rig, big-endian floats, model axes (decoded earlier, `CarPort.CockpitRig`): six hand grips (3 radii x +X / -X), wheel pivot (0x228), wheel axis (0x238), a point at 0x248, a point at 0x258 (shifter side), four records of point / direction / value from 0x270 |
+| `_cockpit.carbin` header 0x1C8-0x2FF | the rig, big-endian floats, model axes (decoded earlier, `CarPort.CockpitRig`): six hand grips (3 radii x +X / -X), wheel pivot (0x228), wheel axis (0x238), a point at 0x248, a point at 0x258 (shifter side), four records of point / direction / value from 0x270. *(later)* 0x248 is the seat point `ButtAnchorPositionLOD0`, 0x258 `ShifterAnchorPositionLOD0`, and from 0x270 the header holds the 15 analogue gauges, not driver points |
 | `carattribs.xml` | `DriverHandsOffset` (x y z), the `Driver` element: `ButtOffset`, `ButtOffsetLOD0`, `LeftHandOffset`, `RightHandOffset` (+ LOD0), `ShifterOffset`, `HandBrakeOffset`, `IKGuideTranslation` (x y z each), `BodyLean`, `BodyScale`, `HasPaddleShifter`, `HasNoHandBrake` |
 | DB | `CarPartPositions` part 9 (steering wheel point, the cockpit camera) and `CameraOverrides` |
 
-On the Supra every `Driver` offset is 0 except `ButtOffset.z = -0.1`; `DriverHandsOffset` is 0.338, 0.203, 0.272 (FM4) and 0.340, 0.174, 0.287 (FH1).
+On the Supra every `Driver` offset is 0 except `ButtOffset.z = -0.1` and `ButtOffsetLOD0` (-0.08, 0, -0.15; missed in the first pass); `DriverHandsOffset` is 0.338, 0.203, 0.272 (FM4) and 0.340, 0.174, 0.287 (FH1).
 
 ## FH carries the same rig
 
@@ -24,8 +28,8 @@ The scene locators (dev files, not in the game zips) are in the car's frame (Z f
 |---|---|---|
 | wheel pivot 0.339, 0.602, -0.144 | `carLocator_steeringWheel` 0.338, 0.604, 0.121 | x, y within 2 mm |
 | point 0x258 -0.031, 0.369, -0.140 | `stickShift` -0.033, 0.371, 0.135 | x, y within 2 mm: **the shifter** |
-| point 0x248 0.435, 0.165, 0.322 | `Handbrake` 0.056, 0.273, 0.134 | no match: not the hand brake (? the right-hand drive's door side) |
-| records 1-3 (0.22 / 0.34 / 0.49, 0.6, -0.38), direction (0.008, 0.193, -0.981) | none | three points along the dash looking forward, value 4.1 / 4.0 / 1.4 (? gauge cluster or eye points) |
+| point 0x248 0.435, 0.165, 0.322 | `Handbrake` 0.056, 0.273, 0.134 | no match: not the hand brake. *(later)* the seat point, equal to the main file's `ButtAnchor` on this car |
+| records 1-3 (0.22 / 0.34 / 0.49, 0.6, -0.38), direction (0.008, 0.193, -0.981) | none | three points along the dash looking forward, value 4.1 / 4.0 / 1.4. *(later)* the analogue gauges: pivot, axis, max rotation |
 
 The seats: `seatR` origin 0.377, 0.458, 0.307 in the cockpit file; the scene has `carLocator_seatCamRF` at x 0.380 (the same x), y 0.829, z -0.536. So the seat camera sits on the seat's x, 0.37 m above its origin.
 
@@ -64,5 +68,6 @@ The model view has a **DRIVER** tab (like EXHAUST): lists the header points and 
 ## Open
 
 - Whether `ButtOffset` / `BodyLean` / `BodyScale` move the whole seated body, and in which frame (the Supra has only `ButtOffset.z = -0.1`).
-- What the records at 0x270 and the point at 0x248 drive.
+- ~~What the records at 0x270 and the point at 0x248 drive.~~ Answered: the gauges and the LOD 0 seat point (above).
+- The in-game checks of the two sets and of the port rules (`URGENT.md`).
 - The rule from the seat to the body position: a comparison across cars needs the cockpit files and `Locators.xml` of more than one car (the dev folders have no cockpit file for the 918).
