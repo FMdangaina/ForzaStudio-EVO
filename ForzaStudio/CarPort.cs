@@ -103,6 +103,7 @@ namespace ForzaStudio
         private string game = "FH2";    // the source game in the report: FH (Forza Horizon writes the same files), FH2 or FM3
         private bool motorsport3;       // the source is Forza Motorsport 3
         private bool traffic;           // an FH traffic car: its close-up models were placeholders (RebuildCloseUpModels)
+        private bool cockpitFromLod1;   // the _cockpit file was built here from LOD 1 (FM2, traffic): its driver points are not the car's
         private SqliteDatabase source;
         private SqliteDatabase target;
         private int sourceFrontPistons;  // the caliper pistons of the car's stock brakes in the ORIGINAL source database (FM2's own

@@ -193,6 +193,7 @@ namespace ForzaStudio
             this.ReplacePlaceholderBrakes(car, donor, prefix, donorPrefix);
             this.ReplacePlaceholderCollision(car, donor, prefix);
             this.CockpitRig(car, donor, prefix, donorPrefix);
+            this.DistantDriverPoints(car, prefix);
             this.DriverHandsFromSteeringWheel(car, prefix);
             if (this.fm2Stage)
             {
@@ -1164,6 +1165,7 @@ namespace ForzaStudio
         // FM4 draws its own driver.
         private void RebuildCloseUpModels(ForzaZip car, ForzaZip donor, string prefix, string donorPrefix, List<string> materials)
         {
+            this.cockpitFromLod1 = false;
             ForzaZip.Entry mainEntry = car.Find(prefix + ".carbin");
             if (mainEntry == null)
             {
@@ -1303,6 +1305,7 @@ namespace ForzaStudio
                     cockpitModel = built;
                 }
             }
+            this.cockpitFromLod1 = cockpitRebuilt;
             if (!rebuilt)
             {
                 return;
@@ -2927,10 +2930,15 @@ namespace ForzaStudio
         // asked for 9:15 (0), then chose FM4's standard (2026-10-20).
         private const double GripAngle = 20.0 * Math.PI / 180.0;
 
+        // Only for a cockpit this port built from LOD 1 (an FM2 car, a traffic car without close-up models): its header
+        // is the donor's or a placeholder's. A car that comes with its own close-up models (FM3, FH1, FH2) has the
+        // LOD 0 points FM4 reads, in the same block: they stay as they are, on the wheel part or not (user, 2026-11-17;
+        // FM4's own pivots are up to 0.44 m from the part's origin, so the "not on the wheel" test below would rebuild
+        // good ones).
         private void CockpitRig(ForzaZip car, ForzaZip donor, string prefix, string donorPrefix)
         {
             ForzaZip.Entry entry = car.Find(prefix + "_cockpit.carbin");
-            if (entry == null)
+            if (entry == null || !this.cockpitFromLod1)
             {
                 return;
             }
@@ -3105,6 +3113,44 @@ namespace ForzaStudio
             return (normal.Z < 0) ? -normal : normal;
         }
 
+        // The driver seen from a distance (LOD 1..5) is placed from the main file's own points, CDriverControls vectors
+        // 0..5 (docs\DRIVER_POSITION.md). They are the source's: every conversion carries the header, and an FM2 stage
+        // takes them from the FM2 carbin (Fm2Source.DriverPointsFromFm2). Nothing is computed here: the report says
+        // what they are, and warns when they are not this car's (to be set by hand in the model view's Driver tab).
+        // FM4's own (313 cars): the wheel point on the main file's steering_wheel part, x within 2.9 cm.
+        private const float DistantWheelOff = 0.05f;
+
+        private void DistantDriverPoints(ForzaZip car, string prefix)
+        {
+            ForzaZip.Entry entry = car.Find(prefix + ".carbin");
+            if (entry == null)
+            {
+                return;
+            }
+            CarbinModel main = new CarbinModel(car.Read(entry));
+            CarbinModel.HeaderLayout layout = CarbinModel.HeaderLayout.Walk(main.Head);
+            CarbinModel.Section wheel = main.Find("steering_wheel");
+            if (layout == null || wheel == null)
+            {
+                return;
+            }
+            Microsoft.Xna.Framework.Vector3 point = RigVector(main.Head, layout.DriverVector(0));
+            Microsoft.Xna.Framework.Vector3 seat = RigVector(main.Head, layout.DriverVector(4));
+            const string byHand = "set them in the model view, Driver tab, with the main model open";
+            if (point == Microsoft.Xna.Framework.Vector3.Zero)
+            {
+                this.Line("  WARNING {0}: LOD 1..5 driver points empty (wheel point 0,0,0): from a distance the driver sits at the car's origin; {1}", entry.Name, byHand);
+            }
+            else if (Math.Abs(point.X - wheel.Bounds[0]) > DistantWheelOff)
+            {
+                this.Line("  WARNING {0}: LOD 1..5 driver points are not this car's (wheel point {1:F4}, {2:F4}, {3:F4}, {4} drive; the model's steering wheel at x {5:F4}, {6} drive): from a distance the driver sits off the seat; {7}", entry.Name, point.X, point.Y, point.Z, DriveSide(point.X), wheel.Bounds[0], DriveSide(wheel.Bounds[0]), byHand);
+            }
+            else
+            {
+                this.Line("  {0}: LOD 1..5 driver points as in the source (wheel {1:F4}, {2:F4}, {3:F4}, seat {4:F4}, {5:F4}, {6:F4})", entry.Name, point.X, point.Y, point.Z, seat.X, seat.Y, seat.Z);
+            }
+        }
+
         private static Microsoft.Xna.Framework.Vector3 RigVector(byte[] head, int offset)
         {
             return new Microsoft.Xna.Framework.Vector3(ReadHeadFloat(head, offset), ReadHeadFloat(head, offset + 4), ReadHeadFloat(head, offset + 8));
@@ -3236,11 +3282,12 @@ namespace ForzaStudio
             }
         }
 
+        // Like CockpitRig, only with a cockpit built here from LOD 1: a car with its own close-up models keeps its offset.
         private void DriverHandsFromSteeringWheel(ForzaZip car, string prefix)
         {
             ForzaZip.Entry attributes = car.Find("carattribs.xml");
             ForzaZip.Entry cockpit = car.Find(prefix + "_cockpit.carbin");
-            if (attributes == null || cockpit == null)
+            if (attributes == null || cockpit == null || !this.cockpitFromLod1)
             {
                 return;
             }

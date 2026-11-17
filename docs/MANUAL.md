@@ -372,9 +372,18 @@ values, not checked in game.
   to the other side. **Generate Basic Collision...** rebuilds the box and the spheres from the shown
   model, as a starting point for cars whose own is wrong; the top and left views (numpad 6 and 2) help
   to edit it. Pending until File > Save.
-- **Driver** (on a `_cockpit.carbin`): the points stored in the cockpit model (hand grips on the wheel
-  rim, wheel pivot and axis, shifter, eye-level records) and the driver offsets of `carattribs.xml`.
-  Names with `?` are guesses. **Apply to Model** writes them into the car file, pending until File > Save.
+- **Driver**: the points the game places the driver from, and the driver offsets of `carattribs.xml`.
+  The game keeps two separate sets, each edited with its own model in the view:
+  - **LOD 0** (the close-up car): open the car's `_lod0.carbin` or `_cockpit.carbin`. One set for both
+    files, stored in the cockpit model: hand grips on the wheel rim, wheel pivot and axis, seat and
+    shifter points.
+  - **LOD 1..5** (the car from a distance): open the car's main `.carbin`. Wheel pivot and axis, left
+    and right hand, seat and shifter points, stored in the main model.
+
+  The two sets are not meant to be equal: on the game's own cars each follows the interior of its own
+  model. A car made from scratch starts with the donor's points in both, so place both by hand. The
+  label above the list says which set is listed and in which file it is stored. **Apply to Model**
+  writes them into the car file, pending until File > Save.
 - **Exhaust**: the points the backfire flames start from (`Media\Effects\Backfire.xml` draws them).
   Add, Mirror and **Apply to Model** as above.
 

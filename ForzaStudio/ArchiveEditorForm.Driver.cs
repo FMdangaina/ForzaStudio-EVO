@@ -10,14 +10,20 @@ namespace ForzaStudio
     using System.Text.RegularExpressions;
     using System.Windows.Forms;
 
-    // The driver of a car (ROADMAP 6.2), edited by hand like the exhaust points. Shown with the car's _cockpit.carbin:
-    //  - the rig in the cockpit header = CDriverControls (default.xex, 2026-11-07; CarbinModel.DriverControlNames): the six
-    //    hand grips on the steering wheel (Right / LeftHandOuter, Inner, Center), SteeringPivotLOD0, SteeringWheelAxisLOD0,
-    //    ButtAnchorPositionLOD0 and ShifterAnchorPositionLOD0 (the gauges that follow are in the GAUGES tab). The first six
-    //    vectors (SteeringWheelPosition / Axis, Left / RightHandAnchor, ButtAnchor, ShifterAnchor) are zero in a cockpit
-    //    (axis set) and filled in the main file, for the distant LODs: not listed here;
-    //  - the offsets of carattribs.xml: DriverHandsOffset and the Driver element (ButtOffset = where the body sits,
-    //    the hand, shifter and hand brake offsets), plus BodyLean and BodyScale.
+    // The driver of a car (ROADMAP 6.2), edited by hand like the exhaust points. The game keeps two rigs in the headers'
+    // CDriverControls (default.xex, 2026-11-07; CarbinModel.DriverControlNames):
+    //  - LOD 0, in the header of the car's _cockpit.carbin and shown with it or with the _lod0.carbin (whose own block is
+    //    zero: the close-up car is the two files together, one set of points): the six hand grips on the steering wheel
+    //    (Right / LeftHandOuter, Inner, Center), SteeringPivotLOD0, SteeringWheelAxisLOD0, ButtAnchorPositionLOD0 and
+    //    ShifterAnchorPositionLOD0 (vectors 6..15; the gauges that follow are in the GAUGES tab);
+    //  - LOD 1..5, in the header of the car's main .carbin and shown with it: SteeringWheelPosition / Axis, Left /
+    //    RightHandAnchor, ButtAnchor, ShifterAnchor (vectors 0..5; zero in a cockpit but the axis).
+    //    The two are not the same points: on FM4's own cars each follows the geometry of its own file (wheel 4.9 cm apart
+    //    as a median, 313 cars, docs\DRIVER_POSITION.md), so each is edited with its own model in the view. A car made
+    //    from scratch has the donor's in both and nothing to compute them from (user, 2026-11-17): hence by hand;
+    //  - the offsets of carattribs.xml, with any of the three files: DriverHandsOffset and the Driver element (ButtOffset
+    //    = where the body sits, the hand, shifter and hand brake offsets; seat and hands have a LOD0 twin), plus BodyLean
+    //    and BodyScale.
     // The header points are drawn as crosses in the view while the DRIVER tab is open. The carattribs offsets are
     // relative to something the game adds (seat / hands anchors), so they are only listed. Apply writes both files
     // into the archive, pending until File > Save. The header names are the game's; what each point does in game
@@ -28,6 +34,7 @@ namespace ForzaStudio
         {
             public string Name;
             public int Offset = -1;         // header point / direction (3 floats), or -1
+            public int Vector = -1;         // its index in CDriverControls (the offset moves with the exhaust tips)
             public string Attribute;        // carattribs: "Driver:ButtOffset" (x / y / z), "Hands" (DriverHandsOffset), or a scalar "Driver:BodyLean"
             public bool Scalar;
             public bool Direction;          // drawn as a line, not a cross
@@ -46,8 +53,9 @@ namespace ForzaStudio
         private Button btnDrvApply;
         private Button btnDrvReset;
 
-        private ForzaZip.Entry drvEntry;
+        private ForzaZip.Entry drvEntry;    // the file whose header holds the points listed (the cockpit's with a _lod0 shown)
         private List<DriverItem> drvItems;
+        private bool drvCloseUp;            // the rig listed: LOD 0 (cockpit header) or LOD 1..5 (main header)
         private bool fillingDrv;
 
         private static readonly string[] DriverVectors = { "ButtOffset", "ButtOffsetLOD0", "LeftHandOffset", "RightHandOffset", "LeftHandOffsetLOD0", "RightHandOffsetLOD0", "ShifterOffset", "HandBrakeOffset", "IKGuideTranslation" };
@@ -55,7 +63,7 @@ namespace ForzaStudio
 
         private void AddDriverControls(FlowLayoutPanel side)
         {
-            this.lblDrvInfo = SideNote("Open a car's _cockpit model.");
+            this.lblDrvInfo = SideNote("Open a car's main model (LOD 1..5) or its _lod0 / _cockpit model (LOD 0).");
             this.lblDrvInfo.ForeColor = this.ForeColor;
 
             this.lstDriver = new ListBox();
@@ -92,7 +100,7 @@ namespace ForzaStudio
             side.Controls.Add(this.chkDrvShow);
             side.Controls.Add(SideHeading("Write", false));
             side.Controls.Add(this.btnDrvApply);
-            side.Controls.Add(SideNote("Header: the points stored in the cockpit model (CDriverControls, the game's names: hand grips on the wheel rim, wheel pivot and axis, seat and shifter points), drawn in the view: yellow the selected one, orange the others, a line for a direction. Z is the model axis (positive to the rear). Carattribs: the offsets of the Driver element and DriverHandsOffset, relative to the points the game places the driver from (listed, not drawn). Apply writes the cockpit model and carattribs.xml into the car file, pending until File > Save."));
+            side.Controls.Add(SideNote("The game places the driver twice. LOD 0 (the _lod0 and _cockpit models together): the points stored in the cockpit model (hand grips on the wheel rim, wheel pivot and axis, seat and shifter points). LOD 1..5: the points stored in the main model (wheel pivot and axis, hands, seat, shifter). They are separate values: open the main model to edit the second set, the _lod0 or the _cockpit model for the first. Drawn in the view: yellow the selected one, orange the others, a line for a direction. Z is the model axis (positive to the rear). Carattribs: the offsets of the Driver element and DriverHandsOffset, relative to the points the game places the driver from (listed, not drawn; the same list with every model). Apply writes the model holding the points and carattribs.xml into the car file, pending until File > Save."));
             this.EnableDriverEdit();
         }
 
@@ -121,7 +129,19 @@ namespace ForzaStudio
             this.btnDrvApply.Enabled = this.DriverChanged;
         }
 
-        // Called with every model shown: a car's _cockpit.carbin with the driver rig in its header.
+        private static readonly string[] DriverHints =
+        {
+            "steering wheel pivot", "steering wheel axis", "left hand", "right hand", "seat point", "shifter point",
+            "right grip, rim outer edge", "left grip, rim outer edge", "right grip, rim inner edge", "left grip, rim inner edge",
+            "right grip, tube middle", "left grip, tube middle", "steering wheel pivot", "steering wheel axis",
+            "seat point", "shifter point",
+        };
+
+        private const string CockpitSuffix = "_cockpit.carbin";
+        private const string Lod0Suffix = "_lod0.carbin";
+
+        // Called with every model shown. A car's _cockpit.carbin or _lod0.carbin: the LOD 0 rig, vectors 6..15 of the
+        // cockpit's header. Its main .carbin: the LOD 1..5 rig, vectors 0..5 of its own header.
         private void LoadDriver()
         {
             this.drvEntry = null;
@@ -129,33 +149,46 @@ namespace ForzaStudio
             this.lblDrvInfo.Text = "";
             this.lblDrvInfo.ForeColor = this.ForeColor;
             this.lstDriver.Items.Clear();
-            string name = (this.currentEntry != null) ? this.currentEntry.Name.ToLowerInvariant() : "";
-            if (name.EndsWith("_cockpit.carbin"))
+            string name = (this.currentEntry != null) ? this.currentEntry.Name : "";
+            string low = name.ToLowerInvariant();
+            ForzaZip.Entry source = null;
+            bool closeUp = low.EndsWith(CockpitSuffix) || low.EndsWith(Lod0Suffix);
+            if (low.EndsWith(CockpitSuffix))
+            {
+                source = this.currentEntry;
+            }
+            else if (low.EndsWith(Lod0Suffix))
+            {
+                // The _lod0 file's own block is zero (313 FM4 cars): the points of the close-up car are the cockpit's.
+                // A brake's _lod0 has no cockpit beside it and stays out.
+                source = this.zip.Find(name.Substring(0, name.Length - Lod0Suffix.Length) + CockpitSuffix);
+            }
+            else if (low.EndsWith(".carbin"))
+            {
+                source = this.currentEntry;
+            }
+            if (source != null)
             {
                 try
                 {
-                    CarbinModel model = new CarbinModel(this.zip.Read(this.currentEntry));
-                    if (model.Head != null && model.Head.Length >= 0x300)
+                    CarbinModel model = new CarbinModel(this.zip.Read(source));
+                    int controls = DriverControlsOffset(model.Head, closeUp);
+                    if (controls >= 0)
                     {
                         List<DriverItem> items = new List<DriverItem>();
-                        // CDriverControls vectors 6..15 (CarbinModel.DriverControlNames); a cockpit has no emitters,
-                        // so they sit at 0x1C8..0x258.
-                        CarbinModel.HeaderLayout layout = CarbinModel.HeaderLayout.Walk(model.Head);
-                        int controls = (layout != null) ? layout.DriverControls : 0x164;
-                        string[] hints =
+                        int first = closeUp ? 6 : 0;
+                        int end = closeUp ? CarbinModel.HeaderLayout.DriverVectorCount : 6;
+                        for (int v = first; v < end; v++)
                         {
-                            "right grip, rim outer edge", "left grip, rim outer edge", "right grip, rim inner edge", "left grip, rim inner edge",
-                            "right grip, tube middle", "left grip, tube middle", "steering wheel pivot", "steering wheel axis",
-                            "seat point", "shifter point",
-                        };
-                        for (int v = 6; v < CarbinModel.HeaderLayout.DriverVectorCount; v++)
-                        {
-                            items.Add(HeaderItem(CarbinModel.DriverControlNames[v] + " (" + hints[v - 6] + ")", controls + 4 + (v * 16), v == 13, model.Head));
+                            DriverItem item = HeaderItem(CarbinModel.DriverControlNames[v] + " (" + DriverHints[v] + ")", controls + 4 + (v * 16), v == 1 || v == 13, model.Head);
+                            item.Vector = v;
+                            items.Add(item);
                         }
-                        // From 0x270 the header holds the 15 analogue gauges (pivot, axis, max rotation), not driver
-                        // points (default.xex, 2026-11-07): they are edited in the GAUGES tab (CarGauges).
-                        this.drvEntry = this.currentEntry;
+                        // From 0x270 the cockpit header holds the 15 analogue gauges (pivot, axis, max rotation), not
+                        // driver points (default.xex, 2026-11-07): they are edited in the GAUGES tab (CarGauges).
+                        this.drvEntry = source;
                         this.drvItems = items;
+                        this.drvCloseUp = closeUp;
                         this.AddDriverAttributes(items);
                     }
                 }
@@ -165,6 +198,25 @@ namespace ForzaStudio
             }
             this.SetDriverTabVisible(this.drvItems != null);
             this.FillDriverList(0);
+        }
+
+        // Where CDriverControls starts in a header, or -1. A cockpit has no emitters, so its vectors 6..15 sit at
+        // 0x1C8..0x258 even when the header does not walk to its end. The main file's emitters (exhaust tips) come
+        // first and move the block, so it counts only with a header that walks and holds CDriverControls version 3:
+        // brakes and wheels (another header) and the other games' files stay out.
+        private static int DriverControlsOffset(byte[] head, bool closeUp)
+        {
+            CarbinModel.HeaderLayout layout = (head != null) ? CarbinModel.HeaderLayout.Walk(head) : null;
+            if (layout != null)
+            {
+                return (closeUp || ReadBigU32(head, layout.DriverControls) == 3) ? layout.DriverControls : -1;
+            }
+            return (closeUp && head != null && head.Length >= 0x300) ? 0x164 : -1;
+        }
+
+        private static uint ReadBigU32(byte[] data, int offset)
+        {
+            return ((uint) data[offset] << 24) | ((uint) data[offset + 1] << 16) | ((uint) data[offset + 2] << 8) | data[offset + 3];
         }
 
         private static DriverItem HeaderItem(string name, int offset, bool direction, byte[] head)
@@ -232,7 +284,10 @@ namespace ForzaStudio
                 if (x.Success && y.Success && z.Success)
                 {
                     DriverItem item = new DriverItem();
-                    item.Name = vector + " (carattribs)";
+                    // Seat and hands come in pairs like the header's (ButtOffset / ButtOffsetLOD0): by the names, the
+                    // plain one is the distant LODs'.
+                    string lod = vector.EndsWith("LOD0") ? ", LOD 0" : ((Array.IndexOf(DriverVectors, vector + "LOD0") >= 0) ? ", LOD 1..5" : "");
+                    item.Name = vector + " (carattribs" + lod + ")";
                     item.Attribute = "Driver:" + vector;
                     item.Value[0] = ParseFloat(x.Groups[1].Value);
                     item.Value[1] = ParseFloat(y.Groups[1].Value);
@@ -292,7 +347,10 @@ namespace ForzaStudio
             }
             int changed = this.drvItems.FindAll(delegate(DriverItem item) { return item.Changed; }).Count;
             this.lblDrvInfo.ForeColor = (changed > 0) ? ForzaTheme.Red : this.ForeColor;
-            this.lblDrvInfo.Text = this.drvItems.Count + " driver values" + ((changed > 0) ? "\n" + changed + " edited, not applied" : "");
+            string rig = this.drvCloseUp
+                ? "LOD 0 driver (_lod0 and _cockpit; stored in " + this.drvEntry.Name + "), " + this.drvItems.Count + " values.\nLOD 1..5: open the main model."
+                : "LOD 1..5 driver (stored in " + this.drvEntry.Name + "), " + this.drvItems.Count + " values.\nLOD 0: open the _lod0 or _cockpit model.";
+            this.lblDrvInfo.Text = rig + ((changed > 0) ? "\n" + changed + " edited, not applied" : "");
         }
 
         private static string DriverText(DriverItem item)
@@ -358,11 +416,19 @@ namespace ForzaStudio
             {
                 int written = 0;
                 CarbinModel model = new CarbinModel(this.zip.Read(this.drvEntry));
+                // Found again in the file as it is now: exhaust tips added or removed since the list was filled
+                // (EXHAUST tab) move the main file's block.
+                int controls = DriverControlsOffset(model.Head, this.drvCloseUp);
                 bool header = false;
                 foreach (DriverItem item in this.drvItems)
                 {
                     if (item.Offset >= 0 && item.Changed)
                     {
+                        if (controls < 0)
+                        {
+                            throw new System.IO.InvalidDataException("The driver points are no longer where they were in " + this.drvEntry.Name + ": open the model again.");
+                        }
+                        item.Offset = controls + 4 + (item.Vector * 16);
                         for (int i = 0; i < 3; i++)
                         {
                             WriteBigFloat(model.Head, item.Offset + (i * 4), item.Value[i]);

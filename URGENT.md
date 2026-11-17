@@ -3,6 +3,17 @@
 > **Closed, kept for history** (2026-11-05). Its open points live in `TODO.md`; the DLC pack items were closed in
 > game on 2026-11-04 (`PRERELEASE_TESTING.md` point 3).
 
+## TO TEST: driver points, LOD 0 and LOD 1..5 (2026-11-17)
+
+Compile-checked only (no FM2 / FM3 / FH files and no running program on the machine it was written on). Details: `docs/DRIVER_POSITION.md`, `UNTESTED.md` D5b / D5c.
+
+1. **DRIVER tab, three files.** It shows on the car's main `.carbin` (LOD 1..5 points), on `_lod0.carbin` and `_cockpit.carbin` (both: the LOD 0 points, stored in the cockpit). The label says which set and which file; the crosses sit on the wheel / seat of the model shown.
+2. **DRIVER tab, Apply on the main model.** The values are written and kept after Save; the exhaust points are intact; adding / removing an exhaust point (EXHAUST tab) and then applying a driver value does not break the model.
+3. **In game.** Moving a main-model point moves the driver seen from a distance only; moving a cockpit point moves the close-up driver only.
+4. **Port, FM3 / FH1 / FH2 car with its own cockpit.** No "driver rig" line in the report, cockpit points and `DriverHandsOffset` as in the source; driver and hands right in game. (This is the change that can regress cars that were fine: check one already ported.)
+5. **Port, traffic car without close-up models.** LOD 0 points rebuilt as before ("driver rig" line), hands on the wheel.
+6. **Port, FM2 car.** Stage log: "LOD 1..5 driver points: the FM2 model's own, not the donor's". If it says WARNING (the donor's stay), the FM2 anchors are not in the parts' axes: report the numbers of that line. In game the driver seen from a distance sits at this car's wheel.
+7. **Port report.** Every port has a "LOD 1..5 driver points" line; a WARNING there means the main model's points are to be set by hand.
 State after the string-key / make clash work. Commits: 595172d (Data_Car.str keys), d0fc578 (makes, title rules, logos), 10071cc (combo type-to-search).
 
 ## Done

@@ -132,6 +132,7 @@ namespace ForzaStudio
                     removed.Add(section.Name);
                 }
                 log.Add(string.Format("model: {0} parts rebuilt or added, donor parts removed: {1}", plan.Parts.Count, string.Join(" ", removed.ToArray())));
+                log.Add(DriverPointsFromFm2(main, source.Read(carbinEntry)));
                 float rear = RearEnd(main);
 
                 string carFolder = Path.Combine(Path.Combine(media, "cars"), car);
@@ -617,6 +618,54 @@ namespace ForzaStudio
                     }
                 }
             }
+        }
+
+        // The driver points of LOD 1..5: the main file's CDriverControls vectors 0..5 (SteeringWheelPosition / Axis,
+        // Left / RightHandAnchor, ButtAnchor, ShifterAnchor; docs\DRIVER_POSITION.md). The stage's main file is the
+        // donor's, and so were they: from a distance the driver sat at the donor's wheel and seat. The FM2 carbin has
+        // its own six (driver anchors version 1, 6 vec4; FM4's version 3 is the same six followed by the LOD 0 ones),
+        // in the model's axes like its parts. No FM2 file was at hand when this was written (2026-11-17, not run on a
+        // car), so they are taken only when they prove to be this car's, by what FM4's own 313 cars show: the wheel
+        // point on the car's steering_wheel part (x within 2.9 cm, at most 0.26 m from its origin) and a unit axis.
+        // Else the donor's stay and the log says so (the model view's Driver tab sets them by hand).
+        private const float Fm2WheelOffX = 0.05f;
+        private const float Fm2WheelOff = 0.30f;
+
+        private static string DriverPointsFromFm2(CarbinModel main, byte[] fm2Carbin)
+        {
+            const string keep = "; the donor's stay: set them in the model view, Driver tab, with the main model open";
+            CarbinModel.HeaderLayout layout = CarbinModel.HeaderLayout.Walk(main.Head);
+            CarbinModel.Section wheel = main.Find("steering_wheel");
+            if (layout == null || wheel == null)
+            {
+                return "WARNING LOD 1..5 driver points: " + ((layout == null) ? "the donor's header is not read" : "no steering_wheel part to check the FM2 model's points against") + keep;
+            }
+            byte[] anchors;
+            try
+            {
+                anchors = new Fm2CarbinModel(fm2Carbin).DriverAnchors;
+            }
+            catch (Exception exception)
+            {
+                return "WARNING LOD 1..5 driver points: the FM2 model's are not read (" + exception.Message + ")" + keep;
+            }
+            float[,] v = new float[6, 3];
+            for (int i = 0; i < 6; i++)
+            {
+                for (int k = 0; k < 3; k++)
+                {
+                    int at = (i * 16) + (k * 4);
+                    v[i, k] = BitConverter.ToSingle(new byte[] { anchors[at + 3], anchors[at + 2], anchors[at + 1], anchors[at] }, 0);
+                }
+            }
+            double off = Math.Sqrt(Math.Pow(v[0, 0] - wheel.Bounds[0], 2) + Math.Pow(v[0, 1] - wheel.Bounds[1], 2) + Math.Pow(v[0, 2] - wheel.Bounds[2], 2));
+            double axis = Math.Sqrt((v[1, 0] * v[1, 0]) + (v[1, 1] * v[1, 1]) + (v[1, 2] * v[1, 2]));
+            if (!(Math.Abs(v[0, 0] - wheel.Bounds[0]) <= Fm2WheelOffX && off <= Fm2WheelOff && axis > 0.9 && axis < 1.1))
+            {
+                return string.Format(CultureInfo.InvariantCulture, "WARNING LOD 1..5 driver points: the FM2 model's wheel point {0:F4}, {1:F4}, {2:F4} (axis length {3:F2}) is not on this car's steering wheel ({4:F4}, {5:F4}, {6:F4})", v[0, 0], v[0, 1], v[0, 2], axis, wheel.Bounds[0], wheel.Bounds[1], wheel.Bounds[2]) + keep;
+            }
+            Buffer.BlockCopy(anchors, 0, main.Head, layout.DriverVector(0), anchors.Length);
+            return string.Format(CultureInfo.InvariantCulture, "LOD 1..5 driver points: the FM2 model's own, not the donor's (wheel {0:F4}, {1:F4}, {2:F4}, {3:F3} m from the steering wheel part; seat {4:F4}, {5:F4}, {6:F4}; shifter {7:F4}, {8:F4}, {9:F4})", v[0, 0], v[0, 1], v[0, 2], off, v[4, 0], v[4, 1], v[4, 2], v[5, 0], v[5, 1], v[5, 2]);
         }
 
         private static float RearEnd(CarbinModel model)
