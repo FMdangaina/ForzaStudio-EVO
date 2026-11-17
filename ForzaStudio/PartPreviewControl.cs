@@ -19,11 +19,20 @@ namespace ForzaStudio
         private float radius = 1f;
         private System.Drawing.Point lastMouse;
         private readonly Label note = new Label();
-        private const string Help = "  Drag: turn   Middle drag: move   Wheel: zoom";
+        private const string Help = "  Drag: turn   Middle drag: move   Wheel: zoom   I: part only   F: frame";
+
+        // "Part only" (user 2026-11-17): the other parts get ForzaMesh.Hidden, so the scene simply skips them (no
+        // reload, fewer draws), and the camera frames the chosen parts. Kept while the dialog is open.
+        private readonly Dictionary<string, Microsoft.Xna.Framework.BoundingBox> partBounds = new Dictionary<string, Microsoft.Xna.Framework.BoundingBox>(StringComparer.Ordinal);
+        private readonly HashSet<string> wanted = new HashSet<string>(StringComparer.Ordinal);
+        private readonly CheckBox partOnlyBox = new CheckBox();
+        private readonly Button frameButton = new Button();
+        private Vector3 carCenter;
+        private float carRadius = 1f;
 
         public PartPreviewControl()
         {
-            this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque | ControlStyles.UserPaint, true);
+            this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.Opaque | ControlStyles.UserPaint | ControlStyles.Selectable, true);
             this.BackColor = System.Drawing.Color.FromArgb(75, 75, 70);
             this.note.Dock = DockStyle.Bottom;
             this.note.Height = 18;
@@ -31,6 +40,30 @@ namespace ForzaStudio
             this.note.BackColor = System.Drawing.Color.FromArgb(45, 45, 48);
             this.note.Text = Help;
             this.Controls.Add(this.note);
+
+            System.Drawing.Color bar = System.Drawing.Color.FromArgb(45, 45, 48);
+            this.partOnlyBox.Appearance = Appearance.Button;
+            this.partOnlyBox.Text = "Part only";
+            this.partOnlyBox.FlatStyle = FlatStyle.Flat;
+            this.partOnlyBox.FlatAppearance.CheckedBackColor = System.Drawing.Color.FromArgb(200, 110, 30);
+            this.partOnlyBox.BackColor = bar;
+            this.partOnlyBox.ForeColor = System.Drawing.Color.Gainsboro;
+            this.partOnlyBox.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            this.partOnlyBox.SetBounds(6, 6, 78, 24);
+            this.partOnlyBox.TabStop = false;
+            this.partOnlyBox.CheckedChanged += (s, e) => this.ApplyPartOnly(true);
+            this.frameButton.Text = "Frame";
+            this.frameButton.FlatStyle = FlatStyle.Flat;
+            this.frameButton.BackColor = bar;
+            this.frameButton.ForeColor = System.Drawing.Color.Gainsboro;
+            this.frameButton.SetBounds(88, 6, 60, 24);
+            this.frameButton.TabStop = false;
+            this.frameButton.Click += (s, e) => { this.FrameView(); this.Redraw(); };
+            ToolTip tips = new ToolTip();
+            tips.SetToolTip(this.partOnlyBox, "Show only the chosen part, framed (I)");
+            tips.SetToolTip(this.frameButton, "Frame the chosen part, or the whole car (F)");
+            this.Controls.Add(this.partOnlyBox);
+            this.Controls.Add(this.frameButton);
         }
 
         // The car's main model, every part at the lowest (most detailed) LOD it has in that file. settingsFor gives a
@@ -73,6 +106,17 @@ namespace ForzaStudio
                             this.partMeshes[section.Name] = list;
                         }
                         list.Add(mesh);
+                        Microsoft.Xna.Framework.BoundingBox box;
+                        if (!this.partBounds.TryGetValue(section.Name, out box))
+                        {
+                            box = new Microsoft.Xna.Framework.BoundingBox(new Vector3(float.MaxValue), new Vector3(float.MinValue));
+                        }
+                        foreach (ForzaVertex v in sub.Vertices)
+                        {
+                            box.Min = Vector3.Min(box.Min, v.position);
+                            box.Max = Vector3.Max(box.Max, v.position);
+                        }
+                        this.partBounds[section.Name] = box;
                         foreach (ForzaVertex v in sub.Vertices)
                         {
                             min = Vector3.Min(min, v.position);
@@ -88,14 +132,18 @@ namespace ForzaStudio
                 this.center = (min + max) * 0.5f;
                 this.radius = Math.Max(0.01f, (max - min).Length() * 0.5f);
             }
+            this.carCenter = this.center;
+            this.carRadius = this.radius;
             this.FocusCamera();
-            this.Redraw();
+            this.ApplyPartOnly(true);
         }
 
         // The parts shown as selected (orange); the others as the viewport draws them.
         public void ShowParts(IEnumerable<string> names)
         {
-            HashSet<string> wanted = new HashSet<string>(names, StringComparer.Ordinal);
+            HashSet<string> wanted = this.wanted;
+            wanted.Clear();
+            wanted.UnionWith(names);
             List<string> missing = new List<string>();
             foreach (string name in wanted)
             {
@@ -112,7 +160,90 @@ namespace ForzaStudio
                 }
             }
             this.note.Text = (missing.Count > 0) ? "  Not in the main model (lod0 / cockpit only?): " + string.Join(", ", missing.ToArray()) : Help;
+            // the framing follows the list only in "Part only"; the whole car view is left where the user put it
+            this.ApplyPartOnly(this.partOnlyBox.Checked);
+        }
+
+        // Hides every part but the chosen ones while "Part only" is on (nothing chosen = whole car), then frames.
+        private void ApplyPartOnly(bool frame)
+        {
+            bool only = this.partOnlyBox.Checked && this.HasChosenMesh();
+            foreach (KeyValuePair<string, List<ForzaMesh>> pair in this.partMeshes)
+            {
+                bool hide = only && !this.wanted.Contains(pair.Key);
+                foreach (ForzaMesh mesh in pair.Value)
+                {
+                    mesh.Hidden = hide;
+                }
+            }
+            if (frame)
+            {
+                this.FrameView();
+            }
             this.Redraw();
+        }
+
+        private bool HasChosenMesh()
+        {
+            foreach (string name in this.wanted)
+            {
+                if (this.partMeshes.ContainsKey(name))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // "Part only" with a chosen part: frame the chosen parts; otherwise the whole car. The view direction is kept.
+        private void FrameView()
+        {
+            this.center = this.carCenter;
+            this.radius = this.carRadius;
+            if (this.partOnlyBox.Checked)
+            {
+                Vector3 min = new Vector3(float.MaxValue), max = new Vector3(float.MinValue);
+                bool any = false;
+                foreach (string name in this.wanted)
+                {
+                    Microsoft.Xna.Framework.BoundingBox box;
+                    if (this.partBounds.TryGetValue(name, out box) && box.Min.X <= box.Max.X)
+                    {
+                        min = Vector3.Min(min, box.Min);
+                        max = Vector3.Max(max, box.Max);
+                        any = true;
+                    }
+                }
+                if (any)
+                {
+                    this.center = (min + max) * 0.5f;
+                    this.radius = Math.Max(0.02f, (max - min).Length() * 0.5f);
+                }
+            }
+            if (this.scene != null && this.partMeshes.Count > 0)
+            {
+                this.scene.Camera.FocusOn(this.center, this.radius);
+            }
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.Modifiers != Keys.None)
+            {
+                return;
+            }
+            if (e.KeyCode == Keys.I)
+            {
+                this.partOnlyBox.Checked = !this.partOnlyBox.Checked;
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.F)
+            {
+                this.FrameView();
+                this.Redraw();
+                e.Handled = true;
+            }
         }
 
         private void EnsureScene()
@@ -218,6 +349,7 @@ namespace ForzaStudio
 
         private void DisposeMeshes()
         {
+            this.partBounds.Clear();
             foreach (List<ForzaMesh> list in this.partMeshes.Values)
             {
                 foreach (ForzaMesh mesh in list)
