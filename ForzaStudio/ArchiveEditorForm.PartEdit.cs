@@ -199,11 +199,12 @@ namespace ForzaStudio
             side.Controls.Add(SideHeading("Move, rotate, scale", false));
             side.Controls.Add(this.lblEditPart);
             side.Controls.Add(SideCaption("Move (m)"));
-            side.Controls.Add(this.NumberRow(out this.numMove, -20, 20, 3, 0.005m, 0));
+            // Mouse wheel = 0.001 per notch on move, rotate and scale (user 2026-11-17); arrows keep their step.
+            side.Controls.Add(this.NumberRow(out this.numMove, -20, 20, 3, 0.005m, 0, 0.001m));
             side.Controls.Add(SideCaption("Rotate (deg)"));
-            side.Controls.Add(this.NumberRow(out this.numRotate, -360, 360, 1, 1, 0));
+            side.Controls.Add(this.NumberRow(out this.numRotate, -360, 360, 3, 1, 0, 0.001m));
             side.Controls.Add(SideCaption("Scale (%)"));
-            side.Controls.Add(this.NumberRow(out this.numScale, 1, 1000, 1, 1, 100));
+            side.Controls.Add(this.NumberRow(out this.numScale, 1, 1000, 3, 1, 100, 0.001m));
             this.chkUniformScale = new CheckBox();
             this.chkUniformScale.Text = "Same scale on all axes";
             this.chkUniformScale.Size = new Size(SideWidth, 22);
@@ -747,6 +748,13 @@ namespace ForzaStudio
         // Three number boxes, each after its axis letter in the viewport's axis color.
         private FlowLayoutPanel NumberRow(out NumericUpDown[] numbers, decimal min, decimal max, int decimals, decimal step, decimal value)
         {
+            return this.NumberRow(out numbers, min, max, decimals, step, value, 0);
+        }
+
+        // wheelStep > 0: one wheel notch changes the value by exactly wheelStep (WinForms would apply
+        // Increment once per scroll line, usually 3 times per notch).
+        private FlowLayoutPanel NumberRow(out NumericUpDown[] numbers, decimal min, decimal max, int decimals, decimal step, decimal value, decimal wheelStep)
+        {
             FlowLayoutPanel row = new FlowLayoutPanel();
             row.Size = new Size(230, 26);
             row.Margin = new Padding(0);
@@ -773,6 +781,24 @@ namespace ForzaStudio
                 number.BorderStyle = BorderStyle.FixedSingle;
                 number.Margin = new Padding(0, 0, 5, 0);
                 number.ValueChanged += new EventHandler(this.PartEditValueChanged);
+                if (wheelStep > 0)
+                {
+                    number.MouseWheel += delegate(object sender, MouseEventArgs e)
+                    {
+                        HandledMouseEventArgs handled = e as HandledMouseEventArgs;
+                        if (handled != null)
+                        {
+                            handled.Handled = true;
+                        }
+                        NumericUpDown box = (NumericUpDown) sender;
+                        if (!box.Enabled || e.Delta == 0)
+                        {
+                            return;
+                        }
+                        decimal next = box.Value + (e.Delta > 0 ? wheelStep : -wheelStep);
+                        box.Value = Math.Max(box.Minimum, Math.Min(box.Maximum, next));
+                    };
+                }
                 numbers[c] = number;
                 row.Controls.Add(number);
             }
