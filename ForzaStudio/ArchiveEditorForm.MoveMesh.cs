@@ -186,7 +186,25 @@ namespace ForzaStudio
             {
                 Cursor.Current = Cursors.WaitCursor;
                 ForzaZip.Entry entry = this.currentEntry;
-                CarbinModel model = new CarbinModel(this.zip.Read(entry));
+                byte[] data = this.zip.Read(entry);
+                Fm2CarbinModel fm2 = Fm2Model(data);
+                if (fm2 != null)
+                {
+                    // FM2 (2026-11-21): its own writer, the shared buffers laid out again
+                    int p, k;
+                    if (!fm2.LocateMesh(section, material, TreeLod(meshNode), mesh.SectionIndex, mesh.SubIndex, out p, out k))
+                    {
+                        throw new InvalidOperationException("The mesh could not be found in the file: nothing moved.");
+                    }
+                    report = fm2.MoveMesh(p, k, part, -1);
+                    this.zip.Replace(entry, fm2.ToBytes());
+                    this.RefreshEntryNode(entry);
+                    this.editSection = null;
+                    this.ReloadModelKeepingView();
+                    this.SetStatus(report + " (pending: Save to write the archive)");
+                    return;
+                }
+                CarbinModel model = EditableModel(data);   // FM3 in its own layout (fm3t\mm3: vertex bytes kept)
                 // The tree reads the file in the same order as CarbinModel; checked by name anyway.
                 if (mesh.SectionIndex >= model.Sections.Count || model.Sections[mesh.SectionIndex].Name != section
                     || mesh.SubIndex >= model.Sections[mesh.SectionIndex].SubSections.Count

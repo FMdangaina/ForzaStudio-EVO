@@ -230,8 +230,41 @@ namespace ForzaStudio
             UvSession session;
             try
             {
-                CarbinModel model = new CarbinModel(this.zip.Read(this.currentEntry));
-                session = UvSession.Create(model, meshes, faces, set, split.Checked);
+                byte[] data = this.zip.Read(this.currentEntry);
+                Fm2CarbinModel fm2 = Fm2Model(data);
+                if (fm2 != null)
+                {
+                    // FM2 (2026-11-21): its own model; each mesh found in it by the tree's part, material and LOD
+                    List<int[]> located = new List<int[]>();
+                    foreach (int[] m in meshes)
+                    {
+                        TreeNode node = FindMeshNode(this.tvModel.Nodes, m[0], m[1]);
+                        if (node == null || node.Parent == null)
+                        {
+                            throw new InvalidOperationException("A mesh to map is not in the tree any more: nothing changed.");
+                        }
+                        int p, k;
+                        LocateFm2Mesh(fm2, (ForzaMesh) node.Tag, node, out p, out k);
+                        located.Add(new int[] { p, k });
+                    }
+                    session = UvSession.Create(fm2, meshes, located, faces, set, split.Checked);
+                }
+                else
+                {
+                    CarbinModel model = EditableModel(data);   // FM3 in its own layout (its vertex bytes stay but the UVs mapped)
+                    if (model.IsMotorsport3)
+                    {
+                        foreach (int[] m in meshes)
+                        {
+                            TreeNode node = FindMeshNode(this.tvModel.Nodes, m[0], m[1]);
+                            if (node != null && node.Parent != null)
+                            {
+                                CheckMeshInModel(model, (ForzaMesh) node.Tag, node);
+                            }
+                        }
+                    }
+                    session = UvSession.Create(model, meshes, faces, set, split.Checked);
+                }
                 if (other.Checked)
                 {
                     session.MapFromOtherChannel();
@@ -422,7 +455,7 @@ namespace ForzaStudio
                 try
                 {
                     session.Commit();
-                    this.zip.Replace(entry, session.Model.ToBytes());
+                    this.zip.Replace(entry, session.ToBytes());
                     this.RefreshEntryNode(entry);
                     this.ReloadModelKeepingView();
                     this.SetStatus(string.Format("UV{0} of {1} mapped (pending: Save to write the archive)", session.Set + 1, session.Parts.Count == 1 ? session.Parts[0].Label : session.Parts.Count + " meshes"));
@@ -434,6 +467,25 @@ namespace ForzaStudio
                 }
             }
             this.ReloadModelKeepingView();
+        }
+
+        // The tree node of the mesh the viewer numbers (section, mesh); null when the tree does not show it.
+        private static TreeNode FindMeshNode(TreeNodeCollection nodes, int section, int sub)
+        {
+            foreach (TreeNode node in nodes)
+            {
+                ForzaMesh mesh = node.Tag as ForzaMesh;
+                if (mesh != null && mesh.SectionIndex == section && mesh.SubIndex == sub)
+                {
+                    return node;
+                }
+                TreeNode below = FindMeshNode(node.Nodes, section, sub);
+                if (below != null)
+                {
+                    return below;
+                }
+            }
+            return null;
         }
 
         // Another model was opened: the mapper's meshes are gone, so it closes without writing anything.

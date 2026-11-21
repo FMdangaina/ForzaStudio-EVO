@@ -26,13 +26,13 @@ namespace ForzaStudio
     //
     // Not read: three wheels in a later form (ModelSettings 3 / 4: 5zigen_hyper_5zr_02, enkei_rs5,
     // mht_crossover_wheel), brakes\Circle01 (junk), the decal carbins of Livery.zip (another kind of file).
-    public class Fm2CarbinModel
+    public partial class Fm2CarbinModel
     {
         public const int VertexStride = 60;
 
         // 60-byte vertex, offsets:
         public const int VertexPosition = 0;        // 4 halves: x, y, z, w; position = part origin + xyz * w
-        public const int VertexUv0 = 8;             // 2 x u16: sign bit + signed 15-bit magnitude / 1310.72 (ForzaVertex.Fm2Uv)
+        public const int VertexUv0 = 8;             // 2 x u16 offset binary: FM4 UV = (raw - 32768) / 1310.72, +-25 (ForzaVertex.Fm2Uv)
         public const int VertexUv1 = 12;            // always 0
         public const int VertexNormal = 16;         // 11 / 11 / 10 signed bits, x low
         public const int VertexDamage = 20;         // damage direction, the FM4 morph word (docs/CARBIN_ALL_GAMES.md section 5)

@@ -45,6 +45,47 @@ namespace ForzaStudio
             return converted;
         }
 
+        // The source car's model files for an FM2 target (PartImport.Motorsport2.cs): an FM2 car as it is (its parts are
+        // copied in FM2 form), an FM4 car as it is, an FM3 car in FM4 form with its names (plain conversion), an FH car
+        // through the FH -> FM4 conversion (stripped meshes left out; its damage words are not used: SourceIsHorizon).
+        public static Dictionary<string, byte[]> ForMotorsport2(Dictionary<string, byte[]> files, List<string> notes, Dictionary<string, List<string>> unknown)
+        {
+            byte[] main;
+            if (!files.TryGetValue("", out main))
+            {
+                throw new InvalidOperationException("The source car has no main model.");
+            }
+            CarbinFamily family = CarbinFormat.Identify(main).Family;
+            switch (family)
+            {
+                case CarbinFamily.Motorsport2:
+                    if (notes != null)
+                    {
+                        notes.Add("FM2 -> FM2: the part's FM2 vertices are kept byte for byte; only the positions are rewritten when it is moved");
+                    }
+                    return files;
+                case CarbinFamily.Motorsport4:
+                    if (notes != null)
+                    {
+                        notes.Add("FM4 -> FM2: 60-byte FM2 vertices (UV0 = - UV1, normal, damage word as FM4 has it; baked lighting from the replaced part, else this car's nearest LOD 1 vertex)");
+                    }
+                    return files;
+                case CarbinFamily.Motorsport3:
+                    if (notes != null)
+                    {
+                        notes.Add("FM3 -> FM2: read in FM4 form, then FM2 vertices (damage word as FM3 has it; baked lighting from the replaced part, else this car's nearest LOD 1 vertex)");
+                    }
+                    return Motorsport3AsMotorsport4(files);
+                case CarbinFamily.Horizon:
+                    if (notes != null)
+                    {
+                        notes.Add("FH -> FM2: FH -> FM4 conversion, then FM2 vertices; damage words and baked lighting from the replaced part, else this car's nearest LOD 1 vertex (FH words are never used)");
+                    }
+                    return ForMotorsport4(files, null, unknown, null);
+            }
+            throw new NotSupportedException(GameName(family) + " .carbin: copying parts from these models is not supported.");
+        }
+
         // The source car's model files for an FM3 target, in FM4 form (the form PartImport places and converts):
         //  - FM3 car: the plain conversion (names kept: they are FM3's already; PartImport puts the FM3 vertex bytes back);
         //  - FM4 car: as it is;
@@ -216,6 +257,16 @@ namespace ForzaStudio
                 StringBuilder build = new StringBuilder();
                 CarModelFolder.Apply(plan, models, build);
                 CarbinModel main = models[CarModelFolder.Main];
+                // 2026-11-21: baked light = the FM2 vertices' own values (CarbinModelLighting.cs), not an estimate
+                string light;
+                try
+                {
+                    light = main.LightingFromMotorsport2(new Fm2CarbinModel(files[""]));
+                }
+                catch (Exception exception)
+                {
+                    light = "baked light: the FM2 values could not be read (" + exception.Message + "), the open-panel estimate stays";
+                }
                 foreach (CarbinModel.Section section in new List<CarbinModel.Section>(main.Sections))
                 {
                     if (!fm2Parts.Contains(section.Name.ToLowerInvariant()))
@@ -228,7 +279,8 @@ namespace ForzaStudio
                 if (notes != null)
                 {
                     notes.Add(string.Format("source main model rebuilt from Forza Motorsport 2 ({0} OBJ files, {1} parts) on this car's main model, as the FM2 port does", objs, fm2Parts.Count));
-                    notes.Add("  damage words and baked light: from the nearest vertex of this car (FM2 has none of FM4's); UV1 as in FM2, UV2 0 as in FM2");
+                    notes.Add("  damage words: from the nearest vertex of this car (FM2 has none of FM4's); UV1 as in FM2, UV2 0 as in FM2");
+                    notes.Add("  " + light);
                     foreach (string line in report.ToString().Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                     {
                         if (line.TrimStart().StartsWith("materials:", StringComparison.Ordinal))

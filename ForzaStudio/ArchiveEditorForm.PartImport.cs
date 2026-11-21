@@ -120,11 +120,18 @@ namespace ForzaStudio
             Dictionary<string, ForzaZip.Entry> files = this.CarModelFiles(this.zip, this.ModelFolder);
             CarbinModel model = null;
             ForzaZip.Entry lod0;
+            byte[] shown = this.zip.Read(this.currentEntry);
+            if (CarModelFolder.IsMotorsport2(shown))
+            {
+                this.ExportPartObjMotorsport2(shown, part, material);
+                return;
+            }
             try
             {
+                // FM3 files are read in FM4 form (the OBJ is the same either way); FM4 / FH as they are
                 if (files.TryGetValue("_lod0", out lod0))
                 {
-                    CarbinModel candidate = new CarbinModel(this.zip.Read(lod0));
+                    CarbinModel candidate = new CarbinModel(PartSource.Motorsport3AsMotorsport4(this.zip.Read(lod0)));
                     if (candidate.Find(part) != null)
                     {
                         model = candidate;
@@ -133,7 +140,7 @@ namespace ForzaStudio
                 }
                 if (model == null)
                 {
-                    model = new CarbinModel(this.zip.Read(this.currentEntry));
+                    model = new CarbinModel(PartSource.Motorsport3AsMotorsport4(shown));
                 }
             }
             catch (Exception exception)
@@ -162,6 +169,72 @@ namespace ForzaStudio
             }
         }
 
+        // The FM2 / FM3 rebuild notes for the status line: the baked light lines whole, the rest cut to fit.
+        private static string ShortNotes(List<string> notes)
+        {
+            List<string> light = new List<string>();
+            List<string> rest = new List<string>();
+            foreach (string note in notes)
+            {
+                foreach (string line in note.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    (line.Contains("baked light") ? light : rest).Add(line.Trim());
+                }
+            }
+            string text = string.Join("; ", rest.ToArray());
+            if (text.Length > 220)
+            {
+                text = text.Substring(0, 220) + "...";
+            }
+            return text + ((light.Count > 0) ? ((text.Length > 0) ? "; " : "") + string.Join("; ", light.ToArray()) : "");
+        }
+
+        // FM2 (2026-11-21): the part at its most detailed LOD (FM2 files hold LODs 1 to 5), as Export Model to OBJ Folder
+        // writes it; with a material selected, only that material.
+        private void ExportPartObjMotorsport2(byte[] data, string part, string material)
+        {
+            string folder = PartObjImport.TempFolder();
+            try
+            {
+                ObjMesh mesh = null;
+                uint from = 0;
+                for (uint lod = 1; lod <= 5 && mesh == null; lod++)
+                {
+                    mesh = PartObjImport.Motorsport2Lod(data, folder, part, lod);
+                    from = lod;
+                }
+                if (mesh != null && material != null)
+                {
+                    mesh.Materials.RemoveAll(delegate(ObjMesh.Material m) { return m.Name != material; });
+                }
+                if (mesh == null || mesh.TriangleCount == 0)
+                {
+                    MessageBox.Show(this, part + " has nothing to draw" + ((material != null) ? " with " + material : "") + ".", "Export Part", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                using (SaveFileDialog dialog = new SaveFileDialog())
+                {
+                    dialog.Filter = "Wavefront OBJ (*.obj)|*.obj";
+                    dialog.FileName = Path.GetFileNameWithoutExtension(this.currentEntry.Name) + "_" + part + ((material != null) ? "_" + material : "") + ".obj";
+                    if (!ShowRemembering(dialog, this, "Obj"))
+                    {
+                        return;
+                    }
+                    string label = (material != null) ? part + "/" + material : part;
+                    mesh.Save(dialog.FileName, part, "ForzaStudio EVO: " + label + " (LOD " + from + ") from " + this.currentEntry.Name, CarModelFolder.MaterialsName);
+                    this.SetStatus(string.Format("{0}: {1:N0} triangles (LOD {2}) exported from {3} to {4}", label, mesh.TriangleCount, from, this.currentEntry.Name, dialog.FileName));
+                }
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Export Part", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+            }
+            finally
+            {
+                PartObjImport.DropFolder(folder);
+            }
+        }
+
         // Every material name this car's model uses, sorted.
         private List<string> CarMaterials()
         {
@@ -170,7 +243,7 @@ namespace ForzaStudio
             {
                 try
                 {
-                    CarbinModel model = new CarbinModel(this.zip.Read(entry));
+                    CarbinModel model = PartObjImport.Names(this.zip.Read(entry));   // FM2 / FM3 files too
                     foreach (CarbinModel.Section section in model.Sections)
                     {
                         foreach (CarbinModel.SubSection sub in section.SubSections)
@@ -271,7 +344,7 @@ namespace ForzaStudio
             List<string> partNames = new List<string>();
             try
             {
-                foreach (CarbinModel.Section existing in new CarbinModel(this.zip.Read(this.currentEntry)).Sections)
+                foreach (CarbinModel.Section existing in PartObjImport.Names(this.zip.Read(this.currentEntry)).Sections)
                 {
                     partNames.Add(existing.Name);
                 }
@@ -407,15 +480,39 @@ namespace ForzaStudio
             bool merge = existingPart && !newPart && (replaceMaterial || addToPart.Checked);
 
             List<string> report = new List<string>();
+            List<string> gameNotes = new List<string>();     // FM2 / FM3: what the rebuild did (kept / new vertices, baked light)
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
                 foreach (ForzaZip.Entry entry in this.PartEditTargets(newPart || this.chkAllModelFiles.Checked))
                 {
                     CarbinModel model;
+                    byte[] entryData = this.zip.Read(entry);
+                    if (PartObjImport.Handles(entryData))
+                    {
+                        // FM2 / FM3 (2026-11-21): the same choices, done in the file's own game (PartObjImport)
+                        PartObjImport.Request request = new PartObjImport.Request();
+                        request.Section = section;
+                        request.Basis = basis;
+                        request.Target = target;
+                        request.NewPart = newPart;
+                        request.Merge = merge;
+                        request.ReplaceMaterial = replaceMaterial ? material : null;
+                        request.FitUv = fit.Checked;
+                        request.Mesh = mesh;
+                        request.Map = map;
+                        byte[] built = PartObjImport.Run(entryData, request, gameNotes);
+                        if (built != null)
+                        {
+                            this.zip.Replace(entry, built);
+                            this.RefreshEntryNode(entry);
+                            report.Add(entry.Name.Substring(entry.Name.LastIndexOf('/') + 1));
+                        }
+                        continue;
+                    }
                     try
                     {
-                        model = new CarbinModel(this.zip.Read(entry));
+                        model = new CarbinModel(entryData);
                     }
                     catch (NotSupportedException)
                     {
@@ -466,7 +563,8 @@ namespace ForzaStudio
                 : replaceMaterial ? string.Format("{0}/{1}: material replaced from OBJ", target, material)
                 : merge ? string.Format("{0}: materials added from OBJ", target)
                 : target + ": geometry replaced from OBJ";
-            this.SetStatus(string.Format("{0} in {1} (pending: Save to write the archive)", what, (report.Count > 0) ? string.Join(", ", report.ToArray()) : "no file (nothing to change)"));
+            this.SetStatus(string.Format("{0} in {1} (pending: Save to write the archive)", what, (report.Count > 0) ? string.Join(", ", report.ToArray()) : "no file (nothing to change)")
+                + ((gameNotes.Count > 0) ? " | " + ShortNotes(gameNotes) : ""));
         }
 
         // Puts an OBJ into an existing part of the model without touching its other materials: each LOD
@@ -540,7 +638,9 @@ namespace ForzaStudio
             {
                 try
                 {
-                    if (new CarbinModel(this.zip.Read(entry)).Find(name) != null)
+                    byte[] data = this.zip.Read(entry);
+                    Fm2CarbinModel fm2 = Fm2Model(data);
+                    if ((fm2 != null) ? fm2.Find(name) != null : EditableModel(data).Find(name) != null)
                     {
                         return true;
                     }
@@ -847,6 +947,10 @@ namespace ForzaStudio
             // source FM3 files as they are when the source is an FM3 car too (their vertex bytes are kept)
             Dictionary<string, byte[]> targetAsFm4 = null;
             Dictionary<string, byte[]> sourceNative = null;
+            // an FM2 car (ST-03, user 2026-11-18): its one model read by Fm2CarbinModel; an FM2 source car's parts too
+            Fm2CarbinModel targetFm2 = null;
+            Fm2CarbinModel sourceFm2 = null;
+            bool sourceHorizon = false;
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
@@ -857,11 +961,22 @@ namespace ForzaStudio
                 byte[] targetMainData = this.zip.Read(targetFiles[""]);
                 CarbinFamily sourceGame = CarbinFormat.Identify(sourceData[""]).Family;
                 CarbinFamily targetGame = CarbinFormat.Identify(targetMainData).Family;
-                if (targetGame != CarbinFamily.Motorsport4 && targetGame != CarbinFamily.Motorsport3)
+                if (targetGame != CarbinFamily.Motorsport4 && targetGame != CarbinFamily.Motorsport3 && targetGame != CarbinFamily.Motorsport2)
                 {
-                    throw new NotSupportedException(string.Format("Copying a part into a {0} car is not supported yet (today: FM4, FM3, FM2, FH1 and FH2 cars into FM4 and FM3 cars).", PartSource.GameName(targetGame)));
+                    throw new NotSupportedException(string.Format("Copying a part into a {0} car is not supported yet (today: FM4, FM3, FM2, FH1 and FH2 cars into FM4, FM3 and FM2 cars).", PartSource.GameName(targetGame)));
                 }
-                if (targetGame == CarbinFamily.Motorsport3)
+                sourceHorizon = sourceGame == CarbinFamily.Horizon;
+                if (targetGame == CarbinFamily.Motorsport2)
+                {
+                    sourceData = PartSource.ForMotorsport2(sourceData, sourceNotes, sourceUnknown);
+                    sourceLabel += " (" + PartSource.GameName(sourceGame) + ")";
+                    targetFm2 = new Fm2CarbinModel(targetMainData);
+                    if (CarbinFormat.Identify(sourceData[sourceKey]).Family == CarbinFamily.Motorsport2)
+                    {
+                        sourceFm2 = new Fm2CarbinModel(sourceData[sourceKey]);
+                    }
+                }
+                else if (targetGame == CarbinFamily.Motorsport3)
                 {
                     Dictionary<string, byte[]> targetData = new Dictionary<string, byte[]>();
                     foreach (KeyValuePair<string, ForzaZip.Entry> pair in targetFiles)
@@ -888,15 +1003,16 @@ namespace ForzaStudio
                     sourceLabel += " (" + PartSource.GameName(sourceGame) + ")";
                 }
                 // the list and the preview show the chosen source file; the copy goes into the open file only
-                sourceMain = new CarbinModel(sourceData[sourceKey]);
-                targetMain = new CarbinModel((targetAsFm4 != null) ? targetAsFm4[fileKey] : ((fileKey.Length == 0) ? targetMainData : this.zip.Read(targetFiles[fileKey])));
-                if (sourceMain.DrawLists.Count / 2 == 1 && targetMain.DrawLists.Count / 2 > 1)
+                sourceMain = (sourceFm2 == null) ? new CarbinModel(sourceData[sourceKey]) : null;
+                targetMain = (targetFm2 == null) ? new CarbinModel((targetAsFm4 != null) ? targetAsFm4[fileKey] : ((fileKey.Length == 0) ? targetMainData : this.zip.Read(targetFiles[fileKey]))) : null;
+                if (sourceMain != null && sourceMain.DrawLists.Count / 2 == 1 && (targetFm2 != null || targetMain.DrawLists.Count / 2 > 1))
                 {
-                    throw new NotSupportedException(string.Format("The source's {0} model has LOD 0 only, and this car's main model needs LODs 1-5. Open this car's lod0 or cockpit model to copy into it, or choose the source's main model.", PartImport.FileLabel(sourceKey)));
+                    throw new NotSupportedException(string.Format("The source's {0} model has LOD 0 only, and this car's main model needs LODs 1-5. {1}choose the source's main model.", PartImport.FileLabel(sourceKey),
+                        (targetFm2 != null) ? "An FM2 car has only its main model: " : "Open this car's lod0 or cockpit model to copy into it, or "));
                 }
                 sourceLabel += " - " + PartImport.FileLabel(sourceKey) + " model, into this car's " + PartImport.FileLabel(fileKey);
                 // FH1 / FH2 cars into an FH car: refused, for now (user 2026-11-16). Into FM4 they arrive converted above.
-                if (sourceMain.IsHorizon)
+                if (sourceMain != null && sourceMain.IsHorizon)
                 {
                     throw new NotSupportedException("Forza Horizon .carbin: it can be read for study, but copying parts from FH models is not supported.");
                 }
@@ -913,8 +1029,19 @@ namespace ForzaStudio
             }
             // every part name of this car's model files: a copied part is added under a free name (never replaces by itself)
             HashSet<string> taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (targetFm2 != null)
+            {
+                foreach (Fm2CarbinModel.Part part in targetFm2.Parts)
+                {
+                    taken.Add(part.Name);
+                }
+            }
             foreach (KeyValuePair<string, ForzaZip.Entry> pair in targetFiles)
             {
+                if (targetFm2 != null)
+                {
+                    break;     // FM2: the one model, read above
+                }
                 try
                 {
                     foreach (CarbinModel.Section section in ((pair.Key == fileKey) ? targetMain : new CarbinModel((targetAsFm4 != null) ? targetAsFm4[pair.Key] : this.zip.Read(pair.Value))).Sections)
@@ -928,7 +1055,27 @@ namespace ForzaStudio
             }
 
             List<object[]> rows = new List<object[]>();
-            foreach (CarbinModel.Section section in sourceMain.Sections)
+            if (sourceFm2 != null)
+            {
+                // an FM2 source into an FM2 car: its parts as they are (deformable = a vertex whose damage word moves it)
+                foreach (Fm2CarbinModel.Part part in sourceFm2.Parts)
+                {
+                    if (part.Meshes.Count == 0)
+                    {
+                        continue;
+                    }
+                    List<string> materials = new List<string>();
+                    foreach (Fm2CarbinModel.Mesh mesh in part.Meshes)
+                    {
+                        if (!materials.Contains(mesh.MaterialName))
+                        {
+                            materials.Add(mesh.MaterialName);
+                        }
+                    }
+                    rows.Add(new object[] { part.Name, string.Join(", ", materials.ToArray()), Fm2Deformable(sourceFm2, part) ? "deformable" : "rigid" });
+                }
+            }
+            foreach (CarbinModel.Section section in (sourceMain != null) ? sourceMain.Sections : new List<CarbinModel.Section>())
             {
                 List<string> materials = new List<string>();
                 foreach (CarbinModel.SubSection sub in section.SubSections)
@@ -954,9 +1101,22 @@ namespace ForzaStudio
             replace.Width = 200;
             replace.Items.Add("(nothing: add as a new part)");
             List<string> targetNames = new List<string>();
-            foreach (CarbinModel.Section section in targetMain.Sections)
+            if (targetFm2 != null)
             {
-                targetNames.Add(section.Name);
+                foreach (Fm2CarbinModel.Part part in targetFm2.Parts)
+                {
+                    if (part.Meshes.Count > 0)
+                    {
+                        targetNames.Add(part.Name);
+                    }
+                }
+            }
+            else
+            {
+                foreach (CarbinModel.Section section in targetMain.Sections)
+                {
+                    targetNames.Add(section.Name);
+                }
             }
             targetNames.Sort(StringComparer.OrdinalIgnoreCase);
             replace.Items.AddRange(targetNames.ToArray());
@@ -1089,7 +1249,20 @@ namespace ForzaStudio
                 alignChecked = align.Checked;
                 fitChecked = fit.Checked;
             }
-            this.RunPartImport(sourceData, sourceNotes, sourceUnknown, targetFiles, sourceLabel, plan, alignChecked, fitChecked, fileKey, sourceKey, targetAsFm4, sourceNative);
+            this.RunPartImport(sourceData, sourceNotes, sourceUnknown, targetFiles, sourceLabel, plan, alignChecked, fitChecked, fileKey, sourceKey, targetAsFm4, sourceNative, sourceHorizon);
+        }
+
+        // An FM2 part deforms when one of its vertices has a damage word other than 000003FF ("does not move").
+        private static bool Fm2Deformable(Fm2CarbinModel model, Fm2CarbinModel.Part part)
+        {
+            for (int v = 0; v < part.VertexCount; v++)
+            {
+                if (model.Damage(part, v) != 0x3FF)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // The source car's model file to copy from: main, lod0, cockpit and its brake files (calipers, rotors), the one
@@ -1156,11 +1329,12 @@ namespace ForzaStudio
 
         // Builds the whole import first (PartImport: all files, checks), asks on which LODs a moved part is moved,
         // shows the log as a preview, and only then puts the files in the archive (pending until Save).
-        private void RunPartImport(Dictionary<string, byte[]> sourceData, List<string> sourceNotes, Dictionary<string, List<string>> sourceUnknown, Dictionary<string, ForzaZip.Entry> targetFiles, string sourceLabel, List<string[]> plan, bool alignChecked, bool fitChecked, string onlyFile, string sourceFile, Dictionary<string, byte[]> targetAsFm4, Dictionary<string, byte[]> sourceNative)
+        private void RunPartImport(Dictionary<string, byte[]> sourceData, List<string> sourceNotes, Dictionary<string, List<string>> sourceUnknown, Dictionary<string, ForzaZip.Entry> targetFiles, string sourceLabel, List<string[]> plan, bool alignChecked, bool fitChecked, string onlyFile, string sourceFile, Dictionary<string, byte[]> targetAsFm4, Dictionary<string, byte[]> sourceNative, bool sourceHorizon)
         {
             PartImport import = new PartImport();
             import.TargetAsMotorsport4 = targetAsFm4;     // an FM3 car: its files in FM4 form (null otherwise)
             import.SourceNative = sourceNative;           // FM3 -> FM3: the source's own FM3 files
+            import.SourceIsHorizon = sourceHorizon;       // an FM2 car takes an FH part's damage words from its nearest vertex
             import.SourceFile = sourceFile;     // the source car's chosen file (may differ in kind from onlyFile)
             import.OnlyFile = onlyFile;     // the open file's kind only (null = every file, as before)
             try

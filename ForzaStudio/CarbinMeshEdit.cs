@@ -58,7 +58,12 @@ namespace ForzaStudio
         {
             double[] lod = Compact(section, section.Lod, section.DamageLod, false, Positions(section, section.Lod));
             double[] lod0 = Compact(section, section.Lod0, section.DamageLod0, true, Positions(section, section.Lod0));
-            Reencode(section, lod, lod0);
+            // FM3 (its own layout): the box stays. Every vertex left was inside it already, so its bytes stay as the game
+            // has them; a refitted box rewrote every position half of the part (up to 1.6 mm off on a "body", mesht).
+            if (!IsMotorsport3Layout(section, section.Lod) && !IsMotorsport3Layout(section, section.Lod0))
+            {
+                Reencode(section, lod, lod0);
+            }
             CheckIndexRange(section);
         }
 

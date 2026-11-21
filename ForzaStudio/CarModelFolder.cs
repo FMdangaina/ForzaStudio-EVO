@@ -178,7 +178,7 @@ namespace ForzaStudio
             StringBuilder manifest = new StringBuilder();
             manifest.AppendLine("# ForzaStudio EVO model folder of " + carbinName + " (Forza Motorsport 2), exported from " + source);
             manifest.AppendLine("# lodN\\<part>.obj = the part at that LOD, one group per material (usemtl = car material).");
-            manifest.AppendLine("# FM2 models can be exported; importing them back is not available yet.");
+            manifest.AppendLine("# Edit the OBJs, then Model > Import Model from OBJ Folder: changed OBJs are rebuilt in FM2 format (LODs 1 to 5).");
             manifest.AppendLine("file " + carbinName);
             Dictionary<int, List<string>> materials = new Dictionary<int, List<string>>();
             int count = 0;
@@ -706,6 +706,151 @@ namespace ForzaStudio
         #endregion
 
         #region Import
+
+        // FM2 (2026-11-21): the car's parts, materials and LODs as a model Prepare can plan on (names, LODs and part
+        // origins only: it has no vertices and is never written). The import itself is ApplyMotorsport2.
+        public static CarbinModel PlanModel(Fm2CarbinModel fm2)
+        {
+            CarbinModel model = (CarbinModel) System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(CarbinModel));
+            model.Sections = new List<CarbinModel.Section>();
+            foreach (Fm2CarbinModel.Part part in fm2.Parts)
+            {
+                CarbinModel.Section section = new CarbinModel.Section();
+                section.Name = part.Name;
+                Array.Copy(part.Bounds, section.Bounds, 9);
+                foreach (Fm2CarbinModel.Mesh mesh in part.Meshes)
+                {
+                    CarbinModel.SubSection sub = new CarbinModel.SubSection();
+                    sub.Name = mesh.MaterialName;
+                    sub.Lod = mesh.Lod;
+                    section.SubSections.Add(sub);
+                }
+                model.Sections.Add(section);
+            }
+            return model;
+        }
+
+        // FM2: the plan applied to the car's own model (Fm2CarbinModel.RebuildFromObj per part). Returns the kinds changed.
+        public static List<string> ApplyMotorsport2(Plan plan, Fm2CarbinModel fm2, StringBuilder report)
+        {
+            List<string> changed = new List<string>();
+            foreach (PartPlan part in plan.Parts)
+            {
+                if (part.Kind != Main)
+                {
+                    continue;
+                }
+                if (part.Remove)
+                {
+                    fm2.RemovePart(part.Part);
+                    report.AppendLine(part.Part + ": removed");
+                }
+                else
+                {
+                    Dictionary<uint, ObjMesh> meshes = new Dictionary<uint, ObjMesh>();
+                    foreach (KeyValuePair<uint, string> pair in part.Rebuild)
+                    {
+                        if (pair.Key == uint.MaxValue)
+                        {
+                            throw new InvalidOperationException(part.Part + ": a Forza Motorsport 2 car has one model file, nothing to borrow geometry from.");
+                        }
+                        meshes[pair.Key] = plan.Meshes[pair.Value];
+                    }
+                    report.AppendLine(fm2.RebuildFromObj(part.Part, part.Template, meshes, part.Drop));
+                }
+                if (!changed.Contains(part.Kind))
+                {
+                    changed.Add(part.Kind);
+                }
+            }
+            return changed;
+        }
+
+        // FM3 (2026-11-21): the import ran on the file in FM4 form ('converted', after Apply); every part of the plan goes
+        // into the car's own FM3 file ('native' bytes) in FM3's layout (CarbinModel.ConvertPartToMotorsport3, the FM4 -> FM3
+        // port's section step, as Copy Part into FM3 does); the parts the plan does not name keep every byte. Returns the
+        // FM3 file.
+        public static byte[] ToMotorsport3(Plan plan, string kind, CarbinModel converted, byte[] native, StringBuilder report)
+        {
+            CarbinModel model = new CarbinModel(native, true);
+            byte[] carrierBytes = converted.ToBytes();
+            foreach (PartPlan part in plan.Parts)
+            {
+                if (part.Kind != kind)
+                {
+                    continue;
+                }
+                CarbinModel.Section mine = FindIgnoreCase(model, part.Part);
+                if (mine != null)
+                {
+                    model.RemoveSection(mine.Name);
+                }
+                CarbinModel.Section made = FindIgnoreCase(converted, part.Part);
+                if (made == null)
+                {
+                    continue;       // removed
+                }
+                CarbinModel carrier = new CarbinModel(carrierBytes);
+                carrier.ConvertPartToMotorsport3(made.Name, made.Name);
+                foreach (CarbinModel.SubSection sub in carrier.Find(made.Name).SubSections)
+                {
+                    if (sub.Name == "lights_glass")
+                    {
+                        sub.Name = "detail_glass_clear";    // FM3 draws it with this name (the FM4 -> FM3 port's list)
+                    }
+                }
+                model.ImportSection(carrier, made.Name, made.Name, false);
+                report.AppendLine(KindName(kind) + " " + made.Name + ": put in FM3's layout (FM4 -> FM3 port conversion)");
+            }
+            return model.ToBytes();
+        }
+
+        // Apply for a car edited through its own OBJ files (2026-11-21): the vertices the import makes get their baked light
+        // computed on the car (CarbinModel.BeginLighting / FinishLighting) instead of the open-panel estimate; the vertices
+        // it keeps stay as the game has them. A model the light cannot be computed on is imported as before, with a line
+        // in the report.
+        public static List<string> ApplyWithLighting(Plan plan, Dictionary<string, CarbinModel> models, StringBuilder report)
+        {
+            Dictionary<string, CarbinModel.LightingState> states = new Dictionary<string, CarbinModel.LightingState>();
+            foreach (PartPlan part in plan.Parts)
+            {
+                if (states.ContainsKey(part.Kind) || !models.ContainsKey(part.Kind))
+                {
+                    continue;
+                }
+                try
+                {
+                    states[part.Kind] = models[part.Kind].BeginLighting();
+                }
+                catch (Exception exception)
+                {
+                    states[part.Kind] = null;
+                    report.AppendLine(KindName(part.Kind) + ": baked light not computed (" + exception.Message + "); new vertices get the open-panel estimate");
+                }
+            }
+            List<string> changed = Apply(plan, models, report);
+            foreach (string kind in changed)
+            {
+                CarbinModel.LightingState state;
+                if (!states.TryGetValue(kind, out state) || state == null)
+                {
+                    continue;
+                }
+                try
+                {
+                    string line = models[kind].FinishLighting(state);
+                    if (line != null)
+                    {
+                        report.AppendLine(KindName(kind) + " " + line);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    report.AppendLine(KindName(kind) + ": baked light not computed (" + exception.Message + "); new vertices keep the open-panel estimate");
+                }
+            }
+            return changed;
+        }
 
         // Applies the plan to the models; returns the kinds of the models changed and fills the report.
         public static List<string> Apply(Plan plan, Dictionary<string, CarbinModel> models, StringBuilder report)

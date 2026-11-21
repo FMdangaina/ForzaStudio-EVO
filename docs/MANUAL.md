@@ -34,8 +34,8 @@ files: you open a game folder or one of its `.zip` archives, change what you nee
 | Forza Motorsport 4 | Everything: models, textures, XML, database, dash view, music. Target of car ports. |
 | Forza Horizon 2 | Models, textures, XML, database, music. Source for car ports. |
 | Forza Horizon (1) | Textures, XML, database, music. Source for car ports. |
-| Forza Motorsport 3 | Models can be viewed (not edited), textures, database, music. Source for car ports. |
-| Forza Motorsport 2 | Archives, textures, model viewing and export, music. Models cannot be imported back. Source for car ports. |
+| Forza Motorsport 3 | Models (edited in place: parts, meshes, UVs, OBJ / FBX / glTF), textures, database, music. Source for car ports, target of the FM4 port. |
+| Forza Motorsport 2 | Models (edited in place: parts, meshes, UVs, OBJ / FBX / glTF; one file, LODs 1 to 5), archives, textures, music. Source for car ports. |
 
 The game is detected from its `default.xex`. You need the game **extracted** to a folder, the one
 that holds `default.xex` and `Media`.
@@ -416,8 +416,10 @@ one of its materials to edit only that material.
   data. First choose where from: *This pack* (the other cars of the zip being edited), a game, or
   *(another file...)* (a file dialog for a car zip, pack zip, DLC package or `_lod0.carbin`). For a game
   only its cars are read and listed: `Media\cars` of its folders (the open car's game, Tools > Settings >
-  Folders, the FM4 folder of the port window) and its packages installed in Xenia (disc 2 and DLC). FM2,
-  FM3 and FH1 / FH2 cars are listed but refused for now, with a message. On the right of the part list the
+  Folders, the FM4 folder of the port window) and its packages installed in Xenia (disc 2 and DLC). The
+  source can be a car of any game (FM2, FM3, FM4, FH1, FH2) and the open car can be an FM4, FM3 or FM2 one
+  (see "FM2 and FM3 cars" below). A part goes into the same kind of file it comes from: lod0 into lod0,
+  cockpit into cockpit, LODs 1 to 5 into the main model. On the right of the part list the
   source car is shown in a small viewport (materials, no textures) with the highlighted and ticked parts in
   orange; drag (or Alt + middle drag) to turn it, middle drag to move, wheel to zoom:
   - by default nothing is replaced: the part is added as a new part, under its own name when this car has
@@ -449,7 +451,8 @@ works like this:
   damage data;
 - before anything changes, you see the plan; afterwards, a report.
 
-Forza Motorsport 2 models can be exported but not imported back.
+This works on FM3 and FM2 cars too. An FM2 car has one model file with LODs 1 to 5, so its folder has
+`lod1` to `lod5` only.
 
 ### Whole model as one FBX or glTF scene
 
@@ -483,6 +486,39 @@ Edit the scene, export it again in the same format, then **Model > Import Model 
   have**; a new group or mesh under a LOD node is a new part;
 - textures in the file are ignored: the game keeps its own;
 - then you get the same plan and report as for an OBJ folder.
+
+FBX and glTF work on FM3 and FM2 cars too. An FM2 scene has the `main` file with `LOD1` to `LOD5` and one
+UV set.
+
+### FM2 and FM3 cars
+
+The model tools above work inside Forza Motorsport 2 and 3 cars as they do in FM4 cars: the file stays in
+its own game's format and the parts you do not touch keep every byte.
+
+| Tool | FM3 | FM2 |
+|---|---|---|
+| PART tab: move, rotate, scale, delete, duplicate, rename | yes | yes |
+| Tree: drag a mesh into another part, Attach, Merge Part, Duplicate Mesh | yes | yes |
+| MESH tab: pick points, edges and faces, move them, Delete Faces, Detach Faces | yes | yes |
+| UV Mapper (whole meshes or picked faces) | yes | yes, one UV set, UVs within ±25 |
+| Copy Part From Another Car (source of any game) | yes | yes, from main models only |
+| Export OBJ / Import OBJ (one part) | yes | yes, into the LODs the part has; no "Fit UVs" |
+| Export / Import Model: OBJ folder, FBX, glTF | yes | yes |
+| Export UV Map | yes | no (it draws LOD 0) |
+| Exhaust, Gauges and Driver tabs, Make Rim Scalable, Check Model Format | FM4 only | FM4 only |
+
+Things to know:
+
+- **An FM2 car has no LOD 0 and no close-up, cockpit or brake files.** Nothing of another game's LOD 0
+  goes into it; its LODs 1 to 5 are the whole car.
+- **Baked light.** Every vertex of a car carries light baked by the game's tools (how much sky it sees and
+  the light the car sends back). When a tool makes new vertices, their light is computed on the car itself;
+  vertices that did not change keep the game's values. A part or a car coming from FM2 into FM4 or FM3
+  keeps the light of its own FM2 vertices, converted. The report of the operation has a line starting with
+  "baked light".
+- **Deleting faces** changes only the LOD of the mesh they are in. On FM3 and FM2 the vertices left keep
+  every byte.
+- Crash deformation of new vertices still comes from the nearest vertex the part had.
 
 ### Texture preview
 
@@ -869,8 +905,10 @@ converted with `xma2encode` from the Xbox 360 SDK, which is Microsoft's and **no
 
 **Not available yet**
 
-- **FM2 and FM3 models:** FM2 can be exported only; FM3 can be viewed, and converted only by the
-  port tool.
+- **Car ports other than into FM4 and FM4 to FM3:** FH1 / FH2 or FM2 to FM3, and anything to FM2 or to the
+  Horizon games (see `PORT_ALL_GAMES.md`).
+- **Gauges, Driver and Exhaust tabs on FM2 / FM3 cars** (FM4 header data).
+- **Parts from a lod0, cockpit or brake file into a main model** (LOD 0 into LODs 1 to 5).
 - **Automatic LODs.**
 - **Profile saves** are signed and encrypted, so they cannot be edited in the main window.
 

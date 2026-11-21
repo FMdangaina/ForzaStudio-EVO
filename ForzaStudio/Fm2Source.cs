@@ -120,6 +120,15 @@ namespace ForzaStudio
                 StringBuilder report = new StringBuilder();
                 CarModelFolder.Apply(plan, models, report);
                 main = models[CarModelFolder.Main];
+                // 2026-11-21: baked light = the FM2 vertices' own values (CarbinModelLighting.cs), not an estimate
+                try
+                {
+                    log.Add(main.LightingFromMotorsport2(new Fm2CarbinModel(source.Read(carbinEntry))));
+                }
+                catch (Exception exception)
+                {
+                    log.Add("baked light: the FM2 values could not be read (" + exception.Message + "), the open-panel estimate stays");
+                }
                 List<string> removed = new List<string>();
                 foreach (CarbinModel.Section section in new List<CarbinModel.Section>(main.Sections))
                 {

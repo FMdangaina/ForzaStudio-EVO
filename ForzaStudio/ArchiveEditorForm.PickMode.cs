@@ -341,7 +341,20 @@ namespace ForzaStudio
             {
                 Cursor.Current = Cursors.WaitCursor;
                 ForzaZip.Entry entry = this.currentEntry;
-                CarbinModel model = new CarbinModel(this.zip.Read(entry));
+                byte[] data = this.zip.Read(entry);
+                Fm2CarbinModel fm2 = Fm2Model(data);
+                if (fm2 != null)
+                {
+                    // FM2 (2026-11-21): its own writer; the source mesh joins the clicked one
+                    int tp, tk, sp, sk;
+                    LocateFm2Mesh(fm2, target, targetNode, out tp, out tk);
+                    LocateFm2Mesh(fm2, source, sourceNode, out sp, out sk);
+                    string joined = fm2.MoveMesh(sp, sk, fm2.Parts[tp].Name, tk);
+                    this.zip.Replace(entry, fm2.ToBytes());
+                    this.RefreshEntryNode(entry);
+                    return string.Format("{0} / {1} attached into {2} / {3} ({4})", sourceNode.Parent.Text, sourceNode.Text, targetNode.Parent.Text, targetNode.Text, joined);
+                }
+                CarbinModel model = EditableModel(data);   // FM3 in its own layout
                 CheckMeshInModel(model, target, targetNode);
                 CheckMeshInModel(model, source, sourceNode);
                 if (model.AttachTooLong(target.SectionIndex, target.SubIndex, source.SectionIndex, source.SubIndex))
@@ -379,10 +392,26 @@ namespace ForzaStudio
                 Cursor.Current = Cursors.WaitCursor;
                 foreach (ForzaZip.Entry entry in this.PartEditTargets())
                 {
+                    byte[] data = this.zip.Read(entry);
+                    Fm2CarbinModel fm2 = Fm2Model(data);
+                    if (fm2 != null)
+                    {
+                        // FM2 (2026-11-21): its own writer
+                        if (fm2.Find(source) == null)
+                        {
+                            continue;
+                        }
+                        string done = fm2.MergeParts(source, target);
+                        report.Add(entry.Name.Substring(entry.Name.LastIndexOf('/') + 1) + ": " + done);
+                        this.zip.Replace(entry, fm2.ToBytes());
+                        this.RefreshEntryNode(entry);
+                        changed++;
+                        continue;
+                    }
                     CarbinModel model;
                     try
                     {
-                        model = new CarbinModel(this.zip.Read(entry));
+                        model = EditableModel(data);   // FM3 in its own layout
                     }
                     catch (NotSupportedException)
                     {

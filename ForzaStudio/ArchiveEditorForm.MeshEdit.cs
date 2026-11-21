@@ -31,6 +31,7 @@ namespace ForzaStudio
         }
 
         private CarbinModel faceModel;
+        private Fm2CarbinModel faceModelMotorsport2;      // FM2 files: their own model (faceModel stays null)
         private List<PickMesh> pickMeshes = new List<PickMesh>();
         private bool pickDirty = true;
         private readonly Set<long> faceSelection = new Set<long>();
@@ -113,6 +114,7 @@ namespace ForzaStudio
             this.CloseUvMapperForModelChange();
             this.meshSelection.Clear();
             this.faceModel = null;
+            this.faceModelMotorsport2 = null;
             this.pickMeshes.Clear();
             this.pickDirty = true;
             this.faceSelection.Clear();
@@ -136,7 +138,7 @@ namespace ForzaStudio
 
         private bool EnsurePickData()
         {
-            if (!this.pickDirty && this.faceModel != null)
+            if (!this.pickDirty && (this.faceModel != null || this.faceModelMotorsport2 != null))
             {
                 return true;
             }
@@ -144,13 +146,49 @@ namespace ForzaStudio
             this.faceLines = null;
             try
             {
-                if (this.faceModel == null)
+                if (this.faceModel == null && this.faceModelMotorsport2 == null)
                 {
                     if (this.currentEntry == null || !this.currentEntry.Name.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
                     {
                         return false;
                     }
-                    this.faceModel = new CarbinModel(this.zip.Read(this.currentEntry));
+                    // 2026-11-21: FM2 through its own model, FM3 in its own layout (both were refused by the FM4 reader)
+                    byte[] data = this.zip.Read(this.currentEntry);
+                    this.faceModelMotorsport2 = Fm2Model(data);
+                    if (this.faceModelMotorsport2 == null)
+                    {
+                        this.faceModel = EditableModel(data);
+                    }
+                }
+                if (this.faceModelMotorsport2 != null)
+                {
+                    Fm2CarbinModel fm2 = this.faceModelMotorsport2;
+                    Dictionary<int, double[]> positions = new Dictionary<int, double[]>();
+                    foreach (TreeNode node in GetMeshNodes(this.tvModel.Nodes, true))
+                    {
+                        ForzaMesh mesh = (ForzaMesh) node.Tag;
+                        int p, k;
+                        if (mesh.Hidden || mesh.Frozen || mesh.SectionIndex < 0 || mesh.SubIndex < 0 || node.Parent == null
+                            || !fm2.LocateMesh(node.Parent.Text, node.Text, TreeLod(node), mesh.SectionIndex, mesh.SubIndex, out p, out k))
+                        {
+                            continue;
+                        }
+                        double[] partPositions;
+                        if (!positions.TryGetValue(p, out partPositions))
+                        {
+                            partPositions = fm2.Positions(fm2.Parts[p]);
+                            positions[p] = partPositions;
+                        }
+                        PickMesh pick = new PickMesh();
+                        pick.Section = mesh.SectionIndex;
+                        pick.Sub = mesh.SubIndex;
+                        pick.Label = fm2.Parts[p].Name + " / " + fm2.Parts[p].Meshes[k].MaterialName;
+                        pick.Triangles = fm2.MeshFaces(p, k);
+                        pick.Positions = partPositions;
+                        this.pickMeshes.Add(pick);
+                    }
+                    this.pickDirty = false;
+                    return true;
                 }
                 foreach (ForzaMesh mesh in GetMeshes(this.tvModel.Nodes, true))
                 {
@@ -178,9 +216,36 @@ namespace ForzaStudio
             catch (Exception exception)
             {
                 this.faceModel = null;
+                this.faceModelMotorsport2 = null;
                 this.SetStatus("Mesh edit not available for this file: " + exception.Message);
                 return false;
             }
+        }
+
+        // The tree nodes that hold a mesh (checked ones only, or all).
+        private static List<TreeNode> GetMeshNodes(TreeNodeCollection nodes, bool checkedOnly)
+        {
+            List<TreeNode> list = new List<TreeNode>();
+            foreach (TreeNode node in nodes)
+            {
+                if (node.Tag is ForzaMesh && (!checkedOnly || node.Checked))
+                {
+                    list.Add(node);
+                }
+                list.AddRange(GetMeshNodes(node.Nodes, checkedOnly));
+            }
+            return list;
+        }
+
+        // FM2: the part / mesh numbers in the model of the mesh the view numbers (section, mesh), found through its tree node.
+        private void LocateFm2PickMesh(Fm2CarbinModel fm2, int section, int sub, out int p, out int k)
+        {
+            TreeNode node = FindMeshNode(this.tvModel.Nodes, section, sub);
+            if (node == null || node.Parent == null)
+            {
+                throw new InvalidOperationException("A mesh of the selection is not in the tree any more: nothing changed.");
+            }
+            LocateFm2Mesh(fm2, (ForzaMesh) node.Tag, node, out p, out k);
         }
 
         // ---- picking ----
@@ -1055,12 +1120,9 @@ namespace ForzaStudio
             {
                 return;
             }
-            string question = string.Format("Delete {0:N0} selected faces?\n\nThe vertices only they use are removed. Only the LOD of each mesh they are in changes. Pending until you save (Archive > Revert Selected File undoes it).", this.faceSelection.Count);
-            if (MessageBox.Show(this, question, "Delete Faces", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
-            {
-                return;
-            }
-            this.ApplyFaceEdit(delegate(CarbinModel model, int section, int sub, List<int> faces) { return model.DeleteFaces(section, sub, faces); });
+            // no question (user 2026-11-21): the edit is pending until Save and Undo takes it back
+            this.ApplyFaceEdit(delegate(CarbinModel model, int section, int sub, List<int> faces) { return model.DeleteFaces(section, sub, faces); },
+                delegate(Fm2CarbinModel model, int part, int mesh, List<int> faces) { return model.DeleteFaces(part, mesh, faces); });
         }
 
         // The faces become a mesh of their own in the same part (same material, same LOD).
@@ -1070,25 +1132,45 @@ namespace ForzaStudio
             {
                 return;
             }
-            this.ApplyFaceEdit(delegate(CarbinModel model, int section, int sub, List<int> faces) { return model.DetachFaces(section, sub, faces); });
+            this.ApplyFaceEdit(delegate(CarbinModel model, int section, int sub, List<int> faces) { return model.DetachFaces(section, sub, faces); },
+                delegate(Fm2CarbinModel model, int part, int mesh, List<int> faces) { return model.DetachFaces(part, mesh, faces); });
         }
 
         private delegate string FaceEdit(CarbinModel model, int section, int sub, List<int> faces);
 
-        private void ApplyFaceEdit(FaceEdit edit)
+        private delegate string FaceEditMotorsport2(Fm2CarbinModel model, int part, int mesh, List<int> faces);
+
+        private void ApplyFaceEdit(FaceEdit edit, FaceEditMotorsport2 editMotorsport2)
         {
             List<string> report = new List<string>();
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
-                CarbinModel model = new CarbinModel(this.zip.Read(this.currentEntry));
-                foreach (KeyValuePair<long, List<int>> pair in this.SelectedFacesPerMesh())
+                byte[] data = this.zip.Read(this.currentEntry);
+                Fm2CarbinModel fm2 = Fm2Model(data);
+                if (fm2 != null)
                 {
-                    int s, k, f;
-                    FaceKeyParts(pair.Key, out s, out k, out f);
-                    report.Add(edit(model, s, k, pair.Value));
+                    // FM2 (2026-11-21): its own model; meshes with the higher numbers first, so the others keep theirs
+                    foreach (KeyValuePair<long, List<int>> pair in this.SelectedFacesPerMesh())
+                    {
+                        int s, k, f, p, n;
+                        FaceKeyParts(pair.Key, out s, out k, out f);
+                        this.LocateFm2PickMesh(fm2, s, k, out p, out n);
+                        report.Add(editMotorsport2(fm2, p, n, pair.Value));
+                    }
+                    this.zip.Replace(this.currentEntry, fm2.ToBytes());
                 }
-                this.zip.Replace(this.currentEntry, model.ToBytes());
+                else
+                {
+                    CarbinModel model = EditableModel(data);    // FM3 in its own layout
+                    foreach (KeyValuePair<long, List<int>> pair in this.SelectedFacesPerMesh())
+                    {
+                        int s, k, f;
+                        FaceKeyParts(pair.Key, out s, out k, out f);
+                        report.Add(edit(model, s, k, pair.Value));
+                    }
+                    this.zip.Replace(this.currentEntry, model.ToBytes());
+                }
                 this.RefreshEntryNode(this.currentEntry);
             }
             catch (Exception exception)

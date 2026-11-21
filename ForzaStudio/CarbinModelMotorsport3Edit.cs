@@ -22,6 +22,71 @@ namespace ForzaStudio
                 && (buffer.Stride == 40 || buffer.Stride == 16 || buffer.Stride == 44);
         }
 
+        public static bool IsMotorsport3Buffer(Section section, VertexBuffer buffer)
+        {
+            return IsMotorsport3Layout(section, buffer);
+        }
+
+        // UV of set 0 / 1 in FM4 units, whatever the buffer's game (UV Mapper on FM3, user 2026-11-21): FM3 vertices hold
+        // the UV itself as halves (UV1 at 8, UV2 at 12 on 40-byte car vertices); an FM3 mesh has no UV range (the 8
+        // floats are 0 on 18050 of 18050 meshes, fm4dev\ST03\uvt\dbg2). FM4 / FH: unorm16 in the mesh's range (VertexUv).
+        public static Vector2 LayoutUv(Section section, VertexBuffer buffer, int v, SubSection sub, int set)
+        {
+            if (!IsMotorsport3Layout(section, buffer))
+            {
+                return VertexUv(buffer, v, sub, set);
+            }
+            int o = (v * buffer.Stride) + 8 + (set * 4);
+            return new Vector2(HalfAt(buffer.Data, o), HalfAt(buffer.Data, o + 2));
+        }
+
+        // The UV sets a buffer holds: FM3 40-byte car vertices and FM4 / FH ones 2, other FM3 sizes (brakes, wheels) 1.
+        public static int LayoutUvSets(Section section, VertexBuffer buffer)
+        {
+            return (IsMotorsport3Layout(section, buffer) && buffer.Stride != 40) ? 1 : 2;
+        }
+
+        // Writes one vertex's UV (FM4 units) in the buffer's own encoding; FM3: the value as a half; FM4 / FH:
+        // unit = (value - offset) / scale as unorm16 (the caller keeps the range).
+        public static void WriteLayoutUv(Section section, VertexBuffer buffer, int v, SubSection sub, int set, float u, float w)
+        {
+            int o = (v * buffer.Stride) + 8 + (set * 4);
+            if (IsMotorsport3Layout(section, buffer))
+            {
+                WriteHalfBig(buffer.Data, o, u);
+                WriteHalfBig(buffer.Data, o + 2, w);
+                return;
+            }
+            float su = sub.Uv[(set * 4) + 1], sw = sub.Uv[(set * 4) + 3];
+            double uu = (Math.Abs(su) < 1e-12f) ? 0 : (u - sub.Uv[set * 4]) / su;
+            double ww = (Math.Abs(sw) < 1e-12f) ? 0 : (w - sub.Uv[(set * 4) + 2]) / sw;
+            int a = Math.Max(0, Math.Min(65535, (int) Math.Round(uu * 65535)));
+            int b = Math.Max(0, Math.Min(65535, (int) Math.Round(ww * 65535)));
+            buffer.Data[o] = (byte) (a >> 8);
+            buffer.Data[o + 1] = (byte) a;
+            buffer.Data[o + 2] = (byte) (b >> 8);
+            buffer.Data[o + 3] = (byte) b;
+        }
+
+        // The vertex normal whatever the buffer's game: FM3 11:11:10 word (at 16 on 40-byte vertices, else at 12), FM4 / FH
+        // the frame's X axis.
+        public static Vector3 LayoutNormal(Section section, VertexBuffer buffer, int v)
+        {
+            if (!IsMotorsport3Layout(section, buffer))
+            {
+                return VertexNormal(buffer, v);
+            }
+            return ReadPacked111110(buffer.Data, (v * buffer.Stride) + ((buffer.Stride == 40) ? 16 : 12));
+        }
+
+        private static float HalfAt(byte[] d, int o)
+        {
+            int h = (d[o] << 8) | d[o + 1];
+            int s = (h >> 15) & 1, e = (h >> 10) & 31, m = h & 1023;
+            float value = (e == 0) ? (m / 1024f) * (float) Math.Pow(2, -14) : ((e == 31) ? float.NaN : (1 + (m / 1024f)) * (float) Math.Pow(2, e - 15));
+            return (s == 1) ? -value : value;
+        }
+
         private static void Motorsport3Encode(Section section, VertexBuffer buffer, double[] positions)
         {
             for (int i = 0; i < buffer.Count; i++)
@@ -59,6 +124,27 @@ namespace ForzaStudio
                 }
             }
             return true;
+        }
+
+        // Shared with the FM2 writer (Fm2CarbinModelEdit.cs): FM2 vertices use the same halves and 11:11:10 words.
+        internal static void WriteHalfBig(byte[] data, int offset, double value)
+        {
+            WriteHalf(data, offset, value);
+        }
+
+        internal static Vector3 ReadPacked111110(byte[] data, int offset)
+        {
+            return Packed111110(data, offset);
+        }
+
+        internal static void WritePacked111110Big(byte[] data, int offset, Vector3 v)
+        {
+            WritePacked111110(data, offset, v);
+        }
+
+        internal static bool KeepsDirectionsOf(Quaternion rotation, Matrix normalMatrix)
+        {
+            return KeepsDirections(rotation, normalMatrix);
         }
 
         // No rotation and an even scale (normal matrix = k * identity): directions do not change.

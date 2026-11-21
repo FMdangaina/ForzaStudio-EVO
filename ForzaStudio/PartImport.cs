@@ -10,7 +10,7 @@ namespace ForzaStudio
     // target car. Everything is computed first and checked; Result is filled only when every file built and passed the
     // checks, so an import that stops half way changes nothing (the caller writes Result or nothing).
     // Files are keyed like ArchiveEditorForm.CarModelFiles: "" (main), "_lod0", "_cockpit".
-    public class PartImport
+    public partial class PartImport
     {
         public class Step
         {
@@ -67,6 +67,11 @@ namespace ForzaStudio
             this.Log.Clear();
             this.Warnings.Clear();
             this.Moves.Clear();
+            if (this.Target.ContainsKey("") && CarbinFormat.Identify(this.Target[""]).Family == CarbinFamily.Motorsport2)
+            {
+                this.RunMotorsport2();     // an FM2 car: its own writer (PartImport.Motorsport2.cs)
+                return;
+            }
             string refKey = this.OnlyFile ?? "";
             string sourceKey = (this.OnlyFile != null) ? (this.SourceFile ?? this.OnlyFile) : "";
             if ((this.OnlyFile == null && !this.Source.ContainsKey("")) || !this.Target.ContainsKey(""))

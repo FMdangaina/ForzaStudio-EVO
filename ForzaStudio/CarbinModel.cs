@@ -1830,7 +1830,11 @@ namespace ForzaStudio
 
             lod = Compact(section, section.Lod, section.DamageLod, false, lod);
             lod0 = Compact(section, section.Lod0, section.DamageLod0, true, lod0);
-            Reencode(section, lod, lod0);
+            // FM3 (its own layout): only vertices went, the box still holds the rest: bytes stay as the game has them.
+            if (!IsMotorsport3Layout(section, section.Lod) && !IsMotorsport3Layout(section, section.Lod0))
+            {
+                Reencode(section, lod, lod0);
+            }
             CheckIndexRange(section);
             this.CheckDrawLists();
             return removed.Count;

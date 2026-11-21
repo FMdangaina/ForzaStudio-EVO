@@ -177,6 +177,38 @@ namespace ForzaStudio
         public static int Export(Dictionary<string, string> names, Dictionary<string, CarbinModel> models, string path, string source, List<string> wanted,
             Func<string, string, uint, ExportTexture> textures)
         {
+            return Export(names, models, path, source, wanted, textures, null);
+        }
+
+        // FM2 (2026-11-21): an FM2 model file is planned on its part / material / LOD names only (CarModelFolder.PlanModel,
+        // no vertices); its geometry is the car's own OBJ export (CarModelFolder.ExportLegacy into 'folder'), read back
+        // part by part. So the scene holds what Export Model to OBJ Folder writes, and an import compares against it.
+        public static Func<CarbinModel.Section, uint, ObjMesh> LegacyGeometry(string folder)
+        {
+            Dictionary<string, ObjMesh> read = new Dictionary<string, ObjMesh>(StringComparer.OrdinalIgnoreCase);
+            return delegate(CarbinModel.Section section, uint lod)
+            {
+                string obj = ObjPath(folder, lod, section.Name);
+                ObjMesh mesh;
+                if (!read.TryGetValue(obj, out mesh))
+                {
+                    mesh = File.Exists(obj) ? ObjMesh.Load(obj) : new ObjMesh();   // no OBJ: the part has nothing to draw at that LOD
+                    read[obj] = mesh;
+                }
+                return mesh;
+            };
+        }
+
+        private static ObjMesh Geometry(Dictionary<string, Func<CarbinModel.Section, uint, ObjMesh>> geometry, string kind, CarbinModel.Section section, uint lod)
+        {
+            Func<CarbinModel.Section, uint, ObjMesh> own;
+            return (geometry != null && geometry.TryGetValue(kind, out own)) ? own(section, lod) : ObjMesh.FromLod(section, lod);
+        }
+
+        // 'geometry' (null = none): kind -> where that file's meshes come from when the model holds names only (FM2).
+        public static int Export(Dictionary<string, string> names, Dictionary<string, CarbinModel> models, string path, string source, List<string> wanted,
+            Func<string, string, uint, ExportTexture> textures, Dictionary<string, Func<CarbinModel.Section, uint, ObjMesh>> geometry)
+        {
             string car = CarModelFolder.FolderName(names.ContainsKey(CarModelFolder.Main) ? names[CarModelFolder.Main] : First(names));
             IModelSceneBuilder builder = IsGltf(path)
                 ? (IModelSceneBuilder) new GltfBuilder("ForzaStudio EVO: " + source)
@@ -227,8 +259,13 @@ namespace ForzaStudio
                         {
                             continue;
                         }
+                        ObjMesh geometryOfLod = Geometry(geometry, kind, section, lod);
+                        if (geometryOfLod.Materials.Count == 0)
+                        {
+                            continue;   // nothing to draw at this LOD: no empty part node (an import would read it as a part to compare)
+                        }
                         long part = builder.AddNull(section.Name, lodNodes[lod]);
-                        foreach (ObjMesh.Material material in ObjMesh.FromLod(section, lod).Materials)
+                        foreach (ObjMesh.Material material in geometryOfLod.Materials)
                         {
                             ExportTexture texture = (textures != null) ? textures(material.Name, kind, lod) : null;
                             builder.AddMesh(section.Name + Separator + material.Name, part, material.Name, material, texture);
@@ -333,6 +370,14 @@ namespace ForzaStudio
 
         public static void PrepareFolders(string scenePath, Dictionary<string, string> names, Dictionary<string, CarbinModel> models,
             bool dropMissing, out Dictionary<string, string> folders, out string root, List<string> notes, List<string> errors)
+        {
+            PrepareFolders(scenePath, names, models, dropMissing, out folders, out root, notes, errors, null);
+        }
+
+        // 'legacy' (null = none): kind -> the FM2 .carbin bytes of a file whose model holds names only (CarModelFolder.PlanModel):
+        // its base folder is the car's FM2 OBJ export and the scene is compared with those OBJs.
+        public static void PrepareFolders(string scenePath, Dictionary<string, string> names, Dictionary<string, CarbinModel> models,
+            bool dropMissing, out Dictionary<string, string> folders, out string root, List<string> notes, List<string> errors, Dictionary<string, byte[]> legacy)
         {
             string format = FormatName(scenePath);
             root = Path.Combine(Path.GetTempPath(), "ForzaStudio_" + format.ToLowerInvariant() + "_" + Guid.NewGuid().ToString("N"));
@@ -467,10 +512,20 @@ namespace ForzaStudio
             }
 
             // The car's own export as the base.
+            Dictionary<string, Func<CarbinModel.Section, uint, ObjMesh>> geometry = new Dictionary<string, Func<CarbinModel.Section, uint, ObjMesh>>();
             foreach (KeyValuePair<string, CarbinModel> pair in models)
             {
                 string folder = Path.Combine(root, CarModelFolder.FolderName(names[pair.Key]));
-                CarModelFolder.Export(pair.Value, names[pair.Key], folder, format + " import");
+                byte[] fm2;
+                if (legacy != null && legacy.TryGetValue(pair.Key, out fm2))
+                {
+                    CarModelFolder.ExportLegacy(fm2, names[pair.Key], folder, format + " import");
+                    geometry[pair.Key] = LegacyGeometry(folder);
+                }
+                else
+                {
+                    CarModelFolder.Export(pair.Value, names[pair.Key], folder, format + " import");
+                }
                 folders[pair.Key] = folder;
             }
 
@@ -507,6 +562,10 @@ namespace ForzaStudio
                         Found mine;
                         if (!found.TryGetValue(kind + "|" + lod + "|" + section.Name, out mine))
                         {
+                            if (geometry.ContainsKey(kind) && !File.Exists(obj))
+                            {
+                                continue;   // FM2: the part draws nothing at this LOD, so the export never had it
+                            }
                             // A scene with only some parts is the normal way to work; dropping is asked for.
                             if (dropMissing)
                             {
@@ -520,7 +579,7 @@ namespace ForzaStudio
                             }
                             continue;
                         }
-                        if (ObjMesh.Same(ObjMesh.FromLod(section, lod), mine.Mesh, 2e-5f, 2e-5f, 1e-3f))
+                        if (ObjMesh.Same(Geometry(geometry, kind, section, lod), mine.Mesh, 2e-5f, 2e-5f, 1e-3f))
                         {
                             same++;
                         }

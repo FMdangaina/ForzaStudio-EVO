@@ -123,7 +123,8 @@ namespace ForzaStudio
                 result[i * 3] = p.X;
                 result[(i * 3) + 1] = p.Y;
                 result[(i * 3) + 2] = p.Z;
-                TransformFrame(buffer.Data, (i * buffer.Stride) + 16, rotation, normalMatrix);
+                // the frame in the buffer's own layout: FM4 / FH quaternion, FM3 normal and axis (only when the edit turns them)
+                TransformVertexFrame(section, buffer, i, rotation, normalMatrix);
                 moved++;
             }
             if (moved > 0)

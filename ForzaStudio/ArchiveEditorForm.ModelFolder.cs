@@ -12,7 +12,16 @@ namespace ForzaStudio
     public partial class ArchiveEditorForm
     {
         // The car's type-2 model files, parsed, by kind; null with a message when there are none.
+        private Fm2CarbinModel importMotorsport2;                                                   // Import Model on an FM2 car: its own model
+        private readonly Dictionary<string, byte[]> importMotorsport3 = new Dictionary<string, byte[]>();   // on an FM3 car: its files as they are, by kind
+
         private Dictionary<string, CarbinModel> LoadCarModels(string action, out Dictionary<string, ForzaZip.Entry> files)
+        {
+            return this.LoadCarModels(action, out files, false);
+        }
+
+        // planMotorsport2: an FM2 car is accepted, as a model to plan an OBJ import on (Import Model only).
+        private Dictionary<string, CarbinModel> LoadCarModels(string action, out Dictionary<string, ForzaZip.Entry> files, bool planMotorsport2)
         {
             files = (this.zip == null) ? new Dictionary<string, ForzaZip.Entry>() : this.CarModelFiles(this.zip, this.ModelFolder);
             if (files.Count == 0)
@@ -21,12 +30,28 @@ namespace ForzaStudio
                 return null;
             }
             Dictionary<string, CarbinModel> models = new Dictionary<string, CarbinModel>();
+            this.importMotorsport2 = null;
+            this.importMotorsport3.Clear();
             foreach (KeyValuePair<string, ForzaZip.Entry> pair in files)
             {
                 byte[] data = this.zip.Read(pair.Value);
+                if (CarModelFolder.IsMotorsport2(data) && planMotorsport2 && pair.Key == CarModelFolder.Main)
+                {
+                    // FM2 (2026-11-21): the import is planned on the car's parts / materials / LODs and done by its own model
+                    this.importMotorsport2 = new Fm2CarbinModel(data);
+                    models[pair.Key] = CarModelFolder.PlanModel(this.importMotorsport2);
+                    continue;
+                }
+                if (CarbinModel.IsMotorsport3File(data))
+                {
+                    // FM3 (2026-11-21): worked on in FM4 form; an import goes back into the FM3 file part by part
+                    this.importMotorsport3[pair.Key] = data;
+                    models[pair.Key] = new CarbinModel(PartSource.Motorsport3AsMotorsport4(data));
+                    continue;
+                }
                 if (CarModelFolder.IsMotorsport2(data))
                 {
-                    MessageBox.Show(this, "Forza Motorsport 2 models can be exported to a folder, but importing them back is not available yet.", action, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(this, "Forza Motorsport 2 models: Export / Import Model (OBJ folder, FBX, glTF) work on the main .carbin; the UV map export is not available for them (it draws LOD 0, which they do not have).", action, MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return null;
                 }
                 models[pair.Key] = new CarbinModel(data);
@@ -94,7 +119,7 @@ namespace ForzaStudio
                     byte[] data = this.zip.Read(entry);
                     count += CarModelFolder.IsMotorsport2(data)
                         ? CarModelFolder.ExportLegacy(data, CarbinName(entry), folder, this.SourceName)
-                        : CarModelFolder.Export(new CarbinModel(data), CarbinName(entry), folder, this.SourceName);
+                        : CarModelFolder.Export(new CarbinModel(PartSource.Motorsport3AsMotorsport4(data)), CarbinName(entry), folder, this.SourceName);   // FM3: in FM4 form
                     made.Add(Path.GetFileName(folder));
                 }
                 this.SetStatus(string.Format("{0:N0} OBJs exported to {1}: {2} (edit them, then Model > Import Model from OBJ Folder)", count, parent, string.Join(", ", made.ToArray())));
@@ -138,7 +163,7 @@ namespace ForzaStudio
             Dictionary<string, CarbinModel> models;
             try
             {
-                models = this.LoadCarModels("Import Model", out files);
+                models = this.LoadCarModels("Import Model", out files, true);
             }
             catch (Exception exception)
             {
@@ -195,7 +220,7 @@ namespace ForzaStudio
             Dictionary<string, ForzaZip.Entry> files;
             try
             {
-                models = this.LoadCarModels(title, out files);
+                models = this.LoadCarModels(title, out files, true);   // FM2: names only, its geometry from its OBJ export (below)
             }
             catch (Exception exception)
             {
@@ -230,6 +255,7 @@ namespace ForzaStudio
                 path = dialog.FileName;
                 AppSettings.Set("Dir.ModelFolder", Path.GetDirectoryName(path));
             }
+            string legacyFolder = null;
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
@@ -239,7 +265,16 @@ namespace ForzaStudio
                     names[pair.Key] = CarbinName(pair.Value);
                 }
                 List<string> pictures = new List<string>();
-                int count = CarModelFbx.Export(names, models, path, this.SourceName, wanted, this.ExportTextureFinder(pictures));
+                // FM2 (2026-11-21): the scene holds what Export Model to OBJ Folder writes for the car (a temporary folder)
+                Dictionary<string, Func<CarbinModel.Section, uint, ObjMesh>> geometry = null;
+                if (this.importMotorsport2 != null)
+                {
+                    legacyFolder = Path.Combine(Path.GetTempPath(), "ForzaStudio_fm2_" + Guid.NewGuid().ToString("N"));
+                    CarModelFolder.ExportLegacy(this.zip.Read(files[CarModelFolder.Main]), names[CarModelFolder.Main], legacyFolder, this.SourceName);
+                    geometry = new Dictionary<string, Func<CarbinModel.Section, uint, ObjMesh>>();
+                    geometry[CarModelFolder.Main] = CarModelFbx.LegacyGeometry(legacyFolder);
+                }
+                int count = CarModelFbx.Export(names, models, path, this.SourceName, wanted, this.ExportTextureFinder(pictures), geometry);
                 string where = (pictures.Count == 0) ? "" : CarModelFbx.IsGltf(path) && path.EndsWith(".glb", StringComparison.OrdinalIgnoreCase)
                     ? string.Format(", {0} textures inside", pictures.Count) : string.Format(", {0} textures in {1}", pictures.Count, ExportTexture.TexturesFolder(path));
                 this.SetStatus(string.Format("{0:N0} meshes exported to {1}{2} (edit it, then Model > " + (gltf ? "Import Model from glTF" : "Import Model from FBX") + ")", count, path, where));
@@ -251,6 +286,16 @@ namespace ForzaStudio
             finally
             {
                 Cursor.Current = Cursors.Default;
+                if (legacyFolder != null && Directory.Exists(legacyFolder))
+                {
+                    try
+                    {
+                        Directory.Delete(legacyFolder, true);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
             }
         }
 
@@ -445,7 +490,7 @@ namespace ForzaStudio
             Dictionary<string, CarbinModel> models;
             try
             {
-                models = this.LoadCarModels(title, out files);
+                models = this.LoadCarModels(title, out files, true);   // FM2: planned on names, compared with its OBJ export
             }
             catch (Exception exception)
             {
@@ -504,7 +549,13 @@ namespace ForzaStudio
                 try
                 {
                     Cursor.Current = Cursors.WaitCursor;
-                    CarModelFbx.PrepareFolders(path, names, models, drop.Checked, out folders, out root, notes, errors);
+                    Dictionary<string, byte[]> legacy = null;
+                    if (this.importMotorsport2 != null)
+                    {
+                        legacy = new Dictionary<string, byte[]>();
+                        legacy[CarModelFolder.Main] = this.zip.Read(files[CarModelFolder.Main]);
+                    }
+                    CarModelFbx.PrepareFolders(path, names, models, drop.Checked, out folders, out root, notes, errors, legacy);
                 }
                 catch (Exception exception)
                 {
@@ -594,10 +645,31 @@ namespace ForzaStudio
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
-                List<string> changed = CarModelFolder.Apply(plan, models, report);
+                // FM2: the car's own model does the import; FM3: done in FM4 form, then each part goes into the FM3 file.
+                // Every file is built before any is replaced.
+                List<string> changed = (this.importMotorsport2 != null)
+                    ? CarModelFolder.ApplyMotorsport2(plan, this.importMotorsport2, report)
+                    : CarModelFolder.ApplyWithLighting(plan, models, report);
+                Dictionary<string, byte[]> built = new Dictionary<string, byte[]>();
                 foreach (string kind in changed)
                 {
-                    this.zip.Replace(files[kind], models[kind].ToBytes());
+                    byte[] native;
+                    if (this.importMotorsport2 != null)
+                    {
+                        built[kind] = this.importMotorsport2.ToBytes();
+                    }
+                    else if (this.importMotorsport3.TryGetValue(kind, out native))
+                    {
+                        built[kind] = CarModelFolder.ToMotorsport3(plan, kind, models[kind], native, report);
+                    }
+                    else
+                    {
+                        built[kind] = models[kind].ToBytes();
+                    }
+                }
+                foreach (string kind in changed)
+                {
+                    this.zip.Replace(files[kind], built[kind]);
                     this.RefreshEntryNode(files[kind]);
                 }
             }

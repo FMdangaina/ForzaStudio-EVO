@@ -28,11 +28,25 @@ namespace ForzaStudio
             {
                 Cursor.Current = Cursors.WaitCursor;
                 ForzaZip.Entry entry = this.currentEntry;
-                CarbinModel model = new CarbinModel(this.zip.Read(entry));
-                CheckMeshInModel(model, mesh, node);
-                model.DuplicateSubSection(mesh.SectionIndex, mesh.SubIndex);
-                this.zip.Replace(entry, model.ToBytes());
-                this.RefreshEntryNode(entry);
+                byte[] data = this.zip.Read(entry);
+                Fm2CarbinModel fm2 = Fm2Model(data);
+                if (fm2 != null)
+                {
+                    // FM2 (2026-11-21): its own writer
+                    int p, k;
+                    LocateFm2Mesh(fm2, mesh, node, out p, out k);
+                    fm2.DuplicateMesh(p, k);
+                    this.zip.Replace(entry, fm2.ToBytes());
+                    this.RefreshEntryNode(entry);
+                }
+                else
+                {
+                    CarbinModel model = EditableModel(data);   // FM3 in its own layout
+                    CheckMeshInModel(model, mesh, node);
+                    model.DuplicateSubSection(mesh.SectionIndex, mesh.SubIndex);
+                    this.zip.Replace(entry, model.ToBytes());
+                    this.RefreshEntryNode(entry);
+                }
             }
             catch (Exception exception)
             {
@@ -46,6 +60,23 @@ namespace ForzaStudio
             this.editSection = null;
             this.ReloadModelKeepingView();
             this.SetStatus(string.Format("{0} / {1}: duplicated in the same part (pending: Save to write the archive)", node.Parent.Text, node.Text));
+        }
+
+        // The LOD number of a mesh node (its LOD node is "LOD<n>"), -1 when it cannot be read.
+        private static int TreeLod(TreeNode meshNode)
+        {
+            TreeNode lod = (meshNode != null && meshNode.Parent != null) ? meshNode.Parent.Parent : null;
+            int n;
+            return (lod != null && lod.Text.StartsWith("LOD", StringComparison.Ordinal) && int.TryParse(lod.Text.Substring(3), out n)) ? n : -1;
+        }
+
+        // FM2: the mesh of a tree node in Fm2CarbinModel (file order, checked by name, else by part, material and LOD).
+        private static void LocateFm2Mesh(Fm2CarbinModel fm2, ForzaMesh mesh, TreeNode node, out int p, out int k)
+        {
+            if (!fm2.LocateMesh(node.Parent.Text, node.Text, TreeLod(node), mesh.SectionIndex, mesh.SubIndex, out p, out k))
+            {
+                throw new InvalidOperationException("The mesh " + node.Parent.Text + " / " + node.Text + " could not be found in the file: nothing changed.");
+            }
         }
 
         // The tree reads the file in the same order as CarbinModel; checked by name anyway.

@@ -441,6 +441,33 @@ namespace ForzaStudio
                 Cursor.Current = Cursors.WaitCursor;
                 foreach (ForzaZip.Entry entry in this.PartEditTargets())
                 {
+                    string file = entry.Name.Substring(entry.Name.LastIndexOf('/') + 1);
+                    Fm2CarbinModel fm2 = Fm2Model(this.zip.Read(entry));
+                    if (fm2 != null)
+                    {
+                        // FM2 (2026-11-18): its own writer, the shared buffers laid out again
+                        if (fm2.Find(section) == null)
+                        {
+                            continue;
+                        }
+                        if (material != null)
+                        {
+                            int gone = fm2.RemoveMeshes(section, material);
+                            if (gone == 0)
+                            {
+                                continue;
+                            }
+                            report.Add(string.Format("{0}: {1} removed ({2} LODs){3}", file, material, gone, (fm2.Find(section) == null) ? ", part now empty and removed" : ""));
+                        }
+                        else
+                        {
+                            fm2.RemovePart(section);
+                            report.Add(file + ": part removed");
+                        }
+                        this.zip.Replace(entry, fm2.ToBytes());
+                        this.RefreshEntryNode(entry);
+                        continue;
+                    }
                     CarbinModel model;
                     try
                     {
@@ -454,7 +481,6 @@ namespace ForzaStudio
                     {
                         continue;
                     }
-                    string file = entry.Name.Substring(entry.Name.LastIndexOf('/') + 1);
                     if (material != null)
                     {
                         int removed = model.RemoveSubSections(section, material);
@@ -511,6 +537,19 @@ namespace ForzaStudio
                 Cursor.Current = Cursors.WaitCursor;
                 foreach (ForzaZip.Entry entry in this.PartEditTargets(true))
                 {
+                    Fm2CarbinModel fm2 = Fm2Model(this.zip.Read(entry));
+                    if (fm2 != null)
+                    {
+                        if (fm2.Find(section) == null)
+                        {
+                            continue;
+                        }
+                        fm2.DuplicatePart(section, newName);
+                        this.zip.Replace(entry, fm2.ToBytes());
+                        this.RefreshEntryNode(entry);
+                        report.Add(entry.Name.Substring(entry.Name.LastIndexOf('/') + 1));
+                        continue;
+                    }
                     CarbinModel model;
                     try
                     {
@@ -681,6 +720,19 @@ namespace ForzaStudio
                 Cursor.Current = Cursors.WaitCursor;
                 foreach (ForzaZip.Entry entry in this.PartEditTargets(true))
                 {
+                    Fm2CarbinModel fm2 = Fm2Model(this.zip.Read(entry));
+                    if (fm2 != null)
+                    {
+                        if (fm2.Find(section) == null)
+                        {
+                            continue;
+                        }
+                        fm2.RenamePart(section, newName);
+                        this.zip.Replace(entry, fm2.ToBytes());
+                        this.RefreshEntryNode(entry);
+                        report.Add(entry.Name.Substring(entry.Name.LastIndexOf('/') + 1));
+                        continue;
+                    }
                     CarbinModel model;
                     try
                     {
@@ -906,7 +958,28 @@ namespace ForzaStudio
             }
             try
             {
-                if (this.SelectionIsMotorsport3())
+                Fm2CarbinModel fm2 = this.SelectionFm2();
+                if (fm2 != null)
+                {
+                    // FM2 (2026-11-18): bounds of the part (origin = its centre, min = -max) or of the material's vertices
+                    Fm2CarbinModel.Part part = fm2.Find(section);
+                    if (part == null)
+                    {
+                        throw new InvalidOperationException("Part not found in the file.");
+                    }
+                    this.editSection = section;
+                    this.editCenter = new Vector3(part.Bounds[0], part.Bounds[1], part.Bounds[2]);
+                    this.editHalfSize = new Vector3(part.Bounds[6], part.Bounds[7], part.Bounds[8]);
+                    Vector3 center;
+                    Vector3 half;
+                    if (material != null && fm2.MeshBounds(section, material, out center, out half))
+                    {
+                        this.editMaterial = material;
+                        this.editCenter = center;
+                        this.editHalfSize = half;
+                    }
+                }
+                else if (this.SelectionIsMotorsport3())
                 {
                     // FM3 (2026-11-18): the part's bounds from the model read in FM3's own layout (CarbinFile is FM4 / FH only)
                     CarbinModel.Section part = this.SelectionModel().Find(section);
@@ -930,7 +1003,7 @@ namespace ForzaStudio
                     this.editCenter = new Vector3((float) found.Origin[0], (float) found.Origin[1], (float) found.Origin[2]);
                     this.editHalfSize = new Vector3((float) found.Max[0], (float) found.Max[1], (float) found.Max[2]);
                 }
-                if (material != null)
+                if (material != null && fm2 == null)
                 {
                     // One material of the part: its own center is the default pivot.
                     CarbinModel model = this.SelectionModel();
@@ -1003,6 +1076,18 @@ namespace ForzaStudio
         private static CarbinModel EditableModel(byte[] data)
         {
             return CarbinModel.IsMotorsport3File(data) ? new CarbinModel(data, true) : new CarbinModel(data);
+        }
+
+        // An FM2 model (2026-11-18): edited by Fm2CarbinModel's own writer; null for the other games.
+        private static Fm2CarbinModel Fm2Model(byte[] data)
+        {
+            return (CarbinFormat.Identify(data).Family == CarbinFamily.Motorsport2) ? new Fm2CarbinModel(data) : null;
+        }
+
+        // The shown file as an FM2 model, null when it is not FM2 (read on each part pick: FM2 files are small).
+        private Fm2CarbinModel SelectionFm2()
+        {
+            return Fm2Model(this.zip.Read(this.currentEntry));
         }
 
         private bool SelectionIsMotorsport3()
@@ -1241,7 +1326,28 @@ namespace ForzaStudio
                     byte[] edited;
                     try
                     {
-                        if (this.editMaterial != null)
+                        Fm2CarbinModel fm2 = Fm2Model(this.zip.Read(entry));
+                        if (fm2 != null)
+                        {
+                            // FM2 (2026-11-18): positions, normals (when turned) and glass shards; UVs and the rest untouched
+                            if (fm2.Find(this.editSection) == null)
+                            {
+                                continue;
+                            }
+                            if (this.editMaterial != null)
+                            {
+                                if (fm2.TransformMesh(this.editSection, this.editMaterial, matrix) == 0)
+                                {
+                                    continue;
+                                }
+                            }
+                            else
+                            {
+                                fm2.TransformPart(this.editSection, matrix);
+                            }
+                            edited = fm2.ToBytes();
+                        }
+                        else if (this.editMaterial != null)
                         {
                             // One material: vertices it shares with other materials get their own copies.
                             CarbinModel model = EditableModel(this.zip.Read(entry));

@@ -406,18 +406,30 @@ namespace ForzaStudio
             try
             {
                 Cursor.Current = Cursors.WaitCursor;
-                CarbinModel model = new CarbinModel(this.zip.Read(this.currentEntry));
+                byte[] data = this.zip.Read(this.currentEntry);
+                Fm2CarbinModel fm2 = Fm2Model(data);
+                CarbinModel model = (fm2 == null) ? EditableModel(data) : null;     // FM3 in its own layout
                 foreach (KeyValuePair<long, List<int>> pair in set.Vertices)
                 {
                     int s, k, f;
                     FaceKeyParts(pair.Key, out s, out k, out f);
-                    moved += model.TransformVertices(s, k, pair.Value, m);
+                    if (fm2 != null)
+                    {
+                        // FM2 (2026-11-21): its own model
+                        int p, n;
+                        this.LocateFm2PickMesh(fm2, s, k, out p, out n);
+                        moved += fm2.TransformVertices(p, n, pair.Value, m);
+                    }
+                    else
+                    {
+                        moved += model.TransformVertices(s, k, pair.Value, m);
+                    }
                 }
                 if (moved == 0)
                 {
                     return;
                 }
-                this.zip.Replace(this.currentEntry, model.ToBytes());
+                this.zip.Replace(this.currentEntry, (fm2 != null) ? fm2.ToBytes() : model.ToBytes());
                 this.zip.CloseStep(MeshStepPrefix + what);
                 this.RefreshEntryNode(this.currentEntry);
             }

@@ -2,6 +2,13 @@
 
 Sprint 2 doc, section 6. Order agreed with the user (2026-11-15): FM4 first, then FM3, then FM2.
 
+> **State 2026-11-21: closed on FM4, FM3 and FM2, checked by the user in the app and in game; commit pending.**
+> This file is the history, day by day, with every finding and number: read it for the "why". For what works now, the
+> user's checks, the commit list and the open points, read `ST03_RESUME_FM2.md`; for the user's guide, `MANUAL.md`
+> section 5 "FM2 and FM3 cars". Notes below that say "pending", "OPEN" or "next" are as of their own date.
+> Two later decisions override older notes here: lod0 / cockpit / brake parts into a main model are CANCELLED (the rule
+> is lod0 -> lod0, cockpit -> cockpit, LODs 1-5 -> LODs 1-5), and FM2 has no LOD 0 and no per-car brake models.
+
 ## FM4 (2026-11-15)
 
 Base: the existing "Copy Part From Another Car..." (ArchiveEditorForm.PartImport.cs). Added:
@@ -103,7 +110,7 @@ directions: 2 -> 3, 3 -> 2, 2 -> 4, 4 -> 2, 3 -> 4, 4 -> 3. Order: one pair at a
 | FH1 / FH2 -> FM4 | done 2026-11-17, OK in app + game (Abarth 500) |
 | FM2 -> FM4 | done 2026-11-17, OK in app + game (user) |
 | FM4 / FM3 / FH1 / FH2 / FM2 -> FM3 | done 2026-11-17 (see "FM3 as target"), harness pi4 OK, OK in app + game 2026-11-18 (FM3 Supra, 15/15) |
-| any -> FM2 | to do (after FM3, user 2026-11-17); then lod0 / cockpit -> main (LOD0 -> LOD1 + reduced LODs 2-5) |
+| FM2 / FM4 / FM3 / FH1 / FH2 -> FM2 | built 2026-11-18 (see "FM2 as target"), harness pi5 OK; app + in-game check pending. Next: lod0 / cockpit -> main (LOD0 -> LOD1 + reduced LODs 2-5) |
 
 ### FM3 -> FM4 (2026-11-17)
 
@@ -289,3 +296,286 @@ files, opened in FM3's own layout like Copy Part (`ArchiveEditorForm.EditableMod
   identical. pi3 (FM3 -> FM4) and pi4 (into FM3) re-run after it: no change (pi3's 7 "moved by the conversion"
   lines are the known FM3 -> FM4 UV precision, the same as uv_new_FM3.txt).
 - App + in-game check pending.
+
+### FM2 as target, and part edits on FM2 (2026-11-18, user: "sì, b, e poi editor posizione anche su FM2")
+
+Study first (read-only, `E:\DEV\fm4dev\ST03\fm2t`: study.txt, uvmap, com), 310 FM2 car bodies:
+- shared buffers: max opaque 56623 vertices (aud_tt_04), room left min 8913, median 45192 (FM2 indices are u16);
+- parts: LODs 1-5 on 82 %, 1-4 / 1-3 the rest, every part has LOD 1; 1958 parts carry glass shards;
+- bounds: origin = box centre, min = -max (52 / 52 Supra parts); glass shard vertices in car space (641 / 641);
+  centre of mass NOT in car space (8 of 1091 parts with mass): left as it is on moves;
+- UV: FM4 UV1 = - FM2 value, U and V (exact on 1081 unique-position vertices); FM2 holds +-12.5 only, FM4 mains
+  exceed it on 3.7 % of index uses;
+- baked lighting (16 values): nearest vertex of another part 1.45 vs random 2.16 (mean |diff|);
+- 18 FM4 material names no FM2 car uses (lights_glass, chrome_2, undercarriage, bottom...): warned, renamed by the user.
+
+Built:
+- `Fm2CarbinModelEdit.cs`: Locals / Rebuild (both shared buffers laid out again from each part's vertex bytes, the
+  RepackBuffers layout), AddPart, ReplacePart (same index: draw order and emitters kept), RemovePart (emitters
+  re-parented, -1 for the removed part), DuplicatePart, RenamePart, RemoveMeshes (vertices no mesh draws go),
+  TransformPart (positions, normals only when turned, glass shards), TransformMesh (shared vertices copied),
+  MeshBounds, FromMotorsport4 (FM4-form part -> FM2 part: positions as halves, UV0 = - UV1, UV1 0, normal from the
+  frame, damage word from the FM4 table or 000003FF, FH: from this car's nearest vertex; unknown word + 16 lighting
+  values from this car's nearest vertex facing the same way, 10 cm grid).
+- UV choice b (user): a part whose UV0 leaves +-12.5 is shifted by whole numbers per connected piece (real
+  triangles, degenerate strip joins ignored); a piece still wider gets a shift per triangle (steps of 20 so
+  neighbours share it), its meshes written one triangle per strip in the same winding, border vertices written
+  twice. Only a single triangle wider than 25 is refused (pi5: 10 of 120 copies, race wings / race bumpers with UV
+  spans up to 146 inside one triangle).
+- `PartImport.Motorsport2.cs` (RunMotorsport2): Copy Part into the FM2 car's one file; FM2 source copied as it is
+  (moved in FM2 form), FM4 / FM3 / FH sources in FM4 form (`PartSource.ForMotorsport2`), moved in FM4 form, then
+  FromMotorsport4; a replaced part's physics and glass shards go to the copy; checks: re-read, `Check()` empty,
+  meshes / LODs, other parts identical, source unchanged.
+- `ArchiveEditorForm`: FM2 cars accepted as Copy Part targets (list / names / Replace box from Fm2CarbinModel, an FM2
+  source's parts listed as they are); PART tab move / rotate / scale (part or material), Delete (part or material),
+  Duplicate, Rename on FM2 files.
+- F1 help GOOD TO KNOW "Copy Part into FM2", "Part edits on FM2".
+
+Harness `pi5.exe <FM2 root> <source root> [cars] [seed]` (read-only), 10 random FM2 targets, runs A replace + move,
+F replace + fit, B new; with an FM2 source also edits T / R / S / M (one material) / D / U / N / X (delete a
+material). Checks: re-read, Check() empty, writes back byte-identical, header unchanged, other parts identical, the
+part's meshes once in the right draw lists, triangle by triangle (same winding) positions within half precision and
+UV0 = - UV1 minus one whole number per axis per triangle; FM2 sources: vertex bytes kept. Results (pi5_<game>_10.txt):
+FM2 110/0 (copies + edits), FM4 30/0, FM3 30/0, FH1 30/0, FH2 30/0; positions within 1.5 mm.
+
+App + in-game check pending (FM2_Extracted_DEV).
+
+#### User check 2026-11-18 (wizard) and fixes
+- OK: FM2 / FM3 / FH sources, lod0 refusal, part moves, delete / duplicate / rename, save, car loads in game, damage
+  and glass; FM3 part edits OK in app and game.
+- KO hood of the FM4 Top Secret Supra (carbon fibre) refused: FM4 carbon_fiber UVs are FM2's x 250 (the weave's
+  tiling: same parts of the 60 cars both games have, span ratio 250.06 U / 249.99 V over 113 meshes; every other
+  material 1.00, `fm2t\uvscale.txt`; FM4 regenerated them, so no per-vertex linear map, `carbon.exe`). Fixed:
+  `Fm2CarbinModel.FromMotorsport4` divides carbon_fiber UVs by 250 (`CarbonFibreScale`). pi5 refusals 10 -> 3 of
+  120 (left: single triangles 25.5-31 wide on AST bumperFa / body).
+- Edits made all or nothing (`Fm2CarbinModel.Atomic`): a failed add / replace / remove / move puts the model back.
+- Checked, NOT the cause of the black / see-through parts in game: winding (strip triangles agree with the stored
+  normals on 99.5 % FM2, 99.8 % FM4, 99.7 % converted, `wind.exe`), position encoding (FM2 writes unit direction +
+  distance on 100 % of 1.76 M vertices, as the converter), UV convention for every non-carbon material (1:1).
+  Open: converted parts black / see-through in game (FM2 parts fine). Next test: an FM4 part of the SAME car (FM4
+  TOY_SupraRZ_98 -> FM2 Supra, same texture layout) to tell texture layout from vertex data.
+- Open: one-material move on FM2 gave "editing not supported" (which tab: PART or MESH?).
+
+#### 2026-11-21: black parts = UV word encoding; mesh moves on FM2
+- User test: FM4 Supra hood + bumper onto the FM2 Supra still black -> vertex data, not texture layout.
+- `fm2t\pdump.exe` (DEV Supra): every converted part has bit 15 of the UV words clear, FM2's own parts have it set
+  on 94-100 % of the words; lighting / unknown word / normals in range.
+- `fm2t\uvreal.exe` + `uvall.exe`: raw FM2 words vs the REAL FM4 UVs of the 79 cars both games have (344872 words,
+  carbon fibre left out): **FM4 UV = (raw - 32768) / 1310.72, offset binary, range +-25**, exact in every bit group.
+  The old "sign bit + signed 15-bit magnitude" read matched only bit 15 set / bit 14 clear (99.7 % of the words) and
+  mirrored the rest; the old uvmap check compared against our own FM2 -> FM4 conversion (same reader), so it could
+  not see it. The writer put the words without the offset: every converted UV mirrored -> wrong texture place ->
+  black. Fixed: `ForzaVertex.Fm2Uv` = (32768 - raw) / 1310.72 (same "FM2 value = - FM4 UV" convention for every
+  caller), `ForzaVertex.Fm2UvWord` writes it; `UvLimit` +-25, shifts in steps of 40, a single triangle wider than
+  50 refused. Also changes FM2 -> FM4 reads (port + Copy Part) on the 0.3 % mirrored words (emblems, rubber trims,
+  chrome / grilles above 12.5), now right.
+- `fm2t\mm.exe`: converted FM4 Supra parts (hooda, bumperFa, skirtLa, trunk, wingrace) = FM2's own words on 1035
+  unique-position words; the others = FM4's own UV exactly (FM4 nudged them by ~4 units).
+- Point 3 was the tree drag (MoveMesh) / Attach / Merge Part / Duplicate Mesh, all FM4-only (`new CarbinModel`).
+  Fm2CarbinModelEdit: `LocateMesh`, `MoveMesh` (into a part, a new part, or Attach into a given mesh; same material
+  + LOD joined with a strip restart), `MergeParts` (one position encode for the whole merge; glass shards appended),
+  `DuplicateMesh`; wired in MoveMesh / AttachMesh / PickMode. `mm.exe` index-by-index checks (corner within 2 mm,
+  restarts in place, every other mesh unchanged, draw lists, see-through flag): all OK.
+- pi5 again: FM2 110/0, FM4 30/0, FM3 30/0, FH1 30/0, FH2 30/0, no UV refusals left.
+- FM3 mesh moves: tree drag / Attach / Merge / Duplicate Mesh open FM3 with `EditableModel`; `fm3t\mm3.exe` all OK.
+- User in game: textures right now, blotchy shading. Normals ruled out (`fm2t\nrm.exe`: converted = FM2's own, median
+  0.1 deg; FM4 frame +X is the FM2 normal). +24 word: not a unit vector in any common packing (`w24`, `w24b`), small,
+  ~perpendicular to the normal, 0 on mirrors / interior / glass. Cause found in the baked lighting donor (`lit.exe`
+  on the DEV Supra): 12.8 % of the converted bumper's vertices darker by > 0.15 (band 0) than the original 2 mm away:
+  the nearest vertex was often another upgrade bumper in the same place or a coarser LOD. Donor now: LOD 1 vertices
+  only, zero-lighting vertices only for see-through materials, the replaced part (else the part of the source's
+  name) first, 4 nearest within 10 cm averaged. `lit2.exe` same-car bumper: |diff| 0.027 -> 0.010, darker 2.9 % ->
+  0.3 %. pi5 FM4 / FM3 / FH1 30/0.
+
+#### 2026-11-21 (later): FM2 baked lighting computed as PRT with light sent back, fitted per car
+- In game the first computed lighting (linear map of ray features + hybrid + smoothing) was still wrong ("non ci siamo",
+  dark lower right; bisect: only the lighting field). Coefficient errors of ~0.04 hid a structural gap.
+- `fm2t\shb.exe`: the 16 values are a D3DX precomputed-radiance-transfer vector, stored = 2 x T (signs (-1)^m, car
+  space). Vertices nothing hides: computed = stored within 0.003. The old map had no term for the unoccluded cosine
+  lobe on bands 1-3 and shrank everything towards the mean.
+- `shb2.exe` / `shb3.exe` / `shb4.exe`: plain occlusion (any face rule, own part only, blends) is far too dark where the
+  car hides the sky, mostly in band 0 -> the baker let surfaces send light back. A ray that meets the car brings
+  rho x the stored value of the surface it meets; rays going down meet a black ground rectangle. Either face stops and
+  sends light (rule c; "front faces only" fits the same, with more spread of rho between cars).
+- `gfit.exe`: rho and the ground differ per car (rho 0.85-0.95; ground 0.15-0.25 m under the origin on most cars, 0.6-0.8 m
+  on aud_tt_04 / hon_preludesir_00; edges 0.1-0.5 m beyond the car's box) -> fitted on 1500 stock vertices of the target
+  car at copy time (whole grid for height + one margin, then rho / height / each edge in turn).
+- `lcmp.exe` (shading under sky and sun test lights, the FM4 RZ bumperFb as bumperFa against the game's own bumperFb):
+  old app 0.11-0.16 mean error and the upper half darker by 0.06-0.11; new 0.03-0.06, quadrant means within +-0.05.
+  The replaced part's residual nearby (old hybrid) and smoothing make the new model worse (0.045 -> 0.077): removed.
+- `lapp.exe var` (the app's ComputeLighting by reflection, every upgrade variant of toy_suprarz_98, aud_tt_04,
+  hon_preludesir_00, maz_familiamazdaspeed_01 in the place of its stock part, 92443 LOD 1 vertices): band 0 |err| 0.028,
+  all 16 0.025, off by > 0.1 5 % (old map 0.053 / 0.036 / 16 %, old hybrid 0.039 / 0.031 / 10 %, donor 0.041 / 0.051 / 11 %).
+- App: `Fm2CarbinModelLighting.cs` rewritten (LightScene with per-triangle values and nearest hit, TraceLight, LightValue,
+  CalibrateLighting, ComputeLighting(part, vertices, replaced, out fitted)); the note in the import log now reads
+  "baked lighting computed on N vertices (light sent back 0.90, ground at -0.20 m)". About 1.5 s per part.
+- Test zip for the game: `fm2t\bisect\NEW` (the user's DEV car, only bumperFa's lighting replaced) copied to
+  FM2_Extracted_DEV; `bisect\L` has the game's own lighting for comparison.
+- pi5 after the rewrite: FM2 110/0, FM4 / FM3 / FH1 / FH2 30/0. Built in `bin\Debug` 2026-11-21 12:33.
+
+#### 2026-11-21 (later): UV Mapper on FM2 and FM3 models
+- User: "permettimi di modificare uv su fm2 fm3". The mapper opened every file with the FM4 reader (FM3 / FM2: refused).
+- `UvSession.cs`: each mesh sits behind `ISource` (triangles, positions, UV, normal, split of shared vertices, write);
+  `CarbinSource` = FM4 / FH meshes and FM3 ones in their own layout, `Motorsport2Source` = Fm2CarbinModel meshes.
+  `session.ToBytes()` gives the file; the mapper window and the viewport preview are unchanged.
+- FM3: the vertex holds the UV itself as halves (UV1 at 8, UV2 at 12 on 40-byte car vertices; 16-byte brake and 44-byte
+  wheel vertices UV1 only). An FM3 mesh has no UV range: the 8 floats are 0 on 18050 of 18050 meshes (`uvt\dbg2.exe`,
+  every 12th FM3 car). `CarbinModel.LayoutUv` / `WriteLayoutUv` read and write that; only the edited faces' vertices
+  are written, the file stays FM3.
+- FM2: `Fm2CarbinModelUv.cs` (`Fm2CarbinModel.UvWork`): the mapper works on each part's own vertex bytes, a vertex
+  another mesh uses is copied whole ("keep separately"), the UV words (offset binary, FM4 UV = (raw - 32768) / 1310.72)
+  of the edited vertices are written, the two shared buffers are laid out again on write. One channel only: UV2 and
+  "From the other channel" give a message. A mapping beyond +-25 is refused at Apply with a message (nothing written).
+  carbon_fiber meshes show FM2's own values (FM4 / 250).
+- Face selection is still FM4-only (the face picker reads FM4 models): on FM2 / FM3 the mapper works on whole meshes.
+- Harness `E:\DEV\fm4dev\ST03\uvt\uvt.exe` (corner by corner against a fresh read of the original; keep = every vertex
+  byte identical; map u * 0.5 + 0.25, v * 0.5 + 0.1 = expected UV within the encoding step, every other byte and every
+  other mesh identical; the result re-reads and writes back identical; FM2: a UV of 30 refused):
+  FM2 20 cars 80 runs 0 fails, FM3 10 cars / 110 files 330 runs 0 fails, FM4 8 cars / 87 files 261 runs 0 fails.
+  Raw Horizon files are not editable by the mapper (CarbinModel.Positions does not read them), as before.
+- Built in `bin\Debug` 2026-11-21 12:44. App check (open the mapper on an FM2 and an FM3 car, map, Apply, Save) and
+  in-game check pending.
+
+#### 2026-11-21 (evening): FM3 / FM4 baked lighting study (read-only, nothing in the app yet)
+- User in game: the new FM2 computed lighting is OK; the UV Mapper opens on FM2 / FM3. User goal: as little as possible
+  taken from a donor (in the end none, damage included, later).
+- Harnesses in `E:\DEV\fm4dev\ST03\light34` (`sh34.exe`, `cmp24.exe`, `secs.exe`).
+- The 4 SNORM16 values of FM4 (+24 of the 32-byte vertex) and FM3 (+20 of the 40-byte vertex) are the same kind of data
+  as FM2's 16: bands 0-1 of the D3DX transfer vector, same signs and axes, stored = k x 2T with k about 1.45 (open
+  vertex facing up: 0.82; FM2: 0.562). The 4 x 4 map stored = M x computed on open vertices is diagonal (1.39 .. 1.55).
+- The FM2 model (light sent back by the car + black ground rectangle, fitted per car) fits them: mean |err| in 2T
+  units 0.037-0.064 on 4 FM4 cars and 0.040-0.064 on 3 FM3 cars (plain occlusion 0.11-0.14). The main model holds one
+  "wheel" section at the origin: it must stay out of the scene.
+- The games did not copy the values from one title to the next: the same car, same vertices, FM2 against FM4 / FM3
+  differs by 0.04-0.07 in stored units after scaling (0.03-0.05 in 2T units), identical on 2-6 % of the vertices only.
+  So the computed values are about as close to the game's as one game's bake is to the next game's.
+- Where the app takes this from a donor today: FM2 -> FM4 / FM3 parts and the FM2 port ("baked light: from the nearest
+  vertex of this car", PartSource.cs), OBJ import ("precalc lighting", CarModelFolder). Candidates for the computed
+  version; not started, scope to agree with the user.
+- Viewport vertex / edge / face picking on FM2 / FM3: never worked (the picker opens the file with the FM4 reader,
+  which refuses FM2 and FM3; MeshEdit.cs unchanged since the last commit). Not a regression; a job of its own.
+
+#### 2026-11-21 (night): baked light without a donor on FM4 / FM3, MESH tab on FM2 / FM3
+User: "tutti i flussi insieme, poi selezione su fm2 fm3"; goal: as little as possible from a donor.
+- What the three flows did before (port FM2, Copy Part from FM2, Import Model from OBJ; all through CarModelFolder.Apply
+  -> CarbinModel.RebuildLods): every new vertex got `WriteTail`, the level of an open panel facing its way, no shade
+  (the notes said "from the nearest vertex of this car": that had been dropped long ago for its blotches).
+- New `ForzaStudio/CarbinModelLighting.cs`:
+  - `LightingFromMotorsport2(fm2)`: a model rebuilt from an FM2 car takes, per vertex, the first 4 of the 16 values of
+    the FM2 vertex at the same place (2 mm, the one facing most the same way) x 1.457 (`LightScale`). The source game's
+    own data: no donor, no estimate. Called after Apply in `Fm2Source.Stage` (port) and `PartSource.FromMotorsport2`
+    (Copy Part; reaches FM3 targets too through the FM4 form). FM2 vertices without light (glass, interior) keep the
+    open-panel estimate.
+    Chosen over computing because of the user's rule "ported cars keep the source game's values" and because it needs
+    nothing of the target car; measured against the REAL FM4 Supra (`light34\l4t.exe fm2`, 97358 vertices, all LODs):
+    value 0 difference 0.138 -> 0.070, values 1-3 0.23 / 0.20 / 0.21 -> 0.088 / 0.078 / 0.076 (stored units).
+  - `BeginLighting()` / `FinishLighting(state)` + `CarModelFolder.ApplyWithLighting` (Import Model in the editor):
+    before the import rho and the ground are fitted on the car's own values (the FM2 engine, on 4 values), after it
+    the vertices the import made (their bytes 16..31 are not among the part's old ones) are computed on the car; kept
+    vertices are not touched. `l4t.exe obj` (FM4 Supra, 6 parts made "new" by a UV nudge, 10514 vertices) against the
+    game's own values: value 0 0.100 -> 0.045, values 1-3 0.235 / 0.169 / 0.176 -> 0.093 / 0.057 / 0.060; the other 47
+    parts unchanged; 2.3 s. The main model's "wheel" section stays out of the scene and is never computed.
+  - `Fm2CarbinModelLighting.cs`: engine types made internal, `FitLightModel(scene, at, normals, stored, values)` shared
+    (16 values for FM2, 4 for FM3 / FM4). FM2 result unchanged (lapp aud_tt_04 0.034 as before).
+- Regressions with the new build: pi3 FM2 -> FM4 90 / 0, FH1 -> FM4 149 / 0, pi5 FM4 -> FM2 30 / 0. pi3 FM3 -> FM4
+  150 runs 49 fails "UV1/UV2 moved by the conversion, max 0.002-0.014": the SAME 49 with the build from before these
+  changes (and 7 in pi3_reg.txt of 2026-11-18): not from this work, to look at separately.
+- MESH tab on FM2 / FM3 (it never worked there: the picker and the three edits opened the file with the FM4 reader):
+  - `ArchiveEditorForm.MeshEdit.cs`: pick data from `Fm2Model` (FM2, each tree mesh located by part / material /
+    LOD) or `EditableModel` (FM3 in its own layout); Delete / Detach Faces and the handle moves (MeshGizmo.cs) go to
+    the FM2 model's new methods or to the FM3-native CarbinModel.
+  - New `Fm2CarbinModelMesh.cs`: MeshFaces, DeleteFaces, DetachFaces, TransformVertices (only this LOD; only the moved
+    vertices are written, against the part's origin as it is; the box grows around it).
+  - BUG FIXED in `CarbinModel.MoveVertices.cs`: TransformVertices wrote the FM4 quaternion at +16 on every moved
+    vertex; on an FM3 vertex that is the normal and half of the baked light. Now `TransformVertexFrame` (FM4: the same
+    call; FM3: normal and axis, only when the edit turns them).
+  - With face picking working, the UV Mapper takes picked faces on FM2 / FM3 too.
+  - Harness `uvt\mesht.exe <root> <FM2|FM3> [cars]` (delete a third / all faces, detach, move, rotate; corner by
+    corner against the original): results in `uvt\mesht_run.txt`.
+    FM2 20 cars 100 runs 0 fails (unmoved vertices byte-identical). FM3 10 cars / 110 files 550 runs, 1 over the 1.5 mm
+    limit of the test: deleting faces or a mesh refits the FM3 part's box and writes every position of the part again
+    as halves, and on the largest part (body, LOD 0) one vertex landed 1.6 mm away. The same re-encode the FM3 part
+    moves have had since 2026-11-18; a possible later improvement: keep the box when it still holds everything.
+    uvt again on this build: FM2 24 / 0, FM3 99 / 0, FM4 99 / 0.
+
+#### 2026-11-21 (late night): Import Model from an OBJ folder on FM2 and FM3 cars
+User: "import obj su fm2 e fm3 non è abilitato". It was refused: FM2 by a message ("not available yet"), FM3 by the
+FM4 reader (Export Model too).
+- The plan (`CarModelFolder.Prepare`) and its confirm window are reused as they are: they only need part names,
+  materials, LODs and part origins.
+- FM3: `LoadCarModels` opens each FM3 file in FM4 form (`PartSource.Motorsport3AsMotorsport4`), export and import run
+  on that; after `ApplyWithLighting`, `CarModelFolder.ToMotorsport3` puts every part of the plan into the car's own
+  FM3 file (RemoveSection + `ConvertPartToMotorsport3` + ImportSection, as Copy Part into FM3); the other parts keep
+  every byte. Every file is built before any is replaced in the archive. FBX / glTF go the same way (not tested).
+- FM2: `CarModelFolder.PlanModel(fm2)` (names / LODs / origins only, never written) for the plan,
+  `CarModelFolder.ApplyMotorsport2` -> new `Fm2CarbinModelObj.cs` `RebuildFromObj(part, template, meshes per LOD,
+  dropped LODs)`: LODs with no changed OBJ keep meshes and vertices; an OBJ corner equal to a vertex the part had
+  (0.1 mm, 1 degree, the same UV words) keeps it, all 60 bytes; a new vertex = position (halves against the part's
+  origin, which stays), UV words, normal, damage word and +24 word of the nearest vertex the part had (new part: of
+  the template), baked light computed (ComputeLighting, kept vertices get theirs back); triangles wound as the car's
+  own are against their normals (counted on its LOD 1); UVs beyond +-25 and LOD 0 refused with a message.
+  FBX / glTF and the UV map export stay unavailable on FM2 (message).
+- Harness `E:\DEV\fm4dev\ST03\uvt\objt.exe <root> <FM2|FM3> <work folder> [cars]`: N untouched export = empty
+  plan; A (FM2) every part rebuilt from its OBJ: 100 % of the vertices byte-identical to the game's, only triangles
+  with two corners in one place are gone (they draw nothing); E one part edited (x > 0 moved 2 cm up): only that part
+  in the plan, the others identical in every byte, its other LODs untouched, every vertex within 3 mm of the OBJ, new
+  vertices lit. Results in `uvt\objt_run.txt`.
+
+2026-11-21 (late): follow-up work, user "do every point, one big check at the end"
+
+- pi3 "UV1/UV2 moved by the conversion" (FM3 -> FM4): not a bug. FM3 holds the UV as halves with no range, FM4 as 16
+  bits over the mesh's range; every fail was half a step of a wide range, and the FM4 game's own files of the same
+  cars hold the same ranges (29 of 29, `fm3\uvwhy2.exe`). pi3 now allows the grid of the mesh's range: 150 runs / 0.
+- FM3 Delete Faces / removing a mesh: the part's box stays (`CarbinMeshEdit.CompactSection`,
+  `CarbinModel.RemoveSubSectionsAt`). Only vertices go, so the box still holds the rest and the kept vertices keep
+  every byte; before, the box was refitted and every position half of the part written again (up to 1.6 mm off on a
+  `body`). FM4 / FH unchanged (refit as before, in game since 0.0.5). `uvt\mesht.exe` now asks for identical bytes:
+  FM3 6 cars 330 runs / 0 fails (`mesht_fm3_box.txt`), FM2 25 / 0.
+- FBX / glTF on FM2 (new) and FM3 (now tested), Export Model and Import Model:
+  - FM3 already went through its FM4 form (`LoadCarModels`); nothing changed there, only the harness is new.
+  - FM2: the model is the name-only `CarModelFolder.PlanModel`; its geometry is the car's own OBJ export
+    (`CarModelFolder.ExportLegacy` into a temporary folder, read back by `CarModelFbx.LegacyGeometry`). `CarModelFbx.Export`
+    has a `geometry` map (kind -> where the meshes come from) and `PrepareFolders` a `legacy` map (kind -> FM2 bytes):
+    the base folder is the FM2 OBJ export and the scene is compared with those OBJs, then the import is the OBJ-folder
+    one (`CarModelFolder.Prepare` / `ApplyMotorsport2`). So an FM2 scene holds what the OBJ folder holds: UV1 only,
+    LODs 1 to 5. A part LOD with nothing to draw gets no node.
+  - Export UV Map stays unavailable on FM2: it draws LOD 0, which FM2 cars do not have (message updated).
+  - Harness `uvt\fbxt.exe <root> <FM2|FM3> [cars]`, per car and per format (.fbx, .glb): N the exported scene imported
+    back = empty plan; E the scene exported with one part moved 2 cm = only that part in the plan, the result re-reads,
+    every other part keeps every vertex byte, every moved corner has a vertex within 3 mm. FM2 10 cars 40 runs / 0
+    fails (`fbxt_fm2.txt`), FM3 6 cars 48 runs / 0 (`fbxt_fm3.txt`). Max / Blender round trip: not tested (user).
+- PART tab Export OBJ / Import OBJ (one part) on FM2 / FM3: new `PartObjImport.cs` (FM4 / FH keep the form's code).
+  The window and its choices are the FM4 ones (replace part, replace one material, add materials, new part from a
+  template); its part and material lists now read FM2 / FM3 files (`PartObjImport.Names`).
+  - FM3: on the file in FM4 form (`ReplaceGeometry` / `RebuildLods`), baked light of the new vertices computed
+    (`BeginLighting` / `FinishLighting`), then only that part goes back in FM3's layout (`CarModelFolder.ToMotorsport3`).
+  - FM2: `Fm2CarbinModel.RebuildFromObj` with the OBJ at every LOD the part has (as FM4's ReplaceGeometry does);
+    replace-material / add-materials rebuild each LOD from its own triangles (the part's OBJ export) minus the
+    replaced material plus the OBJ's. "Fit UVs" is left out on FM2 (no material regions), with a line in the status.
+  - Export OBJ: FM3 read in FM4 form (lod0 file first, as on FM4); FM2 = the part's LOD 1 from the OBJ export.
+  - Harness `uvt\partobjt.exe <root> <FM2|FM3> [cars]`: R replace, M replace material, A add material, N new part;
+    result re-reads and writes back identical, every other part byte-identical, moved corners within 3 mm, M keeps
+    the materials, A draws more triangles. FM2 8 cars 32 runs / 0 (`partobjt_fm2.txt`), FM3 5 cars 20 / 0.
+  - Not done here: the FM4 path of the PART tab Import OBJ still uses the open-panel light estimate (unchanged, in game
+    since 0.0.5); only Import Model and the FM2 / FM3 paths compute the light.
+- FM4-only model openings left in the editor (`new CarbinModel(data)` without the FM2 / FM3 readers), checked one by one:
+  - Exhaust tab, Gauges tab: they read FM4 header blocks. `uvt\headprobe.exe` on 40 FM3 cars: gauges read in 0 of 40
+    cockpit files, exhaust locators in 0 of 40 main files (FM4: 39 of 39 both). FM3 has no exhaust flames (backfire
+    study); FM3 gauges sit in a header layout not decoded yet. The tabs hide themselves on FM2 / FM3, no error.
+    OPEN (a header study of its own): Gauges on FM3.
+  - Driver tab (driver controls in the header), Rim Scalable button (FM4 wheel morph table), Check Model Format
+    (CarbinValidator = FM4 layout from the xex): FM4 features by their data; they stay hidden / say "not checked".
+  - Material check: already per game (`shaderProfile`). Copy Part lists: already per game (`targetAsFm4`, `Fm2Model`).
+  - Fixed in this round: PART tab Export OBJ / Import OBJ and their part / material lists (above).
+- lod0 / cockpit / brake sources -> main model: NOT built. USER RULE 2026-11-21: FM2 cars have no LOD 0, no LOD 0 goes
+  into an FM2 car, its LODs 1 to 5 stay as they are; FM2 targets keep refusing LOD 0-only sources
+  (`PartImport.Motorsport2.cs`). For FM4 / FM3 targets the idea (source LOD 0 as LOD 1, LODs 2-5 by edge collapse on the
+  SAME vertices, so no per-vertex data is made up) waits for the user's yes.
+  To confirm with the user: PART tab Import OBJ on FM2 puts the OBJ into every LOD the part has (1 to 5), as the FM4
+  button does on FM4; Import Model (OBJ folder / FBX / glTF) rebuilds only the LODs whose OBJ changed.
+- DECIDED by the user 2026-11-21 (late): lod0 / cockpit / brake sources -> main model is CANCELLED, on every game.
+  The rule stays: lod0 -> lod0, cockpit -> cockpit, LODs 1-5 -> LODs 1-5 (a main-model part can still go into a close-up
+  file as before, its LOD 1 used as LOD 0). FM2: there are no per-car brake models, so discs / calipers from other games
+  have nowhere to go; no LOD 0-only source goes into an FM2 car. No LOD generation by reduction in Copy Part.
+  PART tab Import OBJ on FM2 confirmed as built: the FM4 behaviour on the LODs the part has (1 to 5, never LOD 0).
+- Delete Faces (MESH tab): the yes / no question is gone (user 2026-11-21); the edit is pending until Save and Undo takes it back.

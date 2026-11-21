@@ -11,6 +11,24 @@ Games: FM2, FM3, FM4, FH1, FH2 (FM1 is read-only, see `docs/` FM1 notes). Refere
 > writers; each game's PI and ratings (`FM2/`, `FM3/`, `FM4/PI_AND_RATINGS.md`); the driver's two sets of points
 > (`DRIVER_POSITION.md`).
 
+> **State 2026-11-21: still paused, still 5 of 20** (FH1, FH2, FM3, FM2 -> FM4 and FM4 -> FM3). New since 2026-11-17,
+> from Sprint 2 ST-03 (`ST03_PART_IMPORT.md`), all checked in game by the user:
+> - **parts** already cross every way a whole car does not: Copy Part takes a part from a car of any of the five games
+>   into an FM4, an FM3 or an FM2 car. So the per-part model writers exist: FM4-form part -> FM3 layout
+>   (`CarbinModel.ConvertPartToMotorsport3`) and FM4-form part -> FM2 part (`Fm2CarbinModelEdit.FromMotorsport4`,
+>   whole-number UV shifts, carbon fibre / 250). The FM2 **model** writer of section 3 is therefore mostly there; what a
+>   whole-car port to FM2 still lacks is the data mapping back, the sound choice and cars added to FM2 showing up in
+>   game (`FM2/DLCBETA.md`, paused).
+> - **baked light** is no longer a donor's: FM2's 16 values are computed (PRT with light sent back), FM3 / FM4's 4
+>   values are the first 4 of FM2's x 1.457, so an FM2 car keeps its own light in FM4 / FM3 and new geometry is lit on
+>   the car (`CarbinModelLighting.cs`, `Fm2CarbinModelLighting.cs`).
+> - `FM2_Extracted_DEV` exists (section 5 lists it as to create).
+> - Rule set by the user: FM2 has no LOD 0 and no per-car brake models; a part goes lod0 -> lod0, cockpit -> cockpit,
+>   LODs 1-5 -> LODs 1-5. A port INTO FM2 uses the source's LODs 1-5 only.
+> - Estimate given to the user (sessions, this chat's guess): FH1 / FH2 -> FM3 2-3 (FH reader + FM3 writer chained in
+>   memory, ids, makes, UI); FM2 -> FM3 2-3 after that; everything -> FM2 6-10, the most uncertain. Suggested order:
+>   FH -> FM3, FM2 -> FM3, then -> FM2.
+
 This is a plan, nothing is coded yet. Related documents: `PORT_FM4_TO_FM3.md` (the only reverse port so far),
 `FH_vs_FM4_CARBIN.md`, `GR2_FH_vs_FM4.md`, `FM3/fm3_conversion.md`, `SHADERS_OTHER_GAMES.md`.
 
