@@ -59,6 +59,7 @@ namespace ForzaStudio
 
         public CarMakeSpec Spec;
         public bool InGame;
+        private static string gameTag = "FM4";   // the target game's tag, for the texts (also of the New Country box)
 
         // existingIds: makes already pending in the port window; xeniaContent: for the Id of a DLC make.
         public NewMakeForm(string target, string xeniaContent, List<long> pendingIds, bool canCreateInGame, bool canAddToPack)
@@ -66,6 +67,7 @@ namespace ForzaStudio
             this.target = target;
             this.AutoScaleMode = AutoScaleMode.None;
             this.Text = "New Car Make";
+            gameTag = GameInfo.Tag(GameInfo.Detect(target));   // the wording names the target game (FM4 or FM3)
             this.ClientSize = new Size(560, 470);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -132,7 +134,7 @@ namespace ForzaStudio
             this.Controls.Add(idLabel);
             this.Controls.Add(this.id);
             y += 32;
-            this.logoName = this.AddRow("Logo name:", y, 160, "IconPathBase: the logo files are L_MAN_<name>_Logo in the six logo folders of UI\\Textures.zip");
+            this.logoName = this.AddRow("Logo name:", y, 160, "The logo files are L_MAN_<name>_Logo in the " + ((gameTag == "FM3") ? "three" : "six") + " logo folders of UI\\Textures.zip");
             this.logoName.TextChanged += delegate { this.logoNameEdited = this.logoName.Focused || this.logoNameEdited; this.Recheck(); };
             y += 32;
             Label countryLabel = new Label();
@@ -153,7 +155,7 @@ namespace ForzaStudio
             }
             this.lastCountryIndex = this.country.SelectedIndex;
             this.country.SelectedIndexChanged += delegate { this.CountryChanged(); };
-            new ToolTip().SetToolTip(this.country, "The make's country. New country...: a country FM4 lacks, with its flag and name (added to the pack with the make)");
+            new ToolTip().SetToolTip(this.country, "The make's country. New country...: a country " + gameTag + " lacks, with its flag and name (added to the pack with the make)");
             this.Controls.Add(countryLabel);
             this.Controls.Add(this.country);
             y += 32;
@@ -206,7 +208,7 @@ namespace ForzaStudio
             game.SetBounds(12, y, 150, 30);
             game.Visible = canCreateInGame;
             game.Click += delegate { this.Accept(true); };
-            new ToolTip().SetToolTip(game, "Writes the make into the FM4 folder's database, string tables and Textures.zip now (files backed up to bak\\)");
+            new ToolTip().SetToolTip(game, "Writes the make into the " + NewMakeForm.gameTag + " folder's database, string tables and Textures.zip now (files backed up to bak\\)");
             Button pack = new Button();
             pack.Text = "Add to the DLC pack";
             pack.SetBounds(canCreateInGame ? 170 : 12, y, 150, 30);
@@ -387,7 +389,7 @@ namespace ForzaStudio
                 this.preview.BackColor = Color.FromArgb(60, 60, 64);
                 this.Controls.Add(this.preview);
                 Label hint = new Label();
-                hint.Text = "The picture is stretched over the whole flag texture, like FM4's.";
+                hint.Text = "The picture is stretched over the whole flag texture, like " + gameTag + "'s.";
                 hint.SetBounds(264, 142, 146, 80);
                 hint.ForeColor = ForzaTheme.TextDim;
                 this.Controls.Add(hint);

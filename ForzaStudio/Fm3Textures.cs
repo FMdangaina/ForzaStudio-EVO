@@ -40,11 +40,20 @@ namespace ForzaStudio
                 }
                 else if (codec == DxtFormat.Dxt1 || codec == DxtFormat.Dxt3 || codec == DxtFormat.Dxt5)
                 {
+                    // Every block on its own, on all cores (user 2026-11-22: a pack trial spent 25-39 s per car here, one 5.5 MB
+                    // damage_lod0 alone 28 s). Same result as one by one: a block's output depends only on its own bytes.
                     int size = texture.BytesPerBlock;
-                    for (int offset = size - 8; offset < blocks.Length; offset += size)
+                    int first = size - 8;
+                    int count = (blocks.Length - first + size - 1) / size;
+                    bool dxt1 = codec == DxtFormat.Dxt1;
+                    System.Collections.Concurrent.ConcurrentDictionary<long, ulong> seen = new System.Collections.Concurrent.ConcurrentDictionary<long, ulong>();
+                    System.Threading.Tasks.Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(0, count), delegate(Tuple<int, int> range)
                     {
-                        ConvertColorEndpoints(blocks, offset, codec == DxtFormat.Dxt1);
-                    }
+                        for (int i = range.Item1; i < range.Item2; i++)
+                        {
+                            ConvertColorEndpoints(blocks, first + (i * size), dxt1, seen);
+                        }
+                    });
                 }
                 texture.WriteLevelBlocks(level, blocks);
             }
@@ -173,12 +182,12 @@ namespace ForzaStudio
         }
 
         // The two 565 endpoints of a DXT colour block through Gamma360ToSrgb; same block rules as CarPort.ConvertColorEndpoints.
-        private static void ConvertColorEndpoints(byte[] blocks, int offset, bool dxt1)
+        private static void ConvertColorEndpoints(byte[] blocks, int offset, bool dxt1, System.Collections.Concurrent.ConcurrentDictionary<long, ulong> seen)
         {
             int c0 = blocks[offset] | (blocks[offset + 1] << 8);
             int c1 = blocks[offset + 2] | (blocks[offset + 3] << 8);
             uint indices = (uint) (blocks[offset + 4] | (blocks[offset + 5] << 8) | (blocks[offset + 6] << 16) | (blocks[offset + 7] << 24));
-            if ((!dxt1 || c0 > c1) && ConvertSmoothBlock(blocks, offset, c0, c1, indices))
+            if ((!dxt1 || c0 > c1) && ConvertSmoothBlock(blocks, offset, c0, c1, indices, seen))
             {
                 return;
             }
@@ -222,43 +231,66 @@ namespace ForzaStudio
         // few codes around them, with a penalty on hue so the pair that stays neutral wins. Blocks with more contrast keep the
         // endpoint mapping (their rounding is lost in the contrast).
         private const int SmoothRange = 12;
-        private static readonly System.Collections.Generic.Dictionary<int, int[]> FlatBlocks = new System.Collections.Generic.Dictionary<int, int[]>();
+        private const ulong NotSmooth = ulong.MaxValue;   // never a result: equal endpoints always get indices 0
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, ulong> FlatBlocks = new System.Collections.Concurrent.ConcurrentDictionary<int, ulong>();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, int[]> NearCodes = new System.Collections.Concurrent.ConcurrentDictionary<int, int[]>();
 
-        private static bool ConvertSmoothBlock(byte[] blocks, int offset, int c0, int c1, uint indices)
+        // 'seen': the blocks of this texture already worked out (same bytes in, same block out; flat areas repeat thousands of times).
+        // The search is the one of 2026-10-20 (same pairs in the same order, same error, same ties), without allocations.
+        private static bool ConvertSmoothBlock(byte[] blocks, int offset, int c0, int c1, uint indices, System.Collections.Concurrent.ConcurrentDictionary<long, ulong> seen)
         {
-            int[][] old = Palette(c0, c1);
-            int[,] target = new int[16, 3];
-            int[] lo = { 255, 255, 255 };
-            int[] hi = { 0, 0, 0 };
+            long blockKey = ((long) c0 << 48) | ((long) c1 << 32) | indices;
+            ulong result;
+            if (!seen.TryGetValue(blockKey, out result))
+            {
+                result = SearchSmoothBlock(c0, c1, indices);
+                seen[blockKey] = result;
+            }
+            if (result == NotSmooth)
+            {
+                return false;
+            }
+            WriteColorBlock(blocks, offset, (int) (result >> 48), (int) ((result >> 32) & 0xFFFF), (uint) result);
+            return true;
+        }
+
+        // The endpoints and indices (a << 48 | b << 32 | indices) for a low-contrast block, or NotSmooth.
+        private static ulong SearchSmoothBlock(int c0, int c1, uint indices)
+        {
+            int[] old = new int[12];
+            FillPalette(old, c0, c1);
+            int[] target = new int[48];
+            int lo0 = 255, lo1 = 255, lo2 = 255, hi0 = 0, hi1 = 0, hi2 = 0;
             for (int k = 0; k < 16; k++)
             {
-                int[] color = old[(indices >> (k * 2)) & 3];
-                for (int c = 0; c < 3; c++)
-                {
-                    int value = Gamma360ToSrgb[color[c]];
-                    target[k, c] = value;
-                    lo[c] = Math.Min(lo[c], value);
-                    hi[c] = Math.Max(hi[c], value);
-                }
+                int index = (int) ((indices >> (k * 2)) & 3) * 3;
+                int r = Gamma360ToSrgb[old[index]];
+                int g = Gamma360ToSrgb[old[index + 1]];
+                int b = Gamma360ToSrgb[old[index + 2]];
+                target[k * 3] = r;
+                target[(k * 3) + 1] = g;
+                target[(k * 3) + 2] = b;
+                lo0 = Math.Min(lo0, r);
+                hi0 = Math.Max(hi0, r);
+                lo1 = Math.Min(lo1, g);
+                hi1 = Math.Max(hi1, g);
+                lo2 = Math.Min(lo2, b);
+                hi2 = Math.Max(hi2, b);
             }
-            for (int c = 0; c < 3; c++)
+            if (hi0 - lo0 > SmoothRange || hi1 - lo1 > SmoothRange || hi2 - lo2 > SmoothRange)
             {
-                if (hi[c] - lo[c] > SmoothRange)
-                {
-                    return false;
-                }
+                return NotSmooth;
             }
-            bool flat = lo[0] == hi[0] && lo[1] == hi[1] && lo[2] == hi[2];
-            int key = lo[0] | (lo[1] << 8) | (lo[2] << 16);
-            int[] best;
-            if (flat && FlatBlocks.TryGetValue(key, out best))
+            bool flat = lo0 == hi0 && lo1 == hi1 && lo2 == hi2;
+            int key = lo0 | (lo1 << 8) | (lo2 << 16);
+            ulong found;
+            if (flat && FlatBlocks.TryGetValue(key, out found))
             {
-                WriteColorBlock(blocks, offset, best[0], best[1], (uint) best[2]);
-                return true;
+                return found;
             }
-            int[] reds = Near(5, lo[0], hi[0], 3);
-            int[] greens = Near(6, lo[1], hi[1], 4);
-            int[] blues = Near(5, lo[2], hi[2], 3);
+            int[] reds = NearCached(5, lo0, hi0, 3);
+            int[] greens = NearCached(6, lo1, hi1, 4);
+            int[] blues = NearCached(5, lo2, hi2, 3);
             int[] codes = new int[reds.Length * greens.Length * blues.Length];
             int count = 0;
             foreach (int r in reds)
@@ -272,25 +304,28 @@ namespace ForzaStudio
                 }
             }
             long bestError = long.MaxValue;
-            best = new int[] { c0, c1, (int) indices };
+            int bestA = c0, bestB = c1;
+            uint bestChosen = indices;
+            int[] palette = new int[12];
             for (int i = 0; i < count; i++)
             {
                 for (int j = 0; j <= i; j++)
                 {
                     int a = Math.Max(codes[i], codes[j]);
                     int b = Math.Min(codes[i], codes[j]);
-                    int[][] palette = Palette(a, b);
+                    FillPalette(palette, a, b);
                     long total = 0;
                     uint chosen = 0;
                     for (int k = 0; k < 16 && total < bestError; k++)
                     {
                         long pixelBest = long.MaxValue;
                         int pick = 0;
+                        int t = k * 3;
                         for (int p = 0; p < 4; p++)
                         {
-                            long dr = target[k, 0] - palette[p][0];
-                            long dg = target[k, 1] - palette[p][1];
-                            long db = target[k, 2] - palette[p][2];
+                            long dr = target[t] - palette[p * 3];
+                            long dg = target[t + 1] - palette[(p * 3) + 1];
+                            long db = target[t + 2] - palette[(p * 3) + 2];
                             long error = (dr * dr) + (dg * dg) + (db * db) + (4 * (((dr - dg) * (dr - dg)) + ((db - dg) * (db - dg))));
                             if (error < pixelBest)
                             {
@@ -304,20 +339,52 @@ namespace ForzaStudio
                     if (total < bestError)
                     {
                         bestError = total;
-                        best = new int[] { a, b, (int) chosen };
+                        bestA = a;
+                        bestB = b;
+                        bestChosen = chosen;
                     }
                 }
             }
-            if (best[0] == best[1])
+            if (bestA == bestB)
             {
-                best[2] = 0;   // DXT1 reads c0 == c1 as the 3-colour form: index 0 is the one that always means c0
+                bestChosen = 0;   // DXT1 reads c0 == c1 as the 3-colour form: index 0 is the one that always means c0
             }
+            ulong best = ((ulong) (uint) bestA << 48) | ((ulong) (uint) bestB << 32) | bestChosen;
             if (flat)
             {
                 FlatBlocks[key] = best;
             }
-            WriteColorBlock(blocks, offset, best[0], best[1], (uint) best[2]);
-            return true;
+            return best;
+        }
+
+        // Palette(c0, c1) into 12 ints (4 colours x RGB), as Palette builds it.
+        private static void FillPalette(int[] into, int c0, int c1)
+        {
+            int ar = (c0 >> 11) & 0x1F, ag = (c0 >> 5) & 0x3F, ab = c0 & 0x1F;
+            int br = (c1 >> 11) & 0x1F, bg = (c1 >> 5) & 0x3F, bb = c1 & 0x1F;
+            into[0] = (ar << 3) | (ar >> 2);
+            into[1] = (ag << 2) | (ag >> 4);
+            into[2] = (ab << 3) | (ab >> 2);
+            into[3] = (br << 3) | (br >> 2);
+            into[4] = (bg << 2) | (bg >> 4);
+            into[5] = (bb << 3) | (bb >> 2);
+            for (int c = 0; c < 3; c++)
+            {
+                into[6 + c] = ((2 * into[c]) + into[3 + c]) / 3;
+                into[9 + c] = (into[c] + (2 * into[3 + c])) / 3;
+            }
+        }
+
+        private static int[] NearCached(int bits, int low, int high, int take)
+        {
+            int key = bits | (low << 4) | (high << 12) | (take << 20);
+            int[] codes;
+            if (!NearCodes.TryGetValue(key, out codes))
+            {
+                codes = Near(bits, low, high, take);
+                NearCodes[key] = codes;
+            }
+            return codes;
         }
 
         private static int[][] Palette(int c0, int c1)

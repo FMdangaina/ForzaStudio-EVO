@@ -145,10 +145,15 @@ namespace ForzaStudio
                 if (baked != null)
                 {
                     report.AppendLine(section.Name + ": " + baked);
-                    if (OutsideBounds(section.Bounds, lod0))
-                    {
-                        GrowBounds(section, lod, lod0);
-                    }
+                }
+                string sized = this.SizeWheelLod0ForMotorsport3(section, lod0);
+                if (sized != null)
+                {
+                    report.AppendLine(section.Name + ": " + sized);
+                }
+                if ((baked != null || sized != null) && OutsideBounds(section.Bounds, lod0))
+                {
+                    GrowBounds(section, lod, lod0);
                 }
             }
             bool deformable = !wheel && section.IsDeformable;
@@ -223,6 +228,52 @@ namespace ForzaStudio
                 lod0[i] += t * (target[i] - lod0[i]);
             }
             return string.Format(CultureInfo.InvariantCulture, "lod0 morphed by {0:0.000} towards its target (rim radius {1:0.0000} -> {2:0.0000}, the LOD 1 rim's {3:0.0000})", t, baseRadius, baseRadius + (t * (targetRadius - baseRadius)), final);
+        }
+
+        // The rim size FM3 draws a stock wheel at: its LOD 0 largest radius is 1.085 x the nominal rim radius (the car's
+        // FrontWheelDiameterIN x 0.0127), median of 251 FM3 stock wheels, 80% between 1.077 and 1.097 (FHtoFM3\ratio3.exe,
+        // 2026-11-22). FM3 has no morph: it sizes its generic tire for the declared rim and draws the model as it is, so a wheel
+        // modelled smaller (an FM2 rim, 0.958 on the AB Flug RX-7) shows a small rim in a tall tire. Set by the port before
+        // the conversion: the nominal radius x 1.085; 0 = leave the size alone.
+        public double Motorsport3WheelRadius;
+
+        // LOD 0 scaled about the axis (Y and Z; X, the width, kept) to Motorsport3WheelRadius when it is outside the band FM3's own
+        // wheels have (1.06 - 1.11 x nominal). Returns a report line, or null.
+        private string SizeWheelLod0ForMotorsport3(Section section, double[] lod0)
+        {
+            if (this.Motorsport3WheelRadius <= 0)
+            {
+                return null;
+            }
+            double radius = 0;
+            int count = lod0.Length / 3;
+            foreach (SubSection sub in section.SubSections)
+            {
+                if (sub.Lod != 0)
+                {
+                    continue;
+                }
+                foreach (int index in sub.Indices)
+                {
+                    if (!IsRestart(sub, index) && index < count)
+                    {
+                        radius = Math.Max(radius, Math.Sqrt((lod0[(index * 3) + 1] * lod0[(index * 3) + 1]) + (lod0[(index * 3) + 2] * lod0[(index * 3) + 2])));
+                    }
+                }
+            }
+            double nominal = this.Motorsport3WheelRadius / 1.085;
+            if (radius < 1e-6 || (radius / nominal >= 1.06 && radius / nominal <= 1.11))
+            {
+                return null;
+            }
+            double fit = this.Motorsport3WheelRadius / radius;
+            for (int i = 0; i < lod0.Length; i += 3)
+            {
+                lod0[i + 1] *= fit;
+                lod0[i + 2] *= fit;
+            }
+            return string.Format(CultureInfo.InvariantCulture, "lod0 rim sized for FM3: radius {0:0.0000} ({1:0.000} x the nominal rim) -> {2:0.0000} (1.085 x, as FM3's stock wheels), scale {3:0.000} about the axis",
+                radius, radius / nominal, this.Motorsport3WheelRadius, fit);
         }
 
         private static bool OutsideBounds(float[] bounds, double[] positions)

@@ -128,7 +128,8 @@ namespace ForzaStudio
             int displayKey;
             int descriptionKey;
             int longKey;
-            List<string> tables = BuildStringsFm3(targetRoot, trialRoot, Path.Combine(zips, strings), id, name, layers, out displayKey, out descriptionKey, out longKey, report);
+            Dictionary<string, int> remap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // string keys moved off installed packs' ones
+            List<string> tables = BuildStringsFm3(targetRoot, trialRoot, Path.Combine(zips, strings), id, name, layers, remap, out displayKey, out descriptionKey, out longKey, report);
 
             long hi;
             using (SqliteDatabase game = SqliteDatabase.FromBytes(File.ReadAllBytes(GameDb(targetRoot))))
@@ -138,6 +139,7 @@ namespace ForzaStudio
             List<long> cars = new List<long>();
             using (SqliteDatabase patch = SqliteDatabase.FromBytes(merge))
             {
+                RemapStrings(patch, remap, report);   // the pack's rows follow the string keys BuildStringsFm3 moved
                 patch.Execute("UPDATE MultiDiscContentPacks SET DashDisplayName = ?, Description = ?, LongDescription = ?",
                     "_&" + ((hi << 16) | (long) displayKey).ToString(CultureInfo.InvariantCulture),
                     "_&" + ((hi << 16) | (long) descriptionKey).ToString(CultureInfo.InvariantCulture),
@@ -262,7 +264,7 @@ namespace ForzaStudio
 
         // Every table the port changed in a language zip of the trial, as the game's table plus the installed packs' strings plus the
         // port's; the pack's name goes into Data_Car.str under three free keys in every language.
-        private static List<string> BuildStringsFm3(string targetRoot, string trialRoot, string output, string id, string name, List<StringLayer> layers, out int displayKey, out int descriptionKey, out int longKey, StringBuilder report)
+        private static List<string> BuildStringsFm3(string targetRoot, string trialRoot, string output, string id, string name, List<StringLayer> layers, Dictionary<string, int> remap, out int displayKey, out int descriptionKey, out int longKey, StringBuilder report)
         {
             SortedDictionary<string, StrFile> files = new SortedDictionary<string, StrFile>(StringComparer.Ordinal);
             Dictionary<string, bool> tables = new Dictionary<string, bool>(StringComparer.Ordinal);
@@ -301,12 +303,27 @@ namespace ForzaStudio
                             continue;
                         }
                         StrFile.Entry present = Find(result, text.Key);
-                        if (present != null && !SameString(present, text))
+                        int key = text.Key;
+                        string remapId = Path.GetFileNameWithoutExtension(entry.Name) + "|" + text.Key.ToString(CultureInfo.InvariantCulture);
+                        int moved;
+                        if (remap.TryGetValue(remapId, out moved))
                         {
-                            throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "{0}: key {1:X4} is \"{2}\" in an installed pack, \"{3}\" of this pack cannot take it (the {4} table).",
-                                Path.GetFileNameWithoutExtension(entry.Name), text.Key, present.Text, text.Text, language));
+                            key = moved;
                         }
-                        result.Set(text.Key, text.Text, text.Name);
+                        else if (present != null && !SameString(present, text))
+                        {
+                            // The port chose this key against the game's table alone: an installed pack already uses it for another
+                            // string (pack "458 R8" FEC4 = 458 Spider, 2026-11-22). The port's string moves to a key free in the game and
+                            // in every installed pack, and the pack's rows follow (RemapStrings), as the FM4 build does.
+                            key = FreeStringKey(result, ported, remap, Path.GetFileNameWithoutExtension(entry.Name));
+                            remap[remapId] = key;
+                            report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0} ({1}): key {2:X4} is \"{3}\" in an installed pack, \"{4}\" of this pack moved to {5:X4}", Path.GetFileNameWithoutExtension(entry.Name), language, text.Key, present.Text, text.Text, key));
+                        }
+                        if (key != text.Key && Find(result, key) != null)
+                        {
+                            throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "{0}: the new key {1:X4} is used in the {2} table.", Path.GetFileNameWithoutExtension(entry.Name), key, language));
+                        }
+                        result.Set(key, text.Text, text.Name);
                         added++;
                     }
                     string table = Path.GetFileNameWithoutExtension(entry.Name);

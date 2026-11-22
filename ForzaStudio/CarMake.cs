@@ -50,6 +50,16 @@ namespace ForzaStudio
         // Logo folders of UI\Textures.zip the game builds from IconPathBase (L_MAN_<base>_Logo.xds).
         public static readonly string[] LogoFolders = { "Manufacturer_Logos", "Manufacturer_Logos_I", "Manufacturer_Logos_LG", "Manufacturer_Logos_SM", "Manufacturer_Logos_SM_wtbg", "Manufacturer_Logos_kinect" };
 
+        // FM3 (user 2026-11-22: the "+" of the FM3 port windows): the same tables and string tables, but three logo folders
+        // (53 makes each), no IconPathBase column, IconPath under Manufacturer_Logos (FM4: _I), and no titles. Its livery
+        // decals are FM3 carbins, which MakeDecals does not build: none added.
+        public static readonly string[] LogoFoldersFm3 = { "Manufacturer_Logos", "Manufacturer_Logos_I", "Manufacturer_Logos_SM" };
+
+        private static bool IsFm3(string root)
+        {
+            return GameInfo.Detect(root) == ForzaGame.Motorsport3;
+        }
+
         private const string Logos = @"GAME:\Media\UI\Textures\UI4\Logos\";
 
         public static string DatabasePath(string root)
@@ -141,7 +151,10 @@ namespace ForzaStudio
                 {
                     return "The game already has a make with the code " + spec.Code + ".";
                 }
-                if (Convert.ToInt64(db.Scalar("SELECT count(*) FROM List_CarMake WHERE lower(IconPathBase) = ?", spec.Base.ToLowerInvariant())) > 0)
+                bool baseColumn = DbIds.Schema(db)["List_CarMake"].Contains("IconPathBase");
+                if (baseColumn
+                    ? Convert.ToInt64(db.Scalar("SELECT count(*) FROM List_CarMake WHERE lower(IconPathBase) = ?", spec.Base.ToLowerInvariant())) > 0
+                    : Convert.ToInt64(db.Scalar("SELECT count(*) FROM List_CarMake WHERE lower(IconPath) LIKE ?", "%l_man_" + spec.Base.ToLowerInvariant() + "_logo.%")) > 0)
                 {
                     return "The game already has a make with the logo name " + spec.Base + ".";
                 }
@@ -197,7 +210,8 @@ namespace ForzaStudio
             // Everything is prepared in memory first; the files are written at the end.
             string textures = Path.Combine(Path.Combine(media, "UI"), "Textures.zip");
             ForzaZip logos = new ForzaZip(In(textures, targetRoot, outputRoot));
-            Dictionary<string, byte[]> logoFiles = BuildLogos(spec, logos, texconv, report);
+            bool fm3 = IsFm3(targetRoot);
+            Dictionary<string, byte[]> logoFiles = BuildLogos(spec, logos, texconv, report, fm3 ? LogoFoldersFm3 : LogoFolders);
 
             string database = DatabasePath(targetRoot);
             SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(In(database, targetRoot, outputRoot)));
@@ -221,15 +235,30 @@ namespace ForzaStudio
                         countryId, name, country.RegionId, Flags + "L_FLA_" + country.Base + "_flag.tga");
                     report.AppendLine(string.Format(CultureInfo.InvariantCulture, "List_Country: row {0} ({1}), region {2}, Country {3}", countryId, country.Name, country.RegionId, name));
                 }
-                db.Execute("INSERT INTO List_CarMake (ID, DisplayName, ManufacturerCode, CountryID, IconPath, IconPathLight, IconPathBase, Profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    id, strings[0], spec.Code, countryId,
-                    Logos + @"Manufacturer_Logos_I\L_MAN_" + spec.Base + "_Logo.tga",
-                    Logos + @"Manufacturer_Logos_SM\L_MAN_" + spec.Base + "_Logo.tga",
-                    spec.Base, strings[1]);
+                if (fm3)
+                {
+                    db.Execute("INSERT INTO List_CarMake (ID, DisplayName, ManufacturerCode, CountryID, IconPath, IconPathLight, Profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        id, strings[0], spec.Code, countryId,
+                        Logos + @"Manufacturer_Logos\L_MAN_" + spec.Base + "_Logo.tga",
+                        Logos + @"Manufacturer_Logos_SM\L_MAN_" + spec.Base + "_Logo.tga",
+                        strings[1]);
+                }
+                else
+                {
+                    db.Execute("INSERT INTO List_CarMake (ID, DisplayName, ManufacturerCode, CountryID, IconPath, IconPathLight, IconPathBase, Profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        id, strings[0], spec.Code, countryId,
+                        Logos + @"Manufacturer_Logos_I\L_MAN_" + spec.Base + "_Logo.tga",
+                        Logos + @"Manufacturer_Logos_SM\L_MAN_" + spec.Base + "_Logo.tga",
+                        spec.Base, strings[1]);
+                }
                 report.AppendLine(string.Format(CultureInfo.InvariantCulture, "List_CarMake: row {0} ({1}, {2}), country {3}, DisplayName {4}, Profile {5}", id, spec.Code, spec.Name, spec.CountryId, strings[0], strings[1]));
                 titles = MakeTitles.Add(db, id, spec.Name, spec.Base, stringZips, report);
                 string livery = MakeDecals.LiveryPath(targetRoot);
-                if (File.Exists(livery) && MakeDecals.Supported(db))
+                if (fm3)
+                {
+                    report.AppendLine("  decals: FM3's livery decals are FM3 models, not built here: none added");
+                }
+                else if (File.Exists(livery) && MakeDecals.Supported(db))
                 {
                     liveryZip = new ForzaZip(In(livery, targetRoot, outputRoot));
                     ForzaZip.Entry model = liveryZip.Find(MakeDecals.TemplateEntry);
@@ -524,13 +553,13 @@ namespace ForzaStudio
 
         // L_MAN_<base>_Logo.xds for each logo folder: a texture laid out as the template make's logo in
         // that folder (size, format, gamma, mips) holding the image fitted in its size.
-        private static Dictionary<string, byte[]> BuildLogos(CarMakeSpec spec, ForzaZip textures, string texconv, StringBuilder report)
+        private static Dictionary<string, byte[]> BuildLogos(CarMakeSpec spec, ForzaZip textures, string texconv, StringBuilder report, string[] folders)
         {
             string template = string.IsNullOrEmpty(spec.TemplateBase) ? "Acura" : spec.TemplateBase;
             Dictionary<string, byte[]> files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             using (Image image = LoadImage(spec.Logo))
             {
-                foreach (string folder in LogoFolders)
+                foreach (string folder in folders)
                 {
                     string name = "UI4/Logos/" + folder + "/L_MAN_" + spec.Base + "_Logo.xds";
                     if (textures.Find(name) != null)

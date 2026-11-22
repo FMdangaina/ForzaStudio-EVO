@@ -26,6 +26,11 @@ namespace ForzaStudio
         public string SoundDonorMediaName;   // an FM3 car whose engine and model tuning files the car takes (default: the same car in FM3, else the donor)
         public string RenameTo;         // the car's name in FM3 (default: MediaName, with _FM4 added when FM3 has a car of that name)
         public bool AllowFm4OnlyDash;   // port a dash that uses properties no FM3 dash has (default: such a dash is left out, GaugeID -1)
+        // The window's choices, as the FM4 window's (user 2026-11-22: FM3's car tables are FM4's):
+        public bool Arcade = true;      // Data_Car.IsArcade (before: the template's value)
+        public long? MakeId;            // an FM3 make (List_CarMake.ID, also one just created in OutputRoot) instead of the car's own
+        // (No brake choice here: the generic brakes and their angles are written by the FM4-form step with the model, CarPort.Brakes;
+        // an FM4 car keeps its own brakes and angles.)
         public readonly StringBuilder Report = new StringBuilder();
 
         private SqliteDatabase source;
@@ -38,6 +43,26 @@ namespace ForzaStudio
         private readonly List<string> newZips = new List<string>();
         private readonly List<string> changedZips = new List<string>();
         private readonly List<long> wheelIds = new List<long>();
+        private readonly Dictionary<string, HashSet<long>> takenElsewhere = new Dictionary<string, HashSet<long>>(StringComparer.OrdinalIgnoreCase);   // owner table -> ids of the other databases (OtherDatabases)
+
+        // An id of owner (Data_Engine / Data_Drivetrain / List_Wheels) used in another database the car will meet: the other FM3 folder
+        // (DEV / clean) or an FM3 package in Xenia.
+        private bool TakenElsewhere(string owner, long id)
+        {
+            HashSet<long> ids;
+            return this.takenElsewhere.TryGetValue(owner, out ids) && ids.Contains(id);
+        }
+
+        // The next id of owner free in the target and in every other database.
+        private long FreeId(string owner, string key)
+        {
+            long fresh = DbIds.Next(this.target, owner, key, ForzaGame.Motorsport3);
+            while (this.TakenElsewhere(owner, fresh) || Convert.ToInt64(this.target.Scalar("SELECT count(*) FROM " + SqliteDatabase.Quote(owner) + " WHERE " + SqliteDatabase.Quote(key) + " = ?", fresh), CultureInfo.InvariantCulture) > 0)
+            {
+                fresh++;
+            }
+            return fresh;
+        }
 
         public void Run()
         {
@@ -49,19 +74,22 @@ namespace ForzaStudio
             {
                 throw new InvalidOperationException("The source must be a Forza Motorsport 4 folder and the target a Forza Motorsport 3 folder.");
             }
+            System.Diagnostics.Stopwatch lap = System.Diagnostics.Stopwatch.StartNew();
+            List<KeyValuePair<string, double>> times = new List<KeyValuePair<string, double>>();
             this.source = SqliteDatabase.FromBytes(File.ReadAllBytes(this.Db(this.SourceRoot)));
             if (this.PackRoot != null)
             {
                 DlcSource.MergeRows(this.source, this.Db(this.PackRoot));
             }
             this.target = SqliteDatabase.FromBytes(File.ReadAllBytes(this.Read(this.Db(this.TargetRoot))));
+            Lap(lap, times, "open databases");
             try
             {
                 long sourceId = Convert.ToInt64(this.Need(this.source.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.MediaName), "the FM4 database has no car " + this.MediaName));
                 this.ChooseDonor();
                 this.carName = this.RenameTo ?? this.MediaName;
                 this.inFm3 = this.target.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.MediaName) != null;
-                if (this.RenameTo == null && this.target.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.MediaName) != null)
+                if (this.RenameTo == null && (this.target.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.MediaName) != null || DlcCatalog.PackOf(ForzaGame.Motorsport3, this.MediaName) != null))   // also a car of FM3's second disc or DLC
                 {
                     this.carName = this.MediaName + "_FM4";
                 }
@@ -70,6 +98,42 @@ namespace ForzaStudio
                 while (this.carId != sourceId && Convert.ToInt64(this.source.Scalar("SELECT count(*) FROM Data_Car WHERE Id = ?", this.carId)) > 0)
                 {
                     this.carId++;   // the id is also written into a copy of FM4's database: it must not be another FM4 car's (id 1314 is the McLaren F1)
+                }
+                // The car id must also be free where the car will meet other cars: the game folder Xenia plays (FM3_Extracted_DEV,
+                // with cars installed there) and the FM3 packages in Xenia. A pack built against the clean FM3 took 1712, the id of
+                // a Veyron installed in the DEV folder: the merge failed and neither pack car showed (user 2026-11-21).
+                List<SqliteDatabase> others = this.OtherDatabases();
+                while (others.Exists(delegate(SqliteDatabase db) { return DbIds.Taken(db, this.carId); })
+                    || (this.carId != sourceId && Convert.ToInt64(this.source.Scalar("SELECT count(*) FROM Data_Car WHERE Id = ?", this.carId)) > 0))
+                {
+                    this.carId++;
+                }
+                // The engine, drivetrain and wheel ids of those databases too: a copied one must not take them (MoveOutOfGameRange,
+                // PortWheel). Two packs built one after the other gave their FM2 cars the same engines 1641.. and wheels 12345..
+                // (user 2026-11-22).
+                foreach (SqliteDatabase db in others)
+                {
+                    foreach (string[] owner in new string[][] { new string[] { "Data_Engine", "EngineID" }, new string[] { "Data_Drivetrain", "DrivetrainID" }, new string[] { "List_Wheels", "ID" } })
+                    {
+                        if (!DbIds.HasTable(db, owner[0]))
+                        {
+                            continue;
+                        }
+                        HashSet<long> ids;
+                        if (!this.takenElsewhere.TryGetValue(owner[0], out ids))
+                        {
+                            ids = new HashSet<long>();
+                            this.takenElsewhere[owner[0]] = ids;
+                        }
+                        foreach (object[] row in db.Query("SELECT " + owner[1] + " FROM " + owner[0]).Rows)
+                        {
+                            if (row[0] != null && !(row[0] is DBNull))
+                            {
+                                ids.Add(Convert.ToInt64(row[0], CultureInfo.InvariantCulture));
+                            }
+                        }
+                    }
+                    db.Dispose();
                 }
                 while (true)
                 {
@@ -87,22 +151,34 @@ namespace ForzaStudio
                         this.carId++;   // rows of other FM4 cars already sit on this id range in the tables keyed by car
                     }
                 }
-                this.donorId = Convert.ToInt64(this.target.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.DonorMediaName));
+                this.donorId = Convert.ToInt64(this.donorDb.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.DonorMediaName));
                 this.source.Execute("UPDATE Data_Car SET MediaName = ? WHERE Id = ?", this.carName, sourceId);
                 this.Line("car {0} ported as {1}: FM3 id {2} (FM4 id {3}), donor {4} (id {5})", this.MediaName, this.carName, this.carId, sourceId, this.DonorMediaName, this.donorId);
                 foreach (string line in DbIds.RenumberCar(this.source, sourceId, this.carId))
                 {
                     this.Line("  {0}", line);
                 }
+                Lap(lap, times, "setup (donor, ids against the installed packs, renumbering)");
                 this.PortDatabase();
+                Lap(lap, times, "database");
                 this.PortStrings();
+                Lap(lap, times, "strings");
                 this.PortThumbnail();
+                Lap(lap, times, "thumbnail");
                 this.BuildCarZip();
+                Lap(lap, times, "car zip");
                 this.PortSound();
+                Lap(lap, times, "sound");
                 this.BuildWheelZips();
+                Lap(lap, times, "wheel zips");
+                this.CheckDatabase();
+                Lap(lap, times, "database check");
                 this.Write(this.Db(this.TargetRoot), this.target.ToBytes());
+                Lap(lap, times, "write database");
                 this.UpdateManifest();
+                Lap(lap, times, "manifest");
                 this.Line("done: {0}", this.OutputRoot);
+                this.Times(times);
             }
             finally
             {
@@ -247,6 +323,40 @@ namespace ForzaStudio
             this.Line("  cockpit camera: FM4 part 9 + offset ({0}, {1}, {2}) -> FM3 part 4 + offset ({3}, {4}, {5})", fromFm4[0], fromFm4[1], fromFm4[2], eye[0], eye[1], eye[2]);
         }
 
+        // FM3's own database rules on what this port changed (DbIntegrity with FM3's relation map and id limits): a row that
+        // points at nothing, or a key inside FM3's own range (the base game's and its packages'), is what made the Horizon
+        // 458s crash when bought (2026-11-21). Reported, never fatal: the result is written either way.
+        private void CheckDatabase()
+        {
+            try
+            {
+                using (SqliteDatabase before = SqliteDatabase.FromBytes(File.ReadAllBytes(this.Read(this.Db(this.TargetRoot)))))
+                {
+                    DbIntegrity.Result result = DbIntegrity.Compare(before, this.target, ForzaGame.Motorsport3, null, false);
+                    List<string> lines = new List<string>(result.Errors);
+                    lines.AddRange(result.Warnings);
+                    if (lines.Count == 0)
+                    {
+                        this.Line("database check (FM3's rules): the car's rows point at rows that exist and no key is inside FM3's own range");
+                        return;
+                    }
+                    this.Line("WARNING database check (FM3's rules): {0} thing(s) not regular, the car may crash in game:", lines.Count);
+                    for (int i = 0; i < lines.Count && i < 12; i++)
+                    {
+                        this.Line("  {0}", lines[i]);
+                    }
+                    if (lines.Count > 12)
+                    {
+                        this.Line("  ... and {0} more of the same kind", lines.Count - 12);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                this.Line("database check (FM3's rules): not run, {0}", e.Message);
+            }
+        }
+
         // Rows of FM4's career (the events a car races in) mean nothing in FM3; CarExceptions is FM4's own.
         private static readonly string[] NotCopied = { "EventParticipants", "CarExceptions" };
 
@@ -254,11 +364,34 @@ namespace ForzaStudio
         // (FM4's drag tires) is dropped with its upgrade row.
         private void Dangling(Dictionary<string, List<string>> from, Dictionary<string, List<string>> to)
         {
-            foreach (object[] row in this.target.Query("SELECT DISTINCT AeroPhysicsID FROM List_UpgradeRearWing WHERE Ordinal = ? AND AeroPhysicsID NOT IN (SELECT AeroPhysicsID FROM List_AeroPhysics)", this.carId).Rows)
+            // Every table of the car that names an aero set (FM4's rear wing, and the front bumper: the Horizon 458s have an
+            // adjustable front bumper; its two aero sets were left behind and the cars crashed when bought, 2026-11-21). A
+            // set FM3 lacks is added from FM4 under a key of the car (car * 1000 + n) when it is not one already.
+            foreach (KeyValuePair<string, List<string>> table in to)
             {
-                long id = Convert.ToInt64(row[0], CultureInfo.InvariantCulture);
-                int copied = this.CopyRows("List_AeroPhysics", from["List_AeroPhysics"], to["List_AeroPhysics"], "AeroPhysicsID = " + id, "1 = 1", false);
-                this.Line("  aero physics {0}: not in FM3, {1} row added from FM4", id, copied);
+                if (table.Key == "List_AeroPhysics" || !Has(table.Value, "AeroPhysicsID") || !from.ContainsKey("List_AeroPhysics"))
+                {
+                    continue;
+                }
+                string name = SqliteDatabase.Quote(table.Key);
+                foreach (object[] row in this.target.Query("SELECT DISTINCT AeroPhysicsID FROM " + name + " WHERE AeroPhysicsID IS NOT NULL AND AeroPhysicsID NOT IN (SELECT AeroPhysicsID FROM List_AeroPhysics)").Rows)
+                {
+                    long id = Convert.ToInt64(row[0], CultureInfo.InvariantCulture);
+                    if (Convert.ToInt64(this.source.Scalar("SELECT count(*) FROM List_AeroPhysics WHERE AeroPhysicsID = ?", id), CultureInfo.InvariantCulture) == 0)
+                    {
+                        continue;   // not this car's: FM4 has no such set either
+                    }
+                    int copied = this.CopyRows("List_AeroPhysics", from["List_AeroPhysics"], to["List_AeroPhysics"], "AeroPhysicsID = " + id, "1 = 1", false);
+                    long written = id;
+                    long own = (this.carId * 1000) + (id % 1000);
+                    if (id / 1000 != this.carId && Convert.ToInt64(this.target.Scalar("SELECT count(*) FROM List_AeroPhysics WHERE AeroPhysicsID = ?", own), CultureInfo.InvariantCulture) == 0)
+                    {
+                        this.target.Execute("UPDATE List_AeroPhysics SET AeroPhysicsID = ? WHERE AeroPhysicsID = ?", own, id);
+                        this.target.Execute("UPDATE " + name + " SET AeroPhysicsID = ? WHERE AeroPhysicsID = ?", own, id);
+                        written = own;
+                    }
+                    this.Line("  aero physics {0} ({1}): not in FM3, {2} row added from FM4{3}", id, table.Key, copied, (written != id) ? " as " + written : "");
+                }
             }
             int dropped = this.target.Execute("DELETE FROM List_UpgradeTireCompound WHERE Ordinal = ? AND TireCompoundID NOT IN (SELECT TireCompoundID FROM List_TireCompound)", this.carId);
             if (dropped > 0)
@@ -268,6 +401,39 @@ namespace ForzaStudio
         }
 
         private int copiedTables;
+        private readonly List<string> copiedTableNames = new List<string>();
+
+        // An engine or drivetrain just copied from FM4 (CopyPowertrain) whose id is inside FM3's own range (the largest id
+        // of the base game and every official package, docs/GameIdLimits.json) gets a free id above it. Such an id is not
+        // in the FM3 folder's database but can be a package's: FM3's 458 Italia of the Hot Holidays pack has engine 579 and
+        // drivetrain 527, the ids the Horizon 458s carry too, and the copies written under those ids crashed the game when
+        // the car was bought (user 2026-11-21). The rows move with their own keys (Id = id * 1000 + n) and the car's
+        // List_UpgradeEngine / List_UpgradeDrivetrain rows follow; nothing else in FM3 points at them. Returns the id used.
+        private long MoveOutOfGameRange(Dictionary<string, List<string>> to, string owner, string key, string carTable, long id)
+        {
+            long largest = GameIdLimits.Max(ForzaGame.Motorsport3, owner, key);
+            bool elsewhere = this.TakenElsewhere(owner, id);   // above FM3's range but an installed pack's (or the DEV folder's) already
+            if ((largest < 0 || id > largest) && !elsewhere)
+            {
+                return id;
+            }
+            long fresh = this.FreeId(owner, key);
+            int rows = 0;
+            foreach (string table in this.copiedTableNames)
+            {
+                string k = SqliteDatabase.Quote(key);
+                if (Has(to[table], "Id") && table != owner)
+                {
+                    this.target.Execute("UPDATE " + SqliteDatabase.Quote(table) + " SET Id = ? * 1000 + (Id % 1000) WHERE " + k + " = ? AND Id / 1000 = ?", fresh, id, id);
+                }
+                rows += Convert.ToInt32(this.target.Scalar("SELECT count(*) FROM " + SqliteDatabase.Quote(table) + " WHERE " + k + " = ?", id), CultureInfo.InvariantCulture);
+                this.target.Execute("UPDATE " + SqliteDatabase.Quote(table) + " SET " + k + " = ? WHERE " + k + " = ?", fresh, id);
+            }
+            this.target.Execute("UPDATE " + SqliteDatabase.Quote(carTable) + " SET " + SqliteDatabase.Quote(key) + " = ? WHERE Ordinal = ? AND " + SqliteDatabase.Quote(key) + " = ?", fresh, this.carId, id);
+            this.Line(elsewhere ? "  {0} {1} is used by an installed pack or the other FM3 folder: written as {3} ({4} rows)"
+                : "  {0} {1} is inside FM3's own range (up to {2}, base game and packages): written as {3} so it cannot meet a package's ({4} rows)", key, id, largest, fresh, rows);
+            return fresh;
+        }
 
         // An engine or drivetrain FM4 has and FM3 lacks: its row of owner (Data_Engine / Data_Drivetrain) and the rows of the List_Upgrade tables
         // keyed by it, FM3-only columns from the donor's engine or drivetrain, then what those rows point at that FM3 lacks (engine configs,
@@ -286,11 +452,13 @@ namespace ForzaStudio
                     tables.Add(name);
                 }
             }
+            this.copiedTableNames.Clear();
             foreach (string table in tables)
             {
                 if (this.CopyRows(table, from[table], to[table], where, donorWhere, false) > 0)
                 {
                     this.copiedTables++;
+                    this.copiedTableNames.Add(table);
                 }
             }
             foreach (GameDbSchema.Relation relation in GameDbSchema.From(owner))
@@ -389,7 +557,7 @@ namespace ForzaStudio
                     this.Line("  engine {0} ({1}): FM3's own", engine, present);
                     continue;
                 }
-                object replacement = this.target.Scalar("SELECT EngineID FROM List_UpgradeEngine WHERE Ordinal = ? AND EngineID <> ? ORDER BY EngineID LIMIT 1", this.donorId, engine);
+                object replacement = this.donorDb.Scalar("SELECT EngineID FROM List_UpgradeEngine WHERE Ordinal = ? AND EngineID <> ? ORDER BY EngineID LIMIT 1", this.donorId, engine);
                 if (replacement == null)
                 {
                     throw new InvalidOperationException("Engine " + engine + " is not in FM3 and the donor has none.");
@@ -397,8 +565,10 @@ namespace ForzaStudio
                 if (present == null && media != null)
                 {
                     this.CopyPowertrain(from, to, "Data_Engine", "EngineID", engine, Convert.ToInt64(replacement, CultureInfo.InvariantCulture));
-                    this.ConvertTorqueCurves(to, engine, Convert.ToInt64(replacement, CultureInfo.InvariantCulture));
-                    this.Line("  engine {0} ({1}): not in FM3, copied from FM4 (rows of {2} engine tables, torque curves converted)", engine, media, this.copiedTables);
+                    long engineAs = this.MoveOutOfGameRange(to, "Data_Engine", "EngineID", "List_UpgradeEngine", engine);
+                    this.ConvertTorqueCurves(to, engineAs, Convert.ToInt64(replacement, CultureInfo.InvariantCulture));
+                    this.Line("  engine {0} ({1}): not in FM3's folder, copied from FM4 (rows of {2} engine tables, torque curves converted){3}", engine, media, this.copiedTables,
+                        (engineAs != engine) ? " as engine " + engineAs : "");
                     continue;
                 }
                 this.target.Execute("UPDATE List_UpgradeEngine SET EngineID = ? WHERE Ordinal = ? AND EngineID = ?", replacement, this.carId, engine);
@@ -412,7 +582,7 @@ namespace ForzaStudio
                     this.Line("  drivetrain {0}: FM3's own", drivetrain);
                     continue;
                 }
-                object replacement = this.target.Scalar("SELECT DrivetrainID FROM List_UpgradeDrivetrain WHERE Ordinal = ? AND DrivetrainID <> ? ORDER BY DrivetrainID LIMIT 1", this.donorId, drivetrain);
+                object replacement = this.donorDb.Scalar("SELECT DrivetrainID FROM List_UpgradeDrivetrain WHERE Ordinal = ? AND DrivetrainID <> ? ORDER BY DrivetrainID LIMIT 1", this.donorId, drivetrain);
                 if (replacement == null)
                 {
                     throw new InvalidOperationException("Drivetrain " + drivetrain + " is not in FM3 and the donor has none.");
@@ -420,7 +590,8 @@ namespace ForzaStudio
                 if (Convert.ToInt64(this.source.Scalar("SELECT count(*) FROM Data_Drivetrain WHERE DrivetrainID = ?", drivetrain), CultureInfo.InvariantCulture) > 0)
                 {
                     this.CopyPowertrain(from, to, "Data_Drivetrain", "DrivetrainID", drivetrain, Convert.ToInt64(replacement, CultureInfo.InvariantCulture));
-                    this.Line("  drivetrain {0}: not in FM3, copied from FM4 (rows of {1} drivetrain tables)", drivetrain, this.copiedTables);
+                    long drivetrainAs = this.MoveOutOfGameRange(to, "Data_Drivetrain", "DrivetrainID", "List_UpgradeDrivetrain", drivetrain);
+                    this.Line("  drivetrain {0}: not in FM3's folder, copied from FM4 (rows of {1} drivetrain tables){2}", drivetrain, this.copiedTables, (drivetrainAs != drivetrain) ? " as drivetrain " + drivetrainAs : "");
                     continue;
                 }
                 this.target.Execute("UPDATE List_UpgradeDrivetrain SET DrivetrainID = ? WHERE Ordinal = ? AND DrivetrainID = ?", replacement, this.carId, drivetrain);
@@ -444,19 +615,63 @@ namespace ForzaStudio
                 this.wheelIds.Add(id);
                 return;
             }
+            if (present != null)
+            {
+                // The id is another wheel's here (an earlier car of the pack): CopyRows would write the row under a free id but the
+                // car would keep pointing at the other wheel (pack FM2_TEST 2026-11-22: five cars on the RX-7's wheel). The free id
+                // is chosen first and the car's rows follow it.
+                long fresh = this.FreeId("List_Wheels", "ID");
+                this.source.Execute("UPDATE List_Wheels SET ID = ? WHERE ID = ?", fresh, id);
+                if (DbIds.HasTable(this.source, "WheelExceptions"))
+                {
+                    this.source.Execute("UPDATE WheelExceptions SET WheelID = ? WHERE WheelID = ?", fresh, id);
+                }
+                this.source.Execute("UPDATE Data_Car SET StockWheelID = ? WHERE Id = ?", fresh, this.carId);
+                this.target.Execute("UPDATE Data_Car SET StockWheelID = ? WHERE Id = ?", fresh, this.carId);
+                this.Line("  wheel {0} ({1}): the id is {2}'s in this folder, written as wheel {3}", id, media, present, fresh);
+                id = fresh;
+            }
             this.CopyRows("List_Wheels", from["List_Wheels"], to["List_Wheels"], "ID = " + id, "ID = (SELECT StockWheelID FROM Data_Car WHERE Id = " + this.donorId + ")", false);
             if (from.ContainsKey("WheelExceptions") && to.ContainsKey("WheelExceptions"))
             {
                 this.CopyRows("WheelExceptions", from["WheelExceptions"], to["WheelExceptions"], "WheelID = " + id, "WheelID = (SELECT StockWheelID FROM Data_Car WHERE Id = " + this.donorId + ")", false);
             }
             this.wheelIds.Add(id);
-            this.Line("  wheel {0} ({1}): not in FM3, its rows added and its zip converted", id, media);
+            this.Line("  wheel {0} ({1}): not in FM3's folder, its rows added and its zip converted", id, media);
+            // As for engines (MoveOutOfGameRange): a wheel id inside FM3's own range can be a package's (the 458 Italia's
+            // wheel 10722 is in the Hot Holidays pack, with a zip of the same name). It gets a free id and the ported car's
+            // name, the name the game gives a car's stock wheel, so neither its rows nor its zip can meet a package's.
+            long largest = GameIdLimits.Max(ForzaGame.Motorsport3, "List_Wheels", "ID");
+            bool elsewhere = this.TakenElsewhere("List_Wheels", id);   // an installed pack's wheel id (or the other FM3 folder's)
+            if (((largest >= 0 && id <= largest) || elsewhere) && media is string)
+            {
+                long fresh = this.FreeId("List_Wheels", "ID");
+                string name = this.carName;
+                if (Convert.ToInt64(this.target.Scalar("SELECT count(*) FROM List_Wheels WHERE MediaName = ? COLLATE NOCASE AND ID <> ?", name, id), CultureInfo.InvariantCulture) > 0
+                    || GamePaths.FindMedia(this.TargetRoot, "wheels", name) != null)
+                {
+                    name = (string) media;      // FM3 has a wheel of the car's name already: only the id moves
+                }
+                this.target.Execute("UPDATE List_Wheels SET ID = ?, MediaName = ? WHERE ID = ?", fresh, name, id);
+                if (to.ContainsKey("WheelExceptions"))
+                {
+                    this.target.Execute("UPDATE WheelExceptions SET WheelID = ? WHERE WheelID = ?", fresh, id);
+                }
+                this.target.Execute("UPDATE Data_Car SET StockWheelID = ? WHERE Id = ? AND StockWheelID = ?", fresh, this.carId, id);
+                if (!string.Equals(name, (string) media, StringComparison.OrdinalIgnoreCase))
+                {
+                    this.wheelNames[(string) media] = name;
+                }
+                this.Line("  wheel id {0} is inside FM3's own range (up to {1}, base game and packages): written as wheel {2} named {3}", id, largest, fresh, name);
+            }
         }
+
+        private readonly Dictionary<string, string> wheelNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // source wheel MediaName -> the name it is written under
 
         // Data_Car: the donor's FM3 row, the shared columns from the FM4 row but the FM3 ones (GaugeID, FM3-only columns).
         private void PortCarRow(List<string> fromColumns, List<string> toColumns)
         {
-            SqliteDatabase.Result donor = this.target.Query("SELECT * FROM Data_Car WHERE Id = ?", this.donorId);
+            SqliteDatabase.Result donor = this.donorDb.Query("SELECT * FROM Data_Car WHERE Id = ?", this.donorId);
             SqliteDatabase.Result row = this.source.Query("SELECT * FROM Data_Car WHERE Id = ?", this.carId);
             if (row.Rows.Count == 0 || donor.Rows.Count == 0)
             {
@@ -473,6 +688,21 @@ namespace ForzaStudio
                 }
             }
             int makeIndex = toColumns.FindIndex(delegate(string c) { return c == "MakeID"; });
+            int arcadeIndex = toColumns.FindIndex(delegate(string c) { return c == "IsArcade"; });
+            if (arcadeIndex >= 0)
+            {
+                values[arcadeIndex] = this.Arcade ? 1L : 0L;
+                this.Line("Data_Car IsArcade {0} (the window's choice)", this.Arcade ? 1 : 0);
+            }
+            if (makeIndex >= 0 && this.MakeId.HasValue)
+            {
+                if (Convert.ToInt64(this.target.Scalar("SELECT count(*) FROM List_CarMake WHERE ID = ?", this.MakeId.Value)) == 0)
+                {
+                    throw new InvalidOperationException("FM3 has no make " + this.MakeId.Value + " (a new make is written into the folder before the car).");
+                }
+                values[makeIndex] = this.MakeId.Value;
+                this.Line("make: FM3's make {0} (the window's choice)", this.MakeId.Value);
+            }
             if (makeIndex >= 0 && Convert.ToInt64(this.target.Scalar("SELECT count(*) FROM List_CarMake WHERE ID = ?", values[makeIndex])) == 0)
             {
                 this.PortMake(Convert.ToInt64(values[makeIndex], CultureInfo.InvariantCulture));
@@ -520,7 +750,7 @@ namespace ForzaStudio
             {
                 return 0;
             }
-            SqliteDatabase.Result template = this.target.Query("SELECT * FROM " + SqliteDatabase.Quote(table) + " WHERE " + donorWhere + " LIMIT 1");
+            SqliteDatabase.Result template = this.donorDb.Query("SELECT * FROM " + SqliteDatabase.Quote(table) + " WHERE " + donorWhere + " LIMIT 1");
             if (template.Rows.Count == 0)
             {
                 template = this.target.Query("SELECT * FROM " + SqliteDatabase.Quote(table) + " LIMIT 1");
@@ -657,12 +887,19 @@ namespace ForzaStudio
                             break;
                         }
                     }
+                    if (text == null)
+                    {
+                        // The source table of this language lacks the key (FM2 / FH names staged in some languages only): the
+                        // English text, as the comment above says. A language left out made the pack's CHS Data_Car.str
+                        // unchanged, so the pack had no CHS table at all (validator ERROR, 2026-11-22).
+                        text = FindKey(sourceFiles, "EN", key);
+                    }
                     if (text != null)
                     {
                         language.Value.Set(next, text.Text, text.Name);
                     }
                 }
-                object donorValue = this.target.Scalar("SELECT " + columns[c] + " FROM Data_Car WHERE Id = ?", this.donorId);
+                object donorValue = this.donorDb.Scalar("SELECT " + columns[c] + " FROM Data_Car WHERE Id = ?", this.donorId);
                 uint high = 0;
                 if (donorValue is string && ((string) donorValue).StartsWith("_&"))
                 {
@@ -684,6 +921,23 @@ namespace ForzaStudio
             this.Line("strings: {0} keys in Data_Car.str of {1} languages", columns.Length, targetFiles.Count);
         }
 
+        private static StrFile.Entry FindKey(Dictionary<string, StrFile> files, string language, int key)
+        {
+            StrFile file;
+            if (!files.TryGetValue(language, out file))
+            {
+                return null;
+            }
+            foreach (StrFile.Entry entry in file.Entries)
+            {
+                if (entry.Key == key)
+                {
+                    return entry;
+                }
+            }
+            return null;
+        }
+
         #endregion
 
         #region Zips
@@ -694,12 +948,104 @@ namespace ForzaStudio
             {
                 this.DonorMediaName = this.MediaName;
             }
-            this.donorZip = GamePaths.FindMedia(this.TargetRoot, "cars", this.DonorMediaName);
-            if (this.donorZip == null || this.target.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.DonorMediaName) == null)
+            // A template car of an FM3 package (second disc or DLC, user 2026-11-21: "i donor li voglio anche dai dlc come per
+            // fm4"): DonorRoot is the package laid out as a game folder (DlcSource.Stage + Materialize, by the caller). Its
+            // rows are read from a copy of FM3's database with the package's rows put in; nothing of it is written to the
+            // result, and the package itself is only read.
+            this.donorDb = this.target;
+            if (this.DonorRoot != null && this.target.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.DonorMediaName) == null)
             {
-                throw new InvalidOperationException("The FM3 donor car " + this.DonorMediaName + " has no zip or no database row in the FM3 folder: choose another donor.");
+                string packDb = this.Db(this.DonorRoot);
+                if (File.Exists(packDb))
+                {
+                    this.donorDb = SqliteDatabase.FromBytes(this.target.ToBytes());
+                    DlcSource.MergeRows(this.donorDb, packDb);
+                }
+            }
+            this.donorZip = this.FindDonorMedia("cars", this.DonorMediaName);
+            if (this.donorZip == null || this.donorDb.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.DonorMediaName) == null)
+            {
+                throw new InvalidOperationException("The FM3 template car " + this.DonorMediaName + " has no zip or no database row, in the FM3 folder or in its package: choose another one.");
             }
         }
+
+        // A zip of the template car (or its wheel): the FM3 folder's, else its package's.
+        private string FindDonorMedia(string folder, string name)
+        {
+            if (name == null)
+            {
+                return null;
+            }
+            return GamePaths.FindMedia(this.TargetRoot, folder, name) ?? ((this.DonorRoot == null) ? null : GamePaths.FindMedia(this.DonorRoot, folder, name));
+        }
+
+        // A car of the FM3 folder itself (zip in Media\cars, picture in UI\Textures.zip, stock wheel zip): the model for what
+        // must exist in the folder when the template car is a package car (its zipmanifest line, the thumbnail's place).
+        // Id, MediaName, Thumbnail, stock wheel MediaName; empty strings when the folder has none.
+        private string[] folderCar;
+
+        private string[] FolderCar()
+        {
+            if (this.folderCar != null)
+            {
+                return this.folderCar;
+            }
+            this.folderCar = new string[] { "", "", "", "" };
+            foreach (object[] row in this.target.Query("SELECT c.Id, c.MediaName, c.Thumbnail, w.MediaName FROM Data_Car c LEFT JOIN List_Wheels w ON w.ID = c.StockWheelID ORDER BY c.Id").Rows)
+            {
+                string media = row[1] as string;
+                string picture = row[2] as string;
+                string wheel = row[3] as string;
+                if (media == null || picture == null || wheel == null || GamePaths.FindMedia(this.TargetRoot, "cars", media) == null || GamePaths.FindMedia(this.TargetRoot, "wheels", wheel) == null)
+                {
+                    continue;
+                }
+                GamePaths.GameFile file = GamePaths.Locate(this.TargetRoot, picture);
+                if (file != null && file.InZip)
+                {
+                    this.folderCar = new string[] { Convert.ToString(row[0], CultureInfo.InvariantCulture), media, picture, wheel };
+                    break;
+                }
+            }
+            return this.folderCar;
+        }
+
+        // Databases whose car ids the new car must not take (OtherDatabases): the FM3 game folders besides the target (its test
+        // copy <folder>_DEV and the folder it is the copy of) and the merge databases of the FM3 packages in Xenia.
+        public string XeniaContent;     // Xenia's FM3 content folder, or null
+
+        private List<SqliteDatabase> OtherDatabases()
+        {
+            List<SqliteDatabase> found = new List<SqliteDatabase>();
+            List<string> paths = new List<string>();
+            string root = this.TargetRoot.TrimEnd('\\', '/');
+            foreach (string folder in new string[] { root + "_DEV", root.EndsWith("_DEV", StringComparison.OrdinalIgnoreCase) ? root.Substring(0, root.Length - 4) : null })
+            {
+                if (folder != null && File.Exists(this.Db(folder)))
+                {
+                    paths.Add(this.Db(folder));
+                }
+            }
+            paths.AddRange(DbIds.PackDatabases(this.XeniaContent));
+            foreach (string path in paths)
+            {
+                try
+                {
+                    found.Add(SqliteDatabase.FromBytes(File.ReadAllBytes(path)));
+                }
+                catch (Exception)
+                {
+                }
+            }
+            if (paths.Count > 0)
+            {
+                this.Line("car id: free also in {0} other database(s) (the game folder's test copy or original, FM3 packages in Xenia)", found.Count);
+            }
+            return found;
+        }
+
+        public string DonorRoot;        // the template car is a car of an FM3 package: that package laid out as a game folder (else null)
+        private SqliteDatabase donorDb; // where the template car's rows are read: FM3's database, or a copy with the package's rows
 
         private void BuildCarZip()
         {
@@ -737,7 +1083,7 @@ namespace ForzaStudio
                 {
                     CarbinModel model = new CarbinModel(data);
                     model.ConvertMotorsport4ToMotorsport3();
-                    this.RenameMaterials(model);
+                    this.RenameMaterials(model, name);
                     data = model.ToBytes();
                     if (name.Contains("_caliper") || name.Contains("_rotor"))
                     {
@@ -758,6 +1104,7 @@ namespace ForzaStudio
             }
             string target = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "Cars"), this.carName + ".zip");
             this.Line("car zip: {0} models, {1} textures converted, {2} entries (headers of {3})", models, textures, car.Entries.Count, this.DonorMediaName);
+            this.ReviewMaterials();
             this.SaveNew(car, target, null);
             this.PortDash(from);
         }
@@ -902,7 +1249,25 @@ namespace ForzaStudio
         // Materials FM4 added that FM3 draws with another name (lights_glass is FM3's detail_glass_clear on the Supra's headlights).
         private static readonly string[][] MaterialNames = { new string[] { "lights_glass", "detail_glass_clear" } };
 
-        private void RenameMaterials(CarbinModel model)
+        // The review of the car's materials for FM3 (2026-11-21; the target is FM3, so FM3's cars are the measure): a
+        // material no FM3 car uses in that kind of file and LOD (ShaderProfiles.IsUsed, the survey of FM3's 311 cars) is an
+        // issue, with FM3's own materials as choices. A fix (Fixes "material:<name>" -> an FM3 material) is the user's
+        // choice, done here on every model file, brakes included; where the chosen name is not FM3's in a file but its
+        // _lod0 twin is (tail_light / tail_light_lod0), the twin is written. Nothing is renamed on its own.
+        public Dictionary<string, object> Fixes;
+        public readonly List<CarPort.Issue> Issues = new List<CarPort.Issue>();
+        private readonly List<string> unknownOrder = new List<string>();
+        private readonly Dictionary<string, List<string>> unknownParts = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<string[]>> unknownPlaces = new Dictionary<string, List<string[]>>(StringComparer.Ordinal);   // list, part
+        private readonly Dictionary<string, List<string>> unknownNow = new Dictionary<string, List<string>>(StringComparer.Ordinal);          // the names a fix gave it
+        private int materialsRenamed;
+
+        private static string LodTwin(string material)
+        {
+            return material.EndsWith("_lod0", StringComparison.Ordinal) ? material.Substring(0, material.Length - 5) : material + "_lod0";
+        }
+
+        private void RenameMaterials(CarbinModel model, string fileName)
         {
             foreach (CarbinModel.Section section in model.Sections)
             {
@@ -915,7 +1280,145 @@ namespace ForzaStudio
                             sub.Name = pair[1];
                         }
                     }
+                    string original = sub.Name;
+                    string list = Fm4MaterialUse.ListName(false, fileName, sub.Lod);
+                    object chosen;
+                    if (this.Fixes != null && this.Fixes.TryGetValue("material:" + original, out chosen) && chosen is string && ((string) chosen).Length > 0)
+                    {
+                        string to = (string) chosen;
+                        if (!ShaderProfiles.IsUsed(ShaderProfile.Fm3, list, to) && ShaderProfiles.IsUsed(ShaderProfile.Fm3, list, LodTwin(to)))
+                        {
+                            to = LodTwin(to);
+                        }
+                        if (to != original)
+                        {
+                            sub.Name = to;
+                            this.materialsRenamed++;
+                        }
+                    }
+                    if (ShaderProfiles.IsUsed(ShaderProfile.Fm3, list, sub.Name))
+                    {
+                        continue;
+                    }
+                    if (!this.unknownParts.ContainsKey(original))
+                    {
+                        this.unknownOrder.Add(original);
+                        this.unknownParts[original] = new List<string>();
+                        this.unknownPlaces[original] = new List<string[]>();
+                        this.unknownNow[original] = new List<string>();
+                    }
+                    if (!this.unknownParts[original].Contains(section.Name))
+                    {
+                        this.unknownParts[original].Add(section.Name);
+                    }
+                    string part = section.Name;
+                    if (!this.unknownPlaces[original].Exists(delegate(string[] p) { return p[0] == list && p[1] == part; }))
+                    {
+                        this.unknownPlaces[original].Add(new string[] { list, part });
+                    }
+                    if (sub.Name != original && !this.unknownNow[original].Contains(sub.Name))
+                    {
+                        this.unknownNow[original].Add(sub.Name);
+                    }
                 }
+            }
+        }
+
+        // The issues of the materials RenameMaterials found not FM3's, with their choices: first what FM3's cars give those
+        // parts (recommended: the materials found on the most of them, then on the most cars), then FM3's other materials
+        // of those lists. Names are shown once (tail_light stands for tail_light_lod0 too, see RenameMaterials).
+        private void ReviewMaterials()
+        {
+            if (this.materialsRenamed > 0)
+            {
+                this.Line("materials: {0} mesh(es) renamed to the FM3 material chosen in the review", this.materialsRenamed);
+            }
+            List<string> left = new List<string>();
+            foreach (string material in this.unknownOrder)
+            {
+                string where = string.Join(" ", this.unknownParts[material].ToArray());
+                CarPort.Issue issue = new CarPort.Issue();
+                issue.Key = "material:" + material;
+                issue.Kind = "material";
+                issue.Where = where;
+                issue.Value = material;
+                Dictionary<string, Dictionary<string, int>> byPart = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);   // material -> part -> cars
+                List<string> others = new List<string>();
+                foreach (string[] place in this.unknownPlaces[material])
+                {
+                    foreach (KeyValuePair<string, int> pair in ShaderProfiles.PartMaterials(ShaderProfile.Fm3, place[0], place[1]))
+                    {
+                        string name = pair.Key.EndsWith("_lod0", StringComparison.Ordinal) ? LodTwin(pair.Key) : pair.Key;
+                        Dictionary<string, int> cars;
+                        if (!byPart.TryGetValue(name, out cars))
+                        {
+                            cars = new Dictionary<string, int>(StringComparer.Ordinal);
+                            byPart[name] = cars;
+                        }
+                        int before;
+                        cars.TryGetValue(place[1], out before);
+                        cars[place[1]] = Math.Max(before, pair.Value);
+                    }
+                    foreach (KeyValuePair<string, int> pair in ShaderProfiles.PartMaterials(ShaderProfile.Fm3, place[0], null))
+                    {
+                        string name = pair.Key.EndsWith("_lod0", StringComparison.Ordinal) ? LodTwin(pair.Key) : pair.Key;
+                        if (!others.Contains(name))
+                        {
+                            others.Add(name);
+                        }
+                    }
+                }
+                int partCount = this.unknownParts[material].Count;
+                List<string> ranked = new List<string>(byPart.Keys);
+                ranked.Sort(delegate(string a, string b)
+                {
+                    int c = byPart[b].Count.CompareTo(byPart[a].Count);
+                    if (c == 0)
+                    {
+                        c = byPart[b].Values.Max().CompareTo(byPart[a].Values.Max());
+                    }
+                    return (c != 0) ? c : string.CompareOrdinal(a, b);
+                });
+                foreach (string name in ranked)
+                {
+                    CarPort.Choice choice = new CarPort.Choice();
+                    choice.Value = name;
+                    choice.Label = (partCount > 1)
+                        ? string.Format(CultureInfo.InvariantCulture, "{0}   (FM3: on {1} of these {2} parts, up to {3} cars)", name, byPart[name].Count, partCount, byPart[name].Values.Max())
+                        : string.Format(CultureInfo.InvariantCulture, "{0}   (FM3: {1} cars on {2})", name, byPart[name].Values.Max(), where);
+                    choice.Recommended = issue.Choices.Count < 10;
+                    issue.Choices.Add(choice);
+                }
+                others.Sort(StringComparer.OrdinalIgnoreCase);
+                foreach (string name in others)
+                {
+                    if (!byPart.ContainsKey(name))
+                    {
+                        CarPort.Choice choice = new CarPort.Choice();
+                        choice.Value = name;
+                        choice.Label = name;
+                        issue.Choices.Add(choice);
+                    }
+                }
+                List<string> now = this.unknownNow[material];
+                issue.Problem = (now.Count > 0)
+                    ? string.Format("material {0}, now {1}: no FM3 car uses that there (renders black)", material, string.Join(" / ", now.ToArray()))
+                    : string.Format("material {0}: no FM3 car uses it there (renders black)", material);
+                if (ranked.Count > 0)
+                {
+                    issue.Problem += "; FM3 cars use " + ranked[0] + " most there";
+                }
+                issue.Suggested = null;     // the user picks
+                this.Issues.Add(issue);
+                left.Add((now.Count > 0) ? material + " (now " + string.Join(" / ", now.ToArray()) + ")" : material);
+            }
+            if (left.Count > 0)
+            {
+                this.Line("WARNING materials: {0} material(s) no FM3 car uses may render black; choose a fix in the Review tab (or Rename Material in the editor): {1}", left.Count, string.Join(", ", left.ToArray()));
+            }
+            else
+            {
+                this.Line("materials: every material of the car's models is one FM3's cars use in that kind of file and LOD");
             }
         }
 
@@ -924,15 +1427,20 @@ namespace ForzaStudio
             foreach (long id in this.wheelIds)
             {
                 string media = this.source.Scalar("SELECT MediaName FROM List_Wheels WHERE ID = ?", id) as string;
-                string targetZip = GamePaths.FindMedia(this.TargetRoot, "wheels", media);
+                string writeAs;
+                if (!this.wheelNames.TryGetValue(media ?? "", out writeAs))
+                {
+                    writeAs = media;    // PortWheel renames a wheel whose id is inside FM3's own range
+                }
+                string targetZip = GamePaths.FindMedia(this.TargetRoot, "wheels", writeAs);
                 if (targetZip != null)
                 {
                     this.Line("wheel zip {0}: FM3 has it, kept", media);
                     continue;
                 }
                 string path = this.FindSourceMedia("wheels", media);
-                string donorWheel = this.target.Scalar("SELECT w.MediaName FROM List_Wheels w JOIN Data_Car c ON c.StockWheelID = w.ID WHERE c.Id = ?", this.donorId) as string;
-                string donorPath = (donorWheel == null) ? null : GamePaths.FindMedia(this.TargetRoot, "wheels", donorWheel);
+                string donorWheel = this.donorDb.Scalar("SELECT w.MediaName FROM List_Wheels w JOIN Data_Car c ON c.StockWheelID = w.ID WHERE c.Id = ?", this.donorId) as string;
+                string donorPath = (donorWheel == null) ? null : this.FindDonorMedia("wheels", donorWheel);
                 if (path == null || donorPath == null)
                 {
                     this.Line("wheel zip {0}: not found, skipped", media);
@@ -951,22 +1459,47 @@ namespace ForzaStudio
                     if (name.EndsWith(".carbin"))
                     {
                         CarbinModel model = new CarbinModel(data);
-                        model.ConvertMotorsport4ToMotorsport3();
+                        if (model.Type == 3)
+                        {
+                            // FM3 draws the stock wheel at 1.085 x the car's nominal rim radius (no morph): the conversion sizes LOD 0
+                            // when the model is outside the band of FM3's own wheels (FM2 rims are modelled smaller).
+                            object inches = this.target.Scalar("SELECT FrontWheelDiameterIN FROM Data_Car WHERE Id = ?", this.carId);
+                            if (inches != null && !(inches is DBNull))
+                            {
+                                model.Motorsport3WheelRadius = 1.085 * Convert.ToDouble(inches, CultureInfo.InvariantCulture) * 0.0127;
+                            }
+                            // FM3 fits its tire on the LOD 0 wheel_black ring; a wheel without it (FM2-born) shows no tire.
+                            string seat = model.AddTireSeatRing();
+                            if (seat != null)
+                            {
+                                this.Line("  wheel {0}: {1}", media, seat);
+                            }
+                        }
+                        string converted = model.ConvertMotorsport4ToMotorsport3();
+                        foreach (string line in (converted ?? "").Replace("\r\n", "\n").Split('\n'))
+                        {
+                            if (line.Contains("sized for FM3"))
+                            {
+                                this.Line("  wheel {0}: {1}", media, line.Trim());
+                            }
+                        }
                         data = model.ToBytes();
                     }
                     else if (name.EndsWith(".xds"))
                     {
                         data = Fm3Textures.FromMotorsport4(data, name);
                     }
-                    wheel.Add(name, data);
+                    wheel.Add((writeAs != media && name == media.ToLowerInvariant() + ".carbin") ? writeAs.ToLowerInvariant() + ".carbin" : name, data);
                     // FM3 keeps a copy of each wheelN.xds as wheelN_lod0.xds (FM4 shares the file).
-                    if (name.StartsWith("wheel") && name.EndsWith(".xds") && !name.Contains("_lod0") && name != "wheel.xds")
+                    // A wheel that came from Forza Horizon carries its own wheelN_lod0.xds (as FM3's do): that file is used.
+                    if (name.StartsWith("wheel") && name.EndsWith(".xds") && !name.Contains("_lod0") && name != "wheel.xds"
+                        && from.Find(name.Replace(".xds", "_lod0.xds")) == null)
                     {
                         wheel.Add(name.Replace(".xds", "_lod0.xds"), data);
                     }
                 }
-                string target = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "Wheels"), media + ".zip");
-                this.Line("wheel zip {0}: {1} entries (headers of {2})", media, wheel.Entries.Count, donorWheel);
+                string target = Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "Wheels"), writeAs + ".zip");
+                this.Line("wheel zip {0}: {1} entries (headers of {2})", writeAs, wheel.Entries.Count, donorWheel);
                 this.SaveNew(wheel, target, null);
             }
         }
@@ -1005,7 +1538,12 @@ namespace ForzaStudio
             {
                 bool wheel = path.IndexOf(Path.DirectorySeparatorChar + "Wheels" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) >= 0;
                 string explicitLike;
-                string like = this.newZipLike.TryGetValue(path, out explicitLike) ? explicitLike : wheel ? GamePaths.FindMedia(this.TargetRoot, "wheels", this.target.Scalar("SELECT w.MediaName FROM List_Wheels w JOIN Data_Car c ON c.StockWheelID = w.ID WHERE c.Id = ?", this.donorId) as string) : this.donorZip;
+                string like = this.newZipLike.TryGetValue(path, out explicitLike) ? explicitLike : wheel ? this.FindDonorMedia("wheels", this.donorDb.Scalar("SELECT w.MediaName FROM List_Wheels w JOIN Data_Car c ON c.StockWheelID = w.ID WHERE c.Id = ?", this.donorId) as string) : this.donorZip;
+                if (like == null || !like.StartsWith(this.TargetRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    // the template is a package car: its zip is not in FM3's manifest, the line of a car of the FM3 folder is the model
+                    like = wheel ? GamePaths.FindMedia(this.TargetRoot, "wheels", this.FolderCar()[3]) : GamePaths.FindMedia(this.TargetRoot, "cars", this.FolderCar()[1]);
+                }
                 if (like == null || !ZipManifest.Add(manifest, ZipManifest.GamePath(this.TargetRoot, path), this.Out(path), ZipManifest.GamePath(this.TargetRoot, like)))
                 {
                     this.Line("zipmanifest.xml: no line like {0} to copy for {1}", like, Path.GetFileName(path));
@@ -1192,9 +1730,10 @@ namespace ForzaStudio
         private void PortThumbnail()
         {
             string thumbnail = this.source.Scalar("SELECT Thumbnail FROM Data_Car WHERE Id = ?", this.carId) as string;
-            string donorThumbnail = this.target.Scalar("SELECT Thumbnail FROM Data_Car WHERE Id = ?", this.donorId) as string;
+            string donorThumbnail = this.donorDb.Scalar("SELECT Thumbnail FROM Data_Car WHERE Id = ?", this.donorId) as string;
             GamePaths.GameFile from = (this.PackRoot == null ? null : GamePaths.Locate(this.PackRoot, thumbnail)) ?? GamePaths.Locate(this.SourceRoot, thumbnail);
-            GamePaths.GameFile like = GamePaths.Locate(this.TargetRoot, donorThumbnail);
+            // a template car of a package has its picture in the package: the size and place are then those of a car of the FM3 folder
+            GamePaths.GameFile like = GamePaths.Locate(this.TargetRoot, donorThumbnail) ?? GamePaths.Locate(this.TargetRoot, this.FolderCar()[2]);
             if (from == null || like == null || !like.InZip)
             {
                 this.Line("thumbnail: not found, skipped (the row keeps the donor's picture)");
@@ -1699,6 +2238,25 @@ namespace ForzaStudio
         private void Line(string format, params object[] args)
         {
             this.Report.AppendLine(string.Format(CultureInfo.InvariantCulture, format, args));
+        }
+
+        // Port timings, as CarPort writes them: one per step, restarting the stopwatch.
+        internal static void Lap(System.Diagnostics.Stopwatch lap, List<KeyValuePair<string, double>> times, string step)
+        {
+            times.Add(new KeyValuePair<string, double>(step, lap.Elapsed.TotalSeconds));
+            lap.Reset();
+            lap.Start();
+        }
+
+        // The slowest steps first, those under a quarter of a second left out (as CarPort's report).
+        private void Times(List<KeyValuePair<string, double>> times)
+        {
+            List<KeyValuePair<string, double>> slow = times.FindAll(delegate(KeyValuePair<string, double> t) { return t.Value >= 0.25; });
+            slow.Sort(delegate(KeyValuePair<string, double> a, KeyValuePair<string, double> b) { return b.Value.CompareTo(a.Value); });
+            foreach (KeyValuePair<string, double> item in slow)
+            {
+                this.Line("time: {0} {1:0.0} s", item.Key, item.Value);
+            }
         }
 
         #endregion

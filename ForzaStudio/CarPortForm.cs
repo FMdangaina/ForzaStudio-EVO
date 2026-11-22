@@ -1398,7 +1398,7 @@ namespace ForzaStudio
             get { return (this.packList.SelectedItems.Count == 1) ? (PackEntry) this.packList.SelectedItems[0].Tag : null; }
         }
 
-        private static ComboBox BrakeCombo(Control parent, int x, int y, string[] items)
+        internal static ComboBox BrakeCombo(Control parent, int x, int y, string[] items)
         {
             ComboBox combo = new ComboBox();
             combo.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -1411,7 +1411,7 @@ namespace ForzaStudio
             return combo;
         }
 
-        private static TextBox BrakeAngle(Control parent, int x, int y, string proposed)
+        internal static TextBox BrakeAngle(Control parent, int x, int y, string proposed)
         {
             TextBox box = new TextBox();
             box.Location = new Point(x, y);
@@ -2531,7 +2531,7 @@ namespace ForzaStudio
         }
 
         // "the source's" and FM4's makes (List_CarMake), by name, for the make choice.
-        private static List<CarPort.Choice> Makes(string target)
+        internal static List<CarPort.Choice> Makes(string target)
         {
             List<CarPort.Choice> makes = new List<CarPort.Choice>();
             StringTable names = Names(target);

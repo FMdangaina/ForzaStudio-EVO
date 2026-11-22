@@ -651,6 +651,23 @@ namespace ForzaStudio
                         break;
                     }
                 }
+                // The new and changed entries are compressed first, on all cores (user 2026-11-22, trial times: a car zip's LZX
+                // 5.5 s one by one, 1.4 s like this). Each entry has its own compression context: the bytes are the same.
+                List<Entry> changed = this.Entries.FindAll(delegate(Entry e) { return !e.deleted && e.Replacement != null; });
+                Dictionary<Entry, byte[]> packedOf = new Dictionary<Entry, byte[]>();
+                Dictionary<Entry, uint> crcOf = new Dictionary<Entry, uint>();
+                byte[][] packedAll = new byte[changed.Count][];
+                uint[] crcAll = new uint[changed.Count];
+                System.Threading.Tasks.Parallel.For(0, changed.Count, delegate(int i)
+                {
+                    packedAll[i] = Compress(changed[i].Method, changed[i].Replacement);
+                    crcAll[i] = Crc32(changed[i].Replacement);
+                });
+                for (int i = 0; i < changed.Count; i++)
+                {
+                    packedOf[changed[i]] = packedAll[i];
+                    crcOf[changed[i]] = crcAll[i];
+                }
                 foreach (Entry entry in this.Entries)
                 {
                     if (entry.deleted)
@@ -662,8 +679,8 @@ namespace ForzaStudio
                     int uncompressed = entry.UncompressedSize;
                     if (entry.Replacement != null)
                     {
-                        data = Compress(entry.Method, entry.Replacement);
-                        crc = Crc32(entry.Replacement);
+                        data = packedOf[entry];
+                        crc = crcOf[entry];
                         uncompressed = entry.Replacement.Length;
                     }
                     else

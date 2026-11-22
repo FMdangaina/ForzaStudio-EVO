@@ -89,6 +89,28 @@ namespace ForzaStudio
             get { return Packs.Values; }
         }
 
+        // The official package of the game (second disc or DLC) that holds a car of this MediaName, or null. Such a car is
+        // not in the game folder's database or Media\cars, but the game has it once the package is installed: a port must
+        // not use its name (FM3's 458 Italia FER_F142_10 is a package car: a second FER_F142_10 crashed the game, 2026-11-21).
+        public static Pack PackOf(ForzaGame game, string mediaName)
+        {
+            foreach (Pack pack in Packs.Values)
+            {
+                if (pack.Game != game)
+                {
+                    continue;
+                }
+                foreach (CarRow car in pack.Cars)
+                {
+                    if (string.Equals(car.MediaName, mediaName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return pack;
+                    }
+                }
+            }
+            return null;
+        }
+
         // The STFS header of a package file (0x500 bytes read), or null when the file is not a package.
         public static Header ReadHeader(string file)
         {

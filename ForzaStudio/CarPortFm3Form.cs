@@ -14,7 +14,7 @@ namespace ForzaStudio
     // The same screen as the FM4 window (CarPortForm): brand bar and game banner, the two game folders, the cars, the selected car's
     // template, the pack on the right (Dlc), the report under both. The folders start from Tools > Settings (FM4 = the port target,
     // FM3 = Folder.FM3, Xenia) and the last ones used. Own class because CarPortForm is built around FM4 as the target.
-    internal sealed class CarPortFm3Form : Form
+    internal sealed partial class CarPortFm3Form : Form
     {
         private sealed class SourceCar
         {
@@ -32,6 +32,7 @@ namespace ForzaStudio
         {
             public SourceCar Car;
             public string Donor;
+            public CarChoices Choices;  // arcade, make, sound, brakes chosen when the car was added
         }
 
         private readonly PortMode mode;
@@ -68,7 +69,18 @@ namespace ForzaStudio
         private Button buildXbox;
         private Button removeXenia;
         private string packTrialFolder;
+        private Dictionary<string, Dictionary<string, object>> packTrialFixes;   // the fixes each car of the pack trial was made with
         private bool busy;
+        private Panel fixPanel;
+        private Label fixTitle;
+        private DataGridView fixGrid;
+        private TabPage reviewPage;
+        private string fixCar;
+        private bool showingFixes;
+        private readonly Dictionary<string, Dictionary<string, object>> fixes = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);       // car -> issue key -> chosen value
+        private readonly Dictionary<string, List<CarPort.Issue>> issuesOf = new Dictionary<string, List<CarPort.Issue>>(StringComparer.OrdinalIgnoreCase);   // car -> what its last run found
+        private readonly Dictionary<string, DlcSource> donorPacks = new Dictionary<string, DlcSource>(StringComparer.OrdinalIgnoreCase);   // template car -> its FM3 package (cars not in the folder)
+        private ForzaGame sourceGame = ForzaGame.Motorsport4;   // of the cars listed: FM4 straight, FH1 / FH2 through their FM4 form (CarPortViaFm4)
 
         public CarPortFm3Form()
             : this(PortMode.Import)
@@ -100,7 +112,7 @@ namespace ForzaStudio
             ToolStripLabel studio = new ToolStripLabel("STUDIO EVO");
             studio.Font = new Font("Segoe UI Light", 11f, FontStyle.Italic);
             studio.Margin = new Padding(0, 1, 18, 2);
-            ToolStripLabel title = new ToolStripLabel((mode == PortMode.Dlc) ? "CREATE A DLC PACKAGE FOR FORZA MOTORSPORT 3" : "IMPORT A CAR FROM FORZA MOTORSPORT 4 INTO FORZA MOTORSPORT 3");
+            ToolStripLabel title = new ToolStripLabel((mode == PortMode.Dlc) ? "CREATE A DLC PACKAGE FOR FORZA MOTORSPORT 3" : "IMPORT A CAR FROM FORZA MOTORSPORT 4 OR FORZA HORIZON INTO FORZA MOTORSPORT 3");
             title.Font = ForzaTheme.Bold;
             title.ForeColor = ForzaTheme.TextDim;
             header.Items.Add(forza);
@@ -113,7 +125,7 @@ namespace ForzaStudio
             this.status.TextAlign = ContentAlignment.MiddleLeft;
             statusStrip.Items.Add(this.status);
 
-            GameBanner banner = new GameBanner("FORZA MOTORSPORT 3", (mode == PortMode.Dlc) ? "DLC PACKAGE" : "FROM  FORZA MOTORSPORT 4", Color.FromArgb(214, 170, 40));
+            GameBanner banner = new GameBanner("FORZA MOTORSPORT 3", (mode == PortMode.Dlc) ? "DLC PACKAGE" : "FROM  FM4 / FM2 / FH1 / FH2", Color.FromArgb(214, 170, 40));
             banner.Dock = DockStyle.Top;
 
             // Game folders: the start values come from the settings.
@@ -121,7 +133,7 @@ namespace ForzaStudio
             folders.Dock = DockStyle.Top;
             folders.Height = 74;
             folders.Width = this.ClientSize.Width;   // the rows are placed and anchored from this width (a Panel starts 200 wide)
-            this.sourceBox = this.FolderRow(folders, "Forza Motorsport 4 (source, DLC):", 10, DefaultSource(), true);
+            this.sourceBox = this.FolderRow(folders, "Source game (FM4/FM2/FH1/FH2):", 10, DefaultSource(), true);
             this.targetBox = this.FolderRow(folders, "Forza Motorsport 3:", 42, DefaultTarget(mode), false);
             this.load = new Button();
             this.load.Text = "Load Cars";
@@ -178,13 +190,13 @@ namespace ForzaStudio
             this.cars.Columns.Add("Media name", 190);
             this.cars.Columns.Add("DLC pack", 220);
             this.cars.Columns.Add("In FM3", 220);
-            this.cars.SelectedIndexChanged += delegate { this.UpdateButtons(); this.ShowUpgrades(); };
+            this.cars.SelectedIndexChanged += delegate { this.UpdateButtons(); this.ShowUpgrades(); this.ShowSelectedFixes(); };
             StyleList(this.cars);
 
             Panel options = new Panel();
             options.Dock = DockStyle.Fill;
             Label donorLabel = new Label();
-            donorLabel.Text = "FM3 template car, for what FM4's car lacks (your choice):";
+            donorLabel.Text = "FM3 template car, for what the car lacks in FM3 (your choice; game and DLC cars):";
             donorLabel.Location = new Point(8, 8);
             donorLabel.AutoSize = true;
             this.donors = new ComboBox();
@@ -193,15 +205,16 @@ namespace ForzaStudio
             this.donors.Width = 460;
             this.donors.MaxDropDownItems = 24;
             this.donors.SelectedIndexChanged += delegate { this.UpdateButtons(); };
+            this.BuildChoices(options);     // arcade, make (+), engine sound, brakes: as the FM4 window
             this.trial = new Button();
             this.trial.Text = "Trial Run";
             this.trial.Size = new Size(110, 28);
-            this.trial.Location = new Point(8, 62);
+            this.trial.Location = new Point(8, 154);
             this.trial.Click += delegate { this.Port(false); };
             this.install = new Button();
             this.install.Text = "Install In FM3...";
             this.install.Size = new Size(130, 28);
-            this.install.Location = new Point(124, 62);
+            this.install.Location = new Point(124, 154);
             this.install.Click += delegate { this.Port(true); };
             options.Controls.Add(donorLabel);
             options.Controls.Add(this.donors);
@@ -212,7 +225,7 @@ namespace ForzaStudio
             }
             Panel selectedCar = new Panel();
             selectedCar.Dock = DockStyle.Bottom;
-            selectedCar.Height = (mode == PortMode.Import) ? 124 : 84;
+            selectedCar.Height = (mode == PortMode.Import) ? 216 : 182;
             selectedCar.Controls.Add(options);
             selectedCar.Controls.Add(CarPortForm.SectionHeader("Selected car"));
 
@@ -453,16 +466,29 @@ namespace ForzaStudio
         {
             string source = this.sourceBox.Text.Trim();
             string target = this.targetBox.Text.Trim();
-            if (GameInfo.Detect(source) != ForzaGame.Motorsport4 || GameInfo.Detect(target) != ForzaGame.Motorsport3)
+            ForzaGame game = GameInfo.Detect(source);
+            // FH1, FH2 and the FM2 game folder go through their FM4 form (CarPortViaFm4); 'horizon' names that route
+            bool horizon = CarPortViaFm4.GoesThroughFm4(source);
+            if (horizon && GameInfo.ConfiguredFolder(ForzaGame.Motorsport4) == null)
             {
-                MessageBox.Show(this, "The source must be a Forza Motorsport 4 folder and the target a Forza Motorsport 3 folder.\n\nFound: "
+                MessageBox.Show(this, "A " + GameInfo.Name(game) + " car reaches Forza Motorsport 3 through its Forza Motorsport 4 form.\n\nSet the Forza Motorsport 4 folder in Tools > Settings > Folders (it is only read).", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if ((game != ForzaGame.Motorsport4 && !horizon) || GameInfo.Detect(target) != ForzaGame.Motorsport3)
+            {
+                MessageBox.Show(this, "The source must be a Forza Motorsport 4, Forza Motorsport 2, Forza Horizon or Forza Horizon 2 folder and the target a Forza Motorsport 3 folder.\n\nFound: "
                     + (GameInfo.Name(GameInfo.Detect(source)) ?? "no Forza game") + " and " + (GameInfo.Name(GameInfo.Detect(target)) ?? "no Forza game") + ".", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             AppSettings.Set("PortFm3.Source", source);
             AppSettings.Set((this.mode == PortMode.Dlc) ? "PortFm3.DlcTarget" : "PortFm3.Target", target);
-            List<string> files = new List<string>(this.packFiles);
-            bool includeNow = this.includeDlc.Checked;
+            // The source game's DLC packages: FM4's with an FM4 source, FM2's with an FM2 source (2026-11-22, through the FM4
+            // form as the FM2 game's cars); a Horizon source lists the game's own cars only.
+            bool fm2 = game == ForzaGame.Motorsport2;
+            ForzaGame packGame = fm2 ? ForzaGame.Motorsport2 : ForzaGame.Motorsport4;
+            bool packsToo = !horizon || fm2;
+            List<string> files = packsToo ? new List<string>(this.packFiles) : new List<string>();
+            bool includeNow = this.includeDlc.Checked && packsToo;
             this.status.Text = "Reading the databases...";
             this.Background(delegate
             {
@@ -498,6 +524,77 @@ namespace ForzaStudio
                         }
                     }
                 }
+                // Engine sound choices: the game folder's cars (their tuning files are in the folder's sound zips, not in packages)
+                List<string[]> soundList = new List<string[]>(donorList);
+                List<CarPort.Choice> makeList = CarPortForm.Makes(target);
+                // Template cars also from the FM3 packages installed in Xenia (second disc and DLC), as the FM4 window does
+                // (user 2026-11-21). The package is only read; it is laid out when such a car is used (DonorRootOf).
+                Dictionary<string, DlcSource> packOf = new Dictionary<string, DlcSource>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    string content3 = InstalledDlc.ContentFolder(ForzaGame.Motorsport3);
+                    if (content3 != null)
+                    {
+                        HashSet<string> listed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (string[] donor in donorList)
+                        {
+                            listed.Add(donor[0]);
+                        }
+                        foreach (InstalledDlc installed in InstalledDlc.Scan(ForzaGame.Motorsport3, content3, null))
+                        {
+                            if (installed.Source == null || installed.Source.Problem != null || installed.Source.Game != ForzaGame.Motorsport3)
+                            {
+                                continue;
+                            }
+                            string packTitle = !string.IsNullOrEmpty(installed.Source.Title) ? installed.Source.Title : Path.GetFileName(installed.Source.Folder);
+                            foreach (string media in installed.Source.Cars())
+                            {
+                                if (!listed.Add(media))
+                                {
+                                    continue;   // in the folder, or in a package already listed (the Ultimate packs repeat cars)
+                                }
+                                DlcCatalog.Pack official = DlcCatalog.PackOf(ForzaGame.Motorsport3, media);
+                                string name = media;
+                                if (official != null)
+                                {
+                                    foreach (DlcCatalog.CarRow row in official.Cars)
+                                    {
+                                        if (string.Equals(row.MediaName, media, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(row.Name))
+                                        {
+                                            name = row.Name;
+                                        }
+                                    }
+                                }
+                                donorList.Add(new[] { media, name + "  [DLC: " + packTitle + "]" });
+                                packOf[media] = installed.Source;
+                            }
+                        }
+                        donorList.Sort(delegate(string[] x, string[] y) { return string.Compare(x[0], y[0], StringComparison.OrdinalIgnoreCase); });
+                    }
+                }
+                catch (Exception e)
+                {
+                    notes.AppendLine("FM3 packages in Xenia: not read, " + e.Message);
+                }
+                lock (this.donorPacks)
+                {
+                    this.donorPacks.Clear();
+                    foreach (KeyValuePair<string, DlcSource> pair in packOf)
+                    {
+                        this.donorPacks[pair.Key] = pair.Value;
+                    }
+                }
+                // FM3's own cars also live in the packages of its second disc and DLC (not in the folder's database)
+                foreach (DlcCatalog.Pack official in DlcCatalog.All)
+                {
+                    if (official.Game == ForzaGame.Motorsport3)
+                    {
+                        foreach (DlcCatalog.CarRow row in official.Cars)
+                        {
+                            inFm3.Add(row.MediaName);
+                        }
+                    }
+                }
                 this.ReadCars(source, null, "", list, inFm3, notes);
                 // The packages chosen with Package..., then the FM4 DLC installed in Xenia (as the FM4 window lists its source game's DLC).
                 List<DlcSource> packs = new List<DlcSource>();
@@ -514,10 +611,10 @@ namespace ForzaStudio
                         notes.AppendLine(Path.GetFileName(file) + ": left out, " + e.Message);
                     }
                 }
-                string content = includeNow ? InstalledDlc.ContentFolder(ForzaGame.Motorsport4) : null;
+                string content = includeNow ? InstalledDlc.ContentFolder(packGame) : null;
                 if (content != null)
                 {
-                    uint title = InstalledDlc.TitleId(ForzaGame.Motorsport4);
+                    uint title = InstalledDlc.TitleId(packGame);
                     foreach (string file in Directory.GetFiles(content))
                     {
                         try
@@ -561,6 +658,7 @@ namespace ForzaStudio
                 }
                 return delegate
                 {
+                    this.sourceGame = game;
                     this.fm3Engines = engines3;
                     this.fm3Drivetrains = drive3;
                     this.items.Clear();
@@ -585,6 +683,7 @@ namespace ForzaStudio
                         this.donors.Items.Add(donor[1] + "  (" + donor[0] + ")");
                     }
                     this.donors.Tag = donorList;
+                    this.FillChoices(makeList, soundList, horizon);
                     this.Filter();
                     if (this.mode == PortMode.Dlc && this.packOffer.Text.Trim().Length == 0)
                     {
@@ -596,7 +695,8 @@ namespace ForzaStudio
                         {
                         }
                     }
-                    this.status.Text = string.Format(CultureInfo.InvariantCulture, "{0} FM4 cars, {1} FM3 template cars. Choose a car.", list.Count, donorList.Count);
+                    this.status.Text = string.Format(CultureInfo.InvariantCulture, "{0} {2} cars, {1} FM3 template cars. Choose a car.{3}", list.Count, donorList.Count, GameInfo.Name(game),
+                        horizon ? " A " + GameInfo.Name(game) + " car goes through its FM4 form (the FM4 folder of Tools > Settings is read, not written)." : "");
                     if (notes.Length > 0)
                     {
                         this.report.Text = "DLC packages:\r\n" + notes.ToString();
@@ -635,10 +735,18 @@ namespace ForzaStudio
                 {
                     return;
                 }
+                // the FM2 game folder: only the cars with a zip in Media\cars (step 1 lays the car out from it), as the FM4 window lists them
+                bool needsZip = packRoot == null && GameInfo.Detect(root) == ForzaGame.Motorsport2;
+                int noFiles = 0;
                 foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year FROM Data_Car ORDER BY Id").Rows)
                 {
                     if (!(row[1] is string))
                     {
+                        continue;
+                    }
+                    if (needsZip && GamePaths.FindMedia(root, "cars", (string) row[1]) == null)
+                    {
+                        noFiles++;
                         continue;
                     }
                     if (!listed.Add((string) row[1]))
@@ -655,6 +763,10 @@ namespace ForzaStudio
                     car.Dlc = pack;
                     car.InFm3 = inFm3.Contains(car.MediaName);
                     into.Add(car);
+                }
+                if (noFiles > 0)
+                {
+                    notes.AppendLine(noFiles + " cars of the source database have no car zip in its folder: left out");
                 }
             }
         }
@@ -722,7 +834,76 @@ namespace ForzaStudio
             title.Height = 24;
             title.Font = ForzaTheme.Bold;
             title.Padding = new Padding(6, 5, 0, 0);
-            title.Text = "What the port changed or could not do (engines and drivetrains FM3 lacks, tyres, sound files...). Fixes to choose are not there for FM3 yet.";
+            title.Text = "What the port into FM3 changed or could not do (engines and drivetrains FM3 lacks, tyres, sound files...).";
+
+            // What the car has that is not regular for FM3 (2026-11-21: materials no FM3 car uses, from CarPortToFm3's review;
+            // for a Horizon car also the database values of its FM4 form), each with a fix to choose, as in the FM4 window.
+            // The fixes are kept per car and used by the next trial run, the install and the pack trial.
+            this.fixPanel = new Panel();
+            this.fixPanel.Dock = DockStyle.Top;
+            this.fixPanel.Height = 200;
+            this.fixPanel.Visible = false;
+            this.fixTitle = new Label();
+            this.fixTitle.Dock = DockStyle.Top;
+            this.fixTitle.Height = 24;
+            this.fixTitle.Font = ForzaTheme.Bold;
+            this.fixTitle.Padding = new Padding(6, 5, 0, 0);
+            this.fixGrid = new DataGridView();
+            this.fixGrid.Dock = DockStyle.Fill;
+            this.fixGrid.AllowUserToAddRows = false;
+            this.fixGrid.AllowUserToDeleteRows = false;
+            this.fixGrid.RowHeadersVisible = false;
+            this.fixGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+            this.fixGrid.EditMode = DataGridViewEditMode.EditOnEnter;
+            this.fixGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            DataGridViewTextBoxColumn fixWhere = new DataGridViewTextBoxColumn();
+            fixWhere.HeaderText = "Where";
+            fixWhere.ReadOnly = true;
+            fixWhere.FillWeight = 25;
+            DataGridViewTextBoxColumn fixProblem = new DataGridViewTextBoxColumn();
+            fixProblem.HeaderText = "Problem";
+            fixProblem.ReadOnly = true;
+            fixProblem.FillWeight = 45;
+            DataGridViewComboBoxColumn fixChoice = new DataGridViewComboBoxColumn();
+            fixChoice.HeaderText = "Fix (used by the next trial run and the install)";
+            fixChoice.FillWeight = 30;
+            fixChoice.FlatStyle = FlatStyle.Flat;
+            this.fixGrid.Columns.Add(fixWhere);
+            this.fixGrid.Columns.Add(fixProblem);
+            this.fixGrid.Columns.Add(fixChoice);
+            this.fixGrid.CellValueChanged += delegate
+            {
+                this.StoreFixes();
+                this.CheckPackTrialFixes();
+            };
+            this.fixGrid.CurrentCellDirtyStateChanged += delegate
+            {
+                if (this.fixGrid.IsCurrentCellDirty)
+                {
+                    this.fixGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+                }
+            };
+            this.fixGrid.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
+            // Recommended fixes in green, in the cell and in its list.
+            this.fixGrid.CellFormatting += delegate(object sender, DataGridViewCellFormattingEventArgs e)
+            {
+                if (e.ColumnIndex == 2 && e.RowIndex >= 0 && RecommendedFix(this.fixGrid.Rows[e.RowIndex], e.Value))
+                {
+                    e.CellStyle.ForeColor = ForzaTheme.Green;
+                    e.CellStyle.SelectionForeColor = ForzaTheme.Green;
+                }
+            };
+            this.fixGrid.EditingControlShowing += delegate(object sender, DataGridViewEditingControlShowingEventArgs e)
+            {
+                ComboBox combo = e.Control as ComboBox;
+                if (combo != null && combo.Tag as string != "green")
+                {
+                    combo.Tag = "green";   // the grid reuses its editing control
+                    ForzaTheme.GreenItems(combo, delegate(object item) { return this.fixGrid.CurrentRow != null && RecommendedFix(this.fixGrid.CurrentRow, item); });
+                }
+            };
+            this.fixPanel.Controls.Add(this.fixGrid);
+            this.fixPanel.Controls.Add(this.fixTitle);
             this.reviewList = new ListView();
             this.reviewList.Dock = DockStyle.Fill;
             this.reviewList.View = View.Details;
@@ -735,7 +916,225 @@ namespace ForzaStudio
             StyleList(this.reviewList);
             page.Controls.Add(this.reviewList);
             page.Controls.Add(title);
+            page.Controls.Add(this.fixPanel);   // docked first: above the title and the list
+            // The panel is shown while the Report tab is in front (after a trial): the grid laid its Fill columns out hidden and
+            // drew only a 200-pixel corner, the rest showing old pixels of the report (user screenshot 2026-11-22). Laid out and
+            // drawn again whenever it can be seen.
+            EventHandler redraw = delegate
+            {
+                if (this.fixPanel.Visible && page.Visible)
+                {
+                    this.fixGrid.PerformLayout();
+                    this.fixGrid.Invalidate(true);
+                    this.fixGrid.Update();
+                }
+            };
+            this.fixPanel.VisibleChanged += redraw;
+            this.fixPanel.SizeChanged += redraw;
+            page.Enter += redraw;
+            page.VisibleChanged += redraw;
+            this.fixGrid.SizeChanged += delegate { this.fixGrid.Invalidate(true); };
+            this.reviewPage = page;
             return page;
+        }
+
+        private const string LeaveAsIs = "(leave as is)";
+
+        // The issues of the last run of this Horizon car (null: none known), each row preset to the fix chosen before, else
+        // to the one the FM4 port suggests itself. The same grid and rules as the FM4 window's review (CarPortForm.ShowReview).
+        private void ShowFixes(string mediaName, List<CarPort.Issue> issues)
+        {
+            if (this.fixGrid == null)
+            {
+                return;
+            }
+            this.showingFixes = true;
+            this.fixCar = (issues == null) ? null : mediaName;
+            this.fixGrid.Rows.Clear();
+            int count = (issues == null) ? 0 : issues.Count;
+            if (count > 0)
+            {
+                Dictionary<string, object> chosen;
+                if (!this.fixes.TryGetValue(mediaName, out chosen))
+                {
+                    chosen = new Dictionary<string, object>();
+                    this.fixes[mediaName] = chosen;
+                }
+                foreach (CarPort.Issue issue in issues)
+                {
+                    int index = this.fixGrid.Rows.Add();
+                    DataGridViewRow row = this.fixGrid.Rows[index];
+                    row.Tag = issue;
+                    row.Cells[0].Value = issue.Where;
+                    row.Cells[1].Value = issue.Problem;
+                    DataGridViewComboBoxCell cell = (DataGridViewComboBoxCell) row.Cells[2];
+                    cell.Items.Add(LeaveAsIs);
+                    string selected = LeaveAsIs;
+                    foreach (CarPort.Choice choice in issue.Choices)
+                    {
+                        cell.Items.Add(choice.Label);
+                        object value;
+                        if ((chosen.TryGetValue(issue.Key, out value) && object.Equals(Convert.ToString(value, CultureInfo.InvariantCulture), Convert.ToString(choice.Value, CultureInfo.InvariantCulture)))
+                            || (!chosen.ContainsKey(issue.Key) && issue.Suggested != null && object.Equals(issue.Suggested, choice.Value)))
+                        {
+                            selected = choice.Label;
+                        }
+                    }
+                    cell.Value = selected;
+                }
+                this.fixTitle.Text = string.Format("{0}: {1} to fix for FM3 (a material no FM3 car uses renders black). Choose a fix, then Trial Run or Install again.", mediaName, count);
+            }
+            this.fixPanel.Visible = count > 0;
+            if (this.reviewPage != null)
+            {
+                this.reviewPage.Text = (count > 0) ? "Review (" + count + " to fix)" : "Review";
+            }
+            this.showingFixes = false;
+            this.StoreFixes();
+        }
+
+        // The fix grid follows the car selected in the list: what its last run (alone or in the pack trial) found.
+        private void ShowSelectedFixes()
+        {
+            this.ShowFixesOf((this.cars.SelectedItems.Count == 1) ? ((SourceCar) this.cars.SelectedItems[0].Tag).MediaName : null);
+        }
+
+        // A pack row selected (user 2026-11-21: the review could only be reached through the car list, so a pack car hidden
+        // by the search box could not be fixed): the grid shows that car.
+        private void ShowPackFixes()
+        {
+            if (this.packList != null && this.packList.SelectedItems.Count == 1)
+            {
+                this.ShowFixesOf(((PackItem) this.packList.SelectedItems[0].Tag).Car.MediaName);
+            }
+        }
+
+        private void ShowFixesOf(string mediaName)
+        {
+            this.StoreFixes();
+            if (mediaName == null)
+            {
+                this.ShowFixes(null, null);
+                return;
+            }
+            List<CarPort.Issue> known;
+            this.issuesOf.TryGetValue(mediaName, out known);
+            this.ShowFixes(mediaName, known);
+        }
+
+        // After a pack trial: the selected pack car, else the first pack car with something to fix.
+        private void ShowPackTrialFixes()
+        {
+            if (this.packList.SelectedItems.Count == 1)
+            {
+                this.ShowPackFixes();
+                return;
+            }
+            foreach (PackItem item in this.pack)
+            {
+                List<CarPort.Issue> known;
+                if (this.issuesOf.TryGetValue(item.Car.MediaName, out known) && known != null && known.Count > 0)
+                {
+                    this.ShowFixesOf(item.Car.MediaName);
+                    return;
+                }
+            }
+            this.ShowSelectedFixes();
+        }
+
+        // Whether a label of a fix row is one of its recommended choices.
+        private static bool RecommendedFix(DataGridViewRow row, object label)
+        {
+            CarPort.Issue issue = row.Tag as CarPort.Issue;
+            string text = label as string;
+            return issue != null && text != null && issue.Choices.Exists(delegate(CarPort.Choice c) { return c.Recommended && c.Label == text; });
+        }
+
+        // The fixes picked in the grid, kept for the car on show.
+        private void StoreFixes()
+        {
+            if (this.fixCar == null || this.showingFixes)
+            {
+                return;
+            }
+            Dictionary<string, object> chosen;
+            if (!this.fixes.TryGetValue(this.fixCar, out chosen))
+            {
+                chosen = new Dictionary<string, object>();
+                this.fixes[this.fixCar] = chosen;
+            }
+            foreach (DataGridViewRow row in this.fixGrid.Rows)
+            {
+                CarPort.Issue issue = row.Tag as CarPort.Issue;
+                string text = row.Cells[2].Value as string;
+                if (issue == null || text == null)
+                {
+                    continue;
+                }
+                chosen.Remove(issue.Key);
+                foreach (CarPort.Choice choice in issue.Choices)
+                {
+                    if (choice.Label == text)
+                    {
+                        chosen[issue.Key] = choice.Value;
+                    }
+                }
+            }
+        }
+
+        // A fix changed by the user in the grid for a car of the pack, after the pack trial: Build would pack the trial made
+        // with the old fixes (the "458 R8" pack, 2026-11-21: materials chosen after the trial never reached it). The trial
+        // is then out of date: Build goes off until Trial Pack runs again (user 2026-11-21). The grid's own presets do not count.
+        private void CheckPackTrialFixes()
+        {
+            if (this.showingFixes || this.fixCar == null || this.packTrialFolder == null || this.packTrialFixes == null)
+            {
+                return;
+            }
+            Dictionary<string, object> used;
+            if (!this.packTrialFixes.TryGetValue(this.fixCar, out used))
+            {
+                return;     // not a car of the trial
+            }
+            if (SameFixes(used, this.FixesOf(this.fixCar)))
+            {
+                return;
+            }
+            this.packTrialFolder = null;
+            this.packTrialFixes = null;
+            this.UpdateButtons();
+            this.status.Text = "Fixes changed: Trial Pack again.";
+        }
+
+        private static bool SameFixes(Dictionary<string, object> a, Dictionary<string, object> b)
+        {
+            int countA = (a == null) ? 0 : a.Count;
+            int countB = (b == null) ? 0 : b.Count;
+            if (countA != countB)
+            {
+                return false;
+            }
+            if (countA == 0)
+            {
+                return true;
+            }
+            foreach (KeyValuePair<string, object> pair in a)
+            {
+                object other;
+                if (!b.TryGetValue(pair.Key, out other)
+                    || Convert.ToString(pair.Value, CultureInfo.InvariantCulture) != Convert.ToString(other, CultureInfo.InvariantCulture))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // The fixes chosen for a car so far (a copy), or null.
+        private Dictionary<string, object> FixesOf(string mediaName)
+        {
+            Dictionary<string, object> chosen;
+            return (this.fixes.TryGetValue(mediaName, out chosen) && chosen.Count > 0) ? new Dictionary<string, object>(chosen) : null;
         }
 
         // The lines of a port report that say something was changed, replaced, left out or missing.
@@ -826,7 +1225,15 @@ namespace ForzaStudio
                 return;
             }
             SourceCar car = (SourceCar) this.cars.SelectedItems[0].Tag;
-            this.upgradesTitle.Text = car.Name + ": the upgrades FM4 has for it and what the port does with them in FM3 (FM3 has 8 engine levels, FM4 4: the car keeps FM4's)";
+            this.upgradesTitle.Text = (this.sourceGame == ForzaGame.Motorsport4)
+                ? car.Name + ": the upgrades FM4 has for it and what the port does with them in FM3 (FM3 has 8 engine levels, FM4 4: the car keeps FM4's)"
+                : car.Name + ": the upgrades " + GameInfo.Name(this.sourceGame) + " has for it (the car passes through its FM4 form first: the trial report lists what each of the two steps does)";
+            if (this.sourceGame == ForzaGame.Motorsport2)
+            {
+                // FM2's upgrade tables have another layout; its car gets the upgrades of its FM4 form (step 1, Fm2Source)
+                this.upgradesTitle.Text = car.Name + ": the upgrades come with the car's FM4 form (step 1 builds them from the FM2 car and its FM4 template): the trial report lists what each of the two steps does";
+                return;
+            }
             try
             {
                 string path = Db(car.Root ?? this.sourceBox.Text.Trim());
@@ -994,7 +1401,7 @@ namespace ForzaStudio
             this.packList.Columns.Add("Car", 140);
             this.packList.Columns.Add("Media name", 120);
             this.packList.Columns.Add("Template", 100);
-            this.packList.SelectedIndexChanged += delegate { this.UpdateButtons(); };
+            this.packList.SelectedIndexChanged += delegate { this.UpdateButtons(); this.ShowPackFixes(); };
             StyleList(this.packList);
 
             this.newPack = PackButton(packPanel, "New Pack", 8, 0, 100);
@@ -1152,6 +1559,7 @@ namespace ForzaStudio
             PackItem added = new PackItem();
             added.Car = car;
             added.Donor = this.SelectedDonor();
+            added.Choices = this.CurrentChoices();
             this.pack.Add(added);
             this.PackChanged();
         }
@@ -1187,6 +1595,7 @@ namespace ForzaStudio
         {
             string source = this.sourceBox.Text.Trim();
             string target = this.targetBox.Text.Trim();
+            ForzaGame game = this.sourceGame;
             List<PackItem> items = new List<PackItem>(this.pack);
             if (items.Count == 0)
             {
@@ -1196,46 +1605,81 @@ namespace ForzaStudio
             Directory.CreateDirectory(folder);
             this.packTrialFolder = null;
             this.report.Text = string.Format("Pack trial: {0} car(s) -> {1}\r\n", items.Count, folder);
+            // the review's choices of each car so far (Horizon cars), and what this trial finds
+            this.StoreFixes();
+            Dictionary<string, Dictionary<string, object>> packFixes = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
+            foreach (PackItem item in items)
+            {
+                packFixes[item.Car.MediaName] = this.FixesOf(item.Car.MediaName);
+            }
+            Dictionary<string, List<CarPort.Issue>> foundInPack = new Dictionary<string, List<CarPort.Issue>>(StringComparer.OrdinalIgnoreCase);
+            List<CarMakeSpec> newMakes = this.MakesToWrite(false, null);   // the pack's new makes: into the trial, and with it into the pack
             this.Background(delegate
             {
                 StringBuilder text = new StringBuilder();
                 string failed = null;
                 Exception error = null;
                 List<string[]> review = new List<string[]>();
-                foreach (PackItem item in items)
+                try
                 {
-                    CarPortToFm3 port = new CarPortToFm3();
-                    port.SourceRoot = source;
-                    port.TargetRoot = target;
-                    port.OutputRoot = folder;   // the cars of the pack go one on top of the other: the next reads the previous one's database
-                    port.MediaName = item.Car.MediaName;
-                    port.DonorMediaName = item.Donor;
-                    text.AppendLine().AppendLine("=== " + item.Car.Name + " (" + item.Car.MediaName + "), template " + item.Donor);
+                    WriteMakes(newMakes, target, folder, text);
+                }
+                catch (Exception e)
+                {
+                    error = e;
+                    failed = "new make";
+                    items = new List<PackItem>();   // no car runs without its make
+                }
+                // FH1 / FH2 / FM2 cars: their FM4 forms go one on top of the other too, in one folder for the whole trial (as the FM4
+                // window's pack trial), so each takes car / engine / drivetrain / wheel ids of its own.
+                string fm4Stage = Path.Combine(Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "CarPortViaFm4"), "pack_" + Path.GetFileName(folder));
+                try
+                {
+                    foreach (PackItem item in items)
+                    {
+                        text.AppendLine().AppendLine("=== " + item.Car.Name + " (" + item.Car.MediaName + "), template " + item.Donor);
+                        // the cars of the pack go one on top of the other in 'folder': the next reads the previous one's database
+                        List<CarPort.Issue> carIssues;
+                        string carReview;
+                        string carReport = RunCar(game, source, target, folder, item.Car, item.Donor, this.DonorRootOf(item.Donor), packFixes[item.Car.MediaName], item.Choices, fm4Stage, out carIssues, out carReview, out error);
+                        foundInPack[item.Car.MediaName] = carIssues;
+                        if (error != null)
+                        {
+                            failed = item.Car.MediaName;
+                        }
+                        text.Append(carReport.Replace("\r\n", "\n").Replace("\n", "\r\n"));
+                        review.AddRange(ReviewRows(item.Car.Name, carReview));
+                        if (error != null)
+                        {
+                            break;
+                        }
+                    }
+                }
+                finally
+                {
                     try
                     {
-                        if (item.Car.Root != null)
+                        if (Directory.Exists(fm4Stage))
                         {
-                            DlcSource.Materialize(item.Car.Root, item.Car.MediaName);
-                            port.PackRoot = item.Car.Root;
+                            Directory.Delete(fm4Stage, true);
                         }
-                        port.Run();
                     }
-                    catch (Exception e)
+                    catch (IOException)
                     {
-                        error = e;
-                        failed = item.Car.MediaName;
                     }
-                    text.Append(port.Report.ToString().Replace("\r\n", "\n").Replace("\n", "\r\n"));
-                    review.AddRange(ReviewRows(item.Car.Name, port.Report.ToString()));
-                    if (error != null)
+                    catch (UnauthorizedAccessException)
                     {
-                        break;
                     }
                 }
                 return delegate
                 {
                     this.report.Text += text.ToString();
                     this.FillReview(review);
+                    foreach (KeyValuePair<string, List<CarPort.Issue>> pair in foundInPack)
+                    {
+                        this.issuesOf[pair.Key] = pair.Value;
+                    }
+                    this.ShowPackTrialFixes();
                     if (error != null)
                     {
                         this.report.Text += "\r\nFAILED (" + failed + "): " + error.Message + "\r\n";
@@ -1245,6 +1689,7 @@ namespace ForzaStudio
                     {
                         this.report.Text += "\r\npack trial done; files in " + folder + "\r\n";
                         this.packTrialFolder = folder;
+                        this.packTrialFixes = packFixes;   // what this trial was made with (CheckPackTrialFixes)
                         this.status.Text = "Trial done: name the pack, then Build For Xenia or Xbox 360 Package.";
                     }
                     this.report.SelectionStart = this.report.TextLength;
@@ -1417,29 +1862,41 @@ namespace ForzaStudio
                 }
             }
             string source = this.sourceBox.Text.Trim();
+            ForzaGame game = this.sourceGame;
             string folder = Path.Combine(Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "CarPortFm3"), car.MediaName + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture));
             Directory.CreateDirectory(folder);
             this.report.Text = string.Format("{0} {1} -> {2}, donor {3}...\r\n", installing ? "Installing" : "Trial run:", car.MediaName, target, donor);
+            this.StoreFixes();
+            Dictionary<string, object> carFixes = this.FixesOf(car.MediaName);   // the review's choices so far (Horizon cars)
+            CarChoices choices = this.CurrentChoices();
+            // New makes of this window: all of them into a trial; into the game only the one the car goes under (as the FM4 window)
+            List<CarMakeSpec> newMakes = this.MakesToWrite(installing, choices.MakeId);
             this.Background(delegate
             {
-                CarPortToFm3 port = new CarPortToFm3();
-                port.SourceRoot = source;
-                port.TargetRoot = target;
-                port.OutputRoot = folder;
-                port.MediaName = car.MediaName;
-                port.DonorMediaName = donor;
                 string result;
                 List<string[]> review = new List<string[]>();
+                string portReport = "";
+                List<CarPort.Issue> found = null;
+                string reviewText = "";
                 try
                 {
-                    if (car.Root != null)
+                    Exception stopped;
+                    StringBuilder makeText = new StringBuilder();
+                    try
                     {
-                        DlcSource.Materialize(car.Root, car.MediaName);
-                        port.PackRoot = car.Root;
+                        WriteMakes(newMakes, target, folder, makeText);
                     }
-                    port.Run();
-                    result = port.Report.ToString();
-                    review.AddRange(ReviewRows(car.Name, port.Report.ToString()));
+                    finally
+                    {
+                        portReport = makeText.ToString();
+                    }
+                    portReport += RunCar(game, source, target, folder, car, donor, this.DonorRootOf(donor), carFixes, choices, null, out found, out reviewText, out stopped);
+                    if (stopped != null)
+                    {
+                        throw new InvalidOperationException(stopped.Message, stopped);   // its own stack trace is shown below
+                    }
+                    result = portReport;
+                    review.AddRange(ReviewRows(car.Name, reviewText));
                     if (installing)
                     {
                         int copied = CopyWithBackup(Path.Combine(folder, "Media"), Path.Combine(target, "Media"), car.MediaName);
@@ -1453,16 +1910,112 @@ namespace ForzaStudio
                 catch (Exception e)
                 {
                     review.Clear();
-                    review.AddRange(ReviewRows(car.Name, port.Report.ToString()));
-                    result = port.Report.ToString() + "\r\nFAILED: " + e.Message + "\r\n" + e.StackTrace;
+                    review.AddRange(ReviewRows(car.Name, (reviewText.Length > 0) ? reviewText : portReport));
+                    result = portReport + "\r\nFAILED: " + e.Message + "\r\n" + (e.InnerException ?? e).StackTrace;
                 }
                 return delegate
                 {
                     this.report.Text = result.Replace("\r\n", "\n").Replace("\n", "\r\n");
                     this.FillReview(review);
-                    this.status.Text = result.IndexOf("FAILED:", StringComparison.Ordinal) >= 0 ? car.MediaName + ": failed, see the report." : (installing ? car.MediaName + " installed in FM3." : car.MediaName + ": trial run OK.");
+                    this.issuesOf[car.MediaName] = found;
+                    this.ShowFixes(car.MediaName, found);
+                    bool failed = result.IndexOf("FAILED:", StringComparison.Ordinal) >= 0;
+                    if (installing && !failed)
+                    {
+                        this.MakesInstalled(newMakes);   // now in the game's database: no longer written into trials
+                    }
+                    this.status.Text = failed ? car.MediaName + ": failed, see the report." : (installing ? car.MediaName + " installed in FM3." : car.MediaName + ": trial run OK.");
                 };
             });
+        }
+
+        // The template car's package laid out as a game folder (DlcSource.Stage, kept under %TEMP%, and its zip written),
+        // or null for a car of the FM3 folder. Called off the UI thread: laying a package out takes a while the first time.
+        private string DonorRootOf(string donor)
+        {
+            DlcSource pack;
+            lock (this.donorPacks)
+            {
+                if (donor == null || !this.donorPacks.TryGetValue(donor, out pack))
+                {
+                    return null;
+                }
+            }
+            string root = pack.Stage(new StringBuilder());
+            DlcSource.Materialize(root, donor);
+            return root;
+        }
+
+        // One car into 'folder' (the FM3 result, never a game folder): an FM4 car (or a car of an FM4 pack) straight through
+        // CarPortToFm3, a Horizon car through its FM4 form (CarPortViaFm4). Returns the report; 'error' is what stopped it.
+        private static string RunCar(ForzaGame game, string source, string target, string folder, SourceCar car, string donor, string donorRoot, Dictionary<string, object> fixes, CarChoices choices, string sharedStage, out List<CarPort.Issue> issues, out string reviewText, out Exception error)
+        {
+            error = null;
+            issues = null;
+            reviewText = "";
+            if (game == ForzaGame.Horizon1 || game == ForzaGame.Horizon2 || game == ForzaGame.Motorsport2)
+            {
+                CarPortViaFm4 chain = new CarPortViaFm4();
+                chain.SourceRoot = car.Root ?? source;   // a car of an FM2 DLC package: its stage (CarPort materializes the car)
+                chain.Fm4Root = GameInfo.ConfiguredFolder(ForzaGame.Motorsport4);
+                chain.TargetRoot = target;
+                chain.OutputRoot = folder;
+                chain.MediaName = car.MediaName;
+                chain.DonorMediaName = donor;
+                chain.DonorRoot = donorRoot;
+                chain.XeniaContent = InstalledDlc.ContentFolder(ForzaGame.Motorsport3);
+                chain.Fixes = fixes;
+                chain.SharedStage = sharedStage;   // a pack trial: one FM4-form folder for all its cars (ids of their own)
+                if (choices != null)
+                {
+                    chain.Arcade = choices.Arcade;
+                    chain.MakeId = choices.MakeId;
+                    chain.SoundFrom = choices.Sound;
+                    chain.Brakes = choices.Brakes;
+                }
+                try
+                {
+                    chain.Run();
+                }
+                catch (Exception e)
+                {
+                    error = e;
+                }
+                issues = chain.Issues;
+                reviewText = chain.SecondReport;   // the review list: what the FM3 step did (the FM4 form's issues are in the grid)
+                return chain.Report.ToString();
+            }
+            CarPortToFm3 port = new CarPortToFm3();
+            port.SourceRoot = source;
+            port.TargetRoot = target;
+            port.OutputRoot = folder;
+            port.MediaName = car.MediaName;
+            port.DonorMediaName = donor;
+            port.DonorRoot = donorRoot;
+            port.XeniaContent = InstalledDlc.ContentFolder(ForzaGame.Motorsport3);
+            port.Fixes = fixes;     // the review's material choices (FM3 names)
+            if (choices != null)
+            {
+                port.Arcade = choices.Arcade;
+                port.MakeId = choices.MakeId;
+                port.SoundDonorMediaName = choices.Sound;   // (an FM4 car keeps its own brakes and caliper angles)
+            }
+            try
+            {
+                if (car.Root != null)
+                {
+                    DlcSource.Materialize(car.Root, car.MediaName);
+                    port.PackRoot = car.Root;
+                }
+                port.Run();
+            }
+            catch (Exception e)
+            {
+                error = e;
+            }
+            issues = port.Issues;
+            reviewText = port.Report.ToString();
+            return reviewText;
         }
 
         // Copies the ported tree over the game's, saving each file it replaces to bak\<stamp>_bak_<name> first.

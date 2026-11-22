@@ -173,8 +173,8 @@
     <Compile Include="ForzaStudio\Fm2CarbinModelMesh.cs" />
     <Compile Include="ForzaStudio\Fm2CarbinModelObj.cs" />
     <Compile Include="ForzaStudio\PartObjImport.cs" />
+    <Compile Include="ForzaStudio\CarPortViaFm4.cs" />
     <Compile Include="ForzaStudio\Fm2CarbinModelUv.cs" />
-    <Compile Include="ForzaStudio\PartImport.Motorsport2.cs" />
     <Compile Include="ForzaStudio\Fm2Perf.cs" />
     <Compile Include="ForzaStudio\Fm3Perf.cs" />
     <Compile Include="ForzaStudio\Fm4Perf.cs" />
@@ -201,6 +201,7 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.GameLod.cs" />
     <Compile Include="ForzaStudio\CarbinModel.LongMeshes.cs" />
     <Compile Include="ForzaStudio\CarbinModel.Attach.cs" />
+    <Compile Include="ForzaStudio\CarbinModel.TireSeat.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.Gauges.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.XeniaThumbnail.cs" />
     <Compile Include="ForzaStudio\XeniaThumbnails.cs" />
@@ -329,6 +330,7 @@
     </Compile>
     <Compile Include="ForzaStudio\PortPairs.cs" />
     <Compile Include="ForzaStudio\CarPortFm3Form.cs" />
+    <Compile Include="ForzaStudio\CarPortFm3Form.Choices.cs" />
     <Compile Include="ForzaStudio\CarPortForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -347,6 +349,7 @@
     <Compile Include="ForzaStudio\ArchiveEditorForm.PartEdit.cs" />
     <Compile Include="ForzaStudio\ArchiveEditorForm.PartImport.cs" />
     <Compile Include="ForzaStudio\PartImport.cs" />
+    <Compile Include="ForzaStudio\PartImport.Motorsport2.cs" />
     <Compile Include="ForzaStudio\PartSource.cs" />
     <Compile Include="ForzaStudio\PartLogos.cs" />
     <Compile Include="ForzaStudio\Lod0Fill.cs" />

@@ -213,7 +213,18 @@ namespace ForzaStudio
             }
             string strings = "DLC" + offerText + "Overrides1_pri_" + priority.ToString(CultureInfo.InvariantCulture) + ".zip";
             int displayKey, descriptionKey, longKey;
-            List<string> tables = BuildStringsFm3(targetRoot, trialRoot, Path.Combine(zips, strings), "FM2_" + offerText, name, layers, out displayKey, out descriptionKey, out longKey, report);
+            Dictionary<string, int> remap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            List<string> tables = BuildStringsFm3(targetRoot, trialRoot, Path.Combine(zips, strings), "FM2_" + offerText, name, layers, remap, out displayKey, out descriptionKey, out longKey, report);
+            if (remap.Count > 0)
+            {
+                // string keys an installed pack already used moved: the merge written above follows them
+                string mergePath = Path.Combine(patchFolder, offerText + "0000_merge.slt");
+                using (SqliteDatabase patch = SqliteDatabase.FromBytes(File.ReadAllBytes(mergePath)))
+                {
+                    RemapStrings(patch, remap, report);
+                    File.WriteAllBytes(mergePath, patch.ToBytes());
+                }
+            }
 
             report.AppendLine("files:");
             CopyPortedFilesFm3(targetRoot, trialRoot, loose, report);

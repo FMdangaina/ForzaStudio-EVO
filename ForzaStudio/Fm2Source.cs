@@ -337,7 +337,11 @@ namespace ForzaStudio
             CarModelFolder.ExportLegacy(wheelSource.Read(wheelCarbin), wheelLow + ".carbin", objDir, "FM2");
             ForzaZip wheelDonor = new ForzaZip(donorWheelZip);
             CarbinModel model = new CarbinModel(wheelDonor.Read(wheelDonor.Find(donorWheelMedia.ToLowerInvariant() + ".carbin")));
-            DonorTires(objDir, model, log);
+            // FM2 models its rims smaller than the car's declared size (AB Flug RX-7 18": rim 0.967 x the nominal radius, FM4's
+            // stock wheels 1.084 x, tire 0.955 x the declared tire, FM4's 1.000 x; FHtoFM3\wheel4.exe, 337 FM4 wheels, 2026-11-22).
+            // The rim goes to FM4's size and the tire to the declared one, so LOD 0's morph and the tire fit agree.
+            double tireOuter = SizeFm2Wheel(objDir, fm2Db, car, log);
+            DonorTires(objDir, model, log, tireOuter);
             // The donor's LOD 0 (a different mesh) is dropped, the port rebuilds it from LOD 1.
             File.AppendAllText(Path.Combine(objDir, CarModelFolder.ManifestName), "obj 0 lod0/" + model.Sections[0].Name + ".obj\r\n");
             Dictionary<string, CarbinModel> models = new Dictionary<string, CarbinModel>();
@@ -361,9 +365,20 @@ namespace ForzaStudio
                     model.Head[0x18 + (i * 4) + k] = bytes[3 - k];
                 }
             }
-            string wheelFolder = Path.Combine(Path.Combine(media, "wheels"), wheelMedia);
+            // The wheel is sized for this car's declared tire. When another FM2 car uses the same wheel with a different tire
+            // (RX-7 AB Flug 245/40 R18 and Supra S900 255/35 R18; 6 FM2 wheels, 2026-11-22), one wheel zip for both made the
+            // last staged car win: this car gets its own wheel, named after the car as FM2 names its wheels and as
+            // Duplicate Car names an own wheel.
+            string stagedMedia = wheelMedia;
+            if (!string.Equals(wheelMedia, car, StringComparison.OrdinalIgnoreCase) && SharedWithOtherTire(fm2Db, stockWheel, car))
+            {
+                stagedMedia = car;
+                log.Add("wheel: " + wheelMedia + " is shared with an FM2 car of another tire size, this car gets its own wheel " + stagedMedia);
+            }
+            string stagedLow = stagedMedia.ToLowerInvariant();
+            string wheelFolder = Path.Combine(Path.Combine(media, "wheels"), stagedMedia);
             Directory.CreateDirectory(wheelFolder);
-            File.WriteAllBytes(Path.Combine(wheelFolder, wheelLow + ".carbin"), model.ToBytes());
+            File.WriteAllBytes(Path.Combine(wheelFolder, stagedLow + ".carbin"), model.ToBytes());
             foreach (string texture in new string[] { "wheel", "wheel0", "wheel1", "wheel2", "wheel3" })
             {
                 ForzaZip.Entry entry = wheelSource.Find(texture + ".xds");
@@ -379,11 +394,11 @@ namespace ForzaStudio
             long id;
             using (SqliteDatabase target = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(Path.Combine(Path.Combine(fm4Root, "Media"), "db"), "gamedb.slt"))))
             {
-                object known = target.Scalar("SELECT ID FROM List_Wheels WHERE MediaName = ? COLLATE NOCASE", wheelMedia);
+                object known = target.Scalar("SELECT ID FROM List_Wheels WHERE MediaName = ? COLLATE NOCASE", stagedMedia);
                 id = (known != null) ? Convert.ToInt64(known) : DbIds.Next(target, "List_Wheels", "ID");
             }
-            stageDb.Execute("DELETE FROM List_Wheels WHERE MediaName = ? COLLATE NOCASE OR ID = ?", wheelMedia, id);
-            stageDb.Execute("INSERT INTO List_Wheels (ID, MediaName, PartManufacturerID, Mass, Price, IsStock, Lip, CenterCap, Logo, RGB, BrakeDrawOffset, IconPath) VALUES (?, ?, 0, ?, 0, 1, 0, 0, 0, 0, 0, ?)", id, wheelMedia, wheel.Rows[0][1] ?? (object) 40.0, wheelMedia);
+            stageDb.Execute("DELETE FROM List_Wheels WHERE MediaName = ? COLLATE NOCASE OR ID = ?", stagedMedia, id);
+            stageDb.Execute("INSERT INTO List_Wheels (ID, MediaName, PartManufacturerID, Mass, Price, IsStock, Lip, CenterCap, Logo, RGB, BrakeDrawOffset, IconPath) VALUES (?, ?, 0, ?, 0, 1, 0, 0, 0, 0, 0, ?)", id, stagedMedia, wheel.Rows[0][1] ?? (object) 40.0, stagedMedia);
             stageDb.Execute("UPDATE Data_Car SET StockWheelID = ? WHERE MediaName = ? COLLATE NOCASE", id, car);
             SqliteDatabase.Result offset = fm2Db.Query("SELECT NormOffset FROM WheelNormOffsets WHERE Id = ?", stockWheel);
             if (offset.Rows.Count > 0)
@@ -391,7 +406,18 @@ namespace ForzaStudio
                 stageDb.Execute("DELETE FROM WheelNormOffsets WHERE Id = ?", id);
                 stageDb.Execute("INSERT INTO WheelNormOffsets (Id, NormOffset) VALUES (?, ?)", id, offset.Rows[0][0]);
             }
-            log.Add("wheel: " + wheelMedia + " rebuilt on the donor's " + donorWheelMedia + ", List_Wheels " + id);
+            log.Add("wheel: " + stagedMedia + " rebuilt on the donor's " + donorWheelMedia + ", List_Wheels " + id);
+        }
+
+        // Another FM2 car uses this wheel with a different declared front tire (rim, width or aspect).
+        private static bool SharedWithOtherTire(SqliteDatabase fm2Db, object stockWheel, string car)
+        {
+            object others = fm2Db.Scalar(
+                "SELECT count(*) FROM Data_Car o JOIN Data_Car c ON c.MediaName = ? COLLATE NOCASE " +
+                "WHERE o.StockWheelID = ? AND o.MediaName <> c.MediaName AND (o.\"StockTire-FrontWheel-in\" IS NOT c.\"StockTire-FrontWheel-in\" " +
+                "OR o.\"StockTire-FrontWidth-mm\" IS NOT c.\"StockTire-FrontWidth-mm\" OR o.\"StockTire-FrontAspect-pct\" IS NOT c.\"StockTire-FrontAspect-pct\")",
+                car, stockWheel);
+            return others != null && Convert.ToInt64(others) > 0;
         }
 
         // FM2's thumbnail (Media\UI\Textures.zip, Thumbnails\Thumbnail_<id>.xds) in FM4's format, loose in the stage where
@@ -489,7 +515,87 @@ namespace ForzaStudio
         // at random). The tire of each LOD is the donor's own FM4 tire of the same LOD, stretched onto the FM2 tire:
         // radially from the FM2 tire's inner to its outer radius, along the axle (X) over its width. The OBJ files of
         // the FM2 wheel are rewritten before the wheel is built on the donor (the donor's other materials stay out).
-        private static void DonorTires(string objDir, CarbinModel donor, List<string> log)
+        // FM4's stock wheels: LOD 1 inner_rim radius / nominal rim radius (FrontWheelDiameterIN x 0.0127) median 1.084, 80% within
+        // 1.056 - 1.126; LOD 1 tire radius = the declared tire (rim + width x aspect) within 1-4% (FHtoFM3\wheel4.exe, 337 wheels).
+        private const double Fm4RimRatio = 1.084;
+
+        // Every LOD (1-5) of the FM2 wheel's OBJ files scaled about the axle (Y, Z; X kept) so its rim is FM4's size for the car's
+        // declared front rim, when outside FM4's band. Returns the declared tire's outer radius for DonorTires (0 = unknown).
+        private static double SizeFm2Wheel(string objDir, SqliteDatabase fm2Db, string car, List<string> log)
+        {
+            SqliteDatabase.Result spec = fm2Db.Query("SELECT \"StockTire-FrontWheel-in\", \"StockTire-FrontWidth-mm\", \"StockTire-FrontAspect-pct\" FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", car);
+            if (spec.Rows.Count == 0 || spec.Rows[0][0] == null || spec.Rows[0][0] is DBNull)
+            {
+                return 0;
+            }
+            double nominal = Convert.ToDouble(spec.Rows[0][0], CultureInfo.InvariantCulture) * 0.0127;
+            double tireOuter = (spec.Rows[0][1] is DBNull || spec.Rows[0][2] is DBNull) ? 0
+                : nominal + (Convert.ToDouble(spec.Rows[0][1], CultureInfo.InvariantCulture) / 1000 * Convert.ToDouble(spec.Rows[0][2], CultureInfo.InvariantCulture) / 100);
+            if (nominal < 0.1)
+            {
+                return 0;
+            }
+            foreach (string lodDir in Directory.GetDirectories(objDir))
+            {
+                string folder = Path.GetFileName(lodDir).ToLowerInvariant();
+                uint lod;
+                if (!folder.StartsWith("lod") || !uint.TryParse(folder.Substring(3), out lod) || lod == 0)
+                {
+                    continue;
+                }
+                foreach (string file in Directory.GetFiles(lodDir, "*.obj"))
+                {
+                    ObjMesh mesh = ObjMesh.Load(file);
+                    // The rim: inner_rim when there is one, else every material but the tire.
+                    float rim = 0;
+                    foreach (bool innerOnly in new bool[] { true, false })
+                    {
+                        foreach (ObjMesh.Material material in mesh.Materials)
+                        {
+                            string name = material.Name.ToLowerInvariant();
+                            if (name == "tire" || name == "tyre" || (innerOnly && name != "inner_rim"))
+                            {
+                                continue;
+                            }
+                            rim = Math.Max(rim, TireRange(material)[1]);
+                        }
+                        if (rim > 0)
+                        {
+                            break;
+                        }
+                    }
+                    double ratio = rim / nominal;
+                    if (rim <= 0 || (ratio >= 1.056 && ratio <= 1.126))
+                    {
+                        continue;
+                    }
+                    float fit = (float) (Fm4RimRatio * nominal / rim);
+                    // ObjMesh.Load shares a polygon's first corner between its triangles: each corner object scaled once
+                    Dictionary<ObjMesh.Corner, bool> done = new Dictionary<ObjMesh.Corner, bool>();
+                    foreach (ObjMesh.Material material in mesh.Materials)
+                    {
+                        foreach (ObjMesh.Corner[] triangle in material.Triangles)
+                        {
+                            for (int i = 0; i < 3; i++)
+                            {
+                                if (done.ContainsKey(triangle[i]))
+                                {
+                                    continue;
+                                }
+                                done[triangle[i]] = true;
+                                Microsoft.Xna.Framework.Vector3 p = triangle[i].Position;
+                                triangle[i].Position = new Microsoft.Xna.Framework.Vector3(p.X, p.Y * fit, p.Z * fit);
+                            }
+                        }
+                    }
+                    WriteObj(mesh, file);
+                    log.Add(string.Format(CultureInfo.InvariantCulture, "wheel LOD {0}: rim {1:0.###} = {2:0.###} x the declared {3}\" rim, scaled x{4:0.###} about the axle to FM4's {5} x", lod, rim, ratio, spec.Rows[0][0], fit, Fm4RimRatio));
+                }
+            }
+            return tireOuter;
+        }
+
+        private static void DonorTires(string objDir, CarbinModel donor, List<string> log, double tireOuter)
         {
             CarbinModel.Section section = donor.Sections[0];
             foreach (string lodDir in Directory.GetDirectories(objDir))
@@ -527,6 +633,10 @@ namespace ForzaStudio
                         if (b[1] - b[0] < 1e-4f || b[3] - b[2] < 1e-4f)
                         {
                             continue;
+                        }
+                        if (tireOuter > a[0] + 0.02)
+                        {
+                            a[1] = (float) tireOuter;   // the declared tire's outer radius (FM4's tires are, within 1-4%), not FM2's smaller one
                         }
                         float radial = (a[1] - a[0]) / (b[1] - b[0]), axial = (a[3] - a[2]) / (b[3] - b[2]);
                         List<ObjMesh.Corner[]> scaled = new List<ObjMesh.Corner[]>();

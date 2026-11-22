@@ -437,7 +437,8 @@ namespace ForzaStudio
         // A car Id some row already uses: a car, or its body row (Data_CarBody.Id = car * 1000).
         public static bool Taken(SqliteDatabase db, long id)
         {
-            if (Convert.ToInt64(db.Scalar("SELECT count(*) FROM Data_Car WHERE Id = ?", id)) > 0)
+            // a package's merge database may hold no cars at all (no Data_Car table): it takes no car id
+            if (HasTable(db, "Data_Car") && Convert.ToInt64(db.Scalar("SELECT count(*) FROM Data_Car WHERE Id = ?", id)) > 0)
             {
                 return true;
             }

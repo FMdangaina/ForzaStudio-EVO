@@ -111,6 +111,13 @@ namespace ForzaStudio
                     unknown = ForzaVersion.Three;
                 }
             }
+            // The word at 0x70 tested above lies in an FM3 body's wheel lighting: it is 0 on FM3's own files but not on every
+            // ported one (FM2 -> FM3 cockpits, pack FM2_TEST 2026-11-22: "file not supported" in the viewport). The model
+            // settings version (13 = FM3) after the header is the sure sign.
+            if (unknown == ForzaVersion.Unknown && CarbinFormat.Identify(this.GetData()).Family == CarbinFamily.Motorsport3)
+            {
+                unknown = ForzaVersion.Three;
+            }
             stream.Position = position;
             return unknown;
         }
