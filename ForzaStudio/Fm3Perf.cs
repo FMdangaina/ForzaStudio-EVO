@@ -106,6 +106,45 @@ namespace ForzaStudio
                 skipped.Count == 0 ? "" : "; typed by you, kept: " + string.Join(", ", skipped.ToArray())));
         }
 
+        // A car ported to FM3 (CarPortToFm3): the same WHOLE set, computed on the rows the port wrote and stored as the game's
+        // own cars have it. null with the reason when it cannot be computed: nothing is written then.
+        public static Result Store(SqliteDatabase db, long carId, string media, out string problem)
+        {
+            problem = null;
+            Result c = Compute(db, carId, media);
+            if (c == null)
+            {
+                problem = "the car's engine, gearbox, weight or tires could not be read";
+                return null;
+            }
+            if (double.IsNaN(c.Pi) || double.IsInfinity(c.Pi))
+            {
+                problem = File.Exists(PiXml(media)) ? "the lap of PI.xml gave no time for this car" : "no " + PiXml(media);
+                return null;
+            }
+            List<string> have = DbIds.Schema(db)["Data_Car"];
+            foreach (string name in Columns)
+            {
+                string column = name;
+                if (!have.Exists(delegate(string x) { return string.Equals(x, column, StringComparison.OrdinalIgnoreCase); }))
+                {
+                    problem = "Data_Car has no " + column;
+                    return null;
+                }
+            }
+            object classId = CarPort.ClassFor(db, c.Pi, carId) ?? db.Scalar("SELECT ClassID FROM Data_Car WHERE Id = ?", carId);   // 826B1538: the class follows the PI
+            object[] values =
+            {
+                c.Pi, classId, c.SpeedRating, c.AccelerationRating, c.LaunchRating, c.BrakingRating, c.HandlingRating,
+                c.PeakP, c.PeakPw, c.PeakT, c.PeakTw, c.RedlineW, c.Mass * 0.01, c.FrontWeight
+            };
+            for (int i = 0; i < Columns.Length; i++)
+            {
+                db.Execute("UPDATE Data_Car SET " + SqliteDatabase.Quote(Columns[i]) + " = ? WHERE Id = ?", values[i], carId);
+            }
+            return c;
+        }
+
         // "C 412": the class of the PI and the number the game shows.
         public static string Shown(SqliteDatabase db, double pi)
         {

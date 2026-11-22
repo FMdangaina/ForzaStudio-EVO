@@ -2310,6 +2310,7 @@ namespace ForzaStudio
             public int DamageStride;            // per-vertex table entry: 4 (car damage words), 16 (wheels), 0 = no table
             public bool Lod0;
             public SubSection Template;
+            public Dictionary<string, bool> RemoveFromShadow = new Dictionary<string, bool>();   // per material, from the part before the rebuild
             public int Restart;
             public List<byte[]> Vertices = new List<byte[]>();
             public List<double> Positions = new List<double>();
@@ -2431,6 +2432,15 @@ namespace ForzaStudio
                 }
             }
 
+            // RemoveFromShadow belongs to the material, not to the template: a template copied from a
+            // flagged mesh (FM4 sets it on plastic2) took the whole part out of the car shadow.
+            foreach (SubSection sub in section.SubSections)
+            {
+                if ((sub.Lod == 0) == useLod0 && !work.RemoveFromShadow.ContainsKey(sub.Name))
+                {
+                    work.RemoveFromShadow[sub.Name] = sub.RemoveFromShadow;
+                }
+            }
             work.Template = null;
             foreach (SubSection sub in section.SubSections)
             {
@@ -2659,6 +2669,8 @@ namespace ForzaStudio
                 }
                 SubSection sub = work.Template.Copy();
                 sub.Name = carMaterial;
+                bool noShadow;
+                sub.RemoveFromShadow = work.RemoveFromShadow.TryGetValue(carMaterial, out noShadow) && noShadow;
                 sub.Indices = new List<int>();
                 SubSection own = this.FindMaterial(carMaterial, work.Lod0);
                 float[] uvParams = (own != null) ? (float[]) own.Uv.Clone() : (float[]) work.Template.Uv.Clone();

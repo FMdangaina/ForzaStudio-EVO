@@ -163,7 +163,7 @@ namespace ForzaStudio
             Action<string, EventHandler> wide = delegate(string text, EventHandler click) { column.Controls.Add(button(text, Width, click)); };
             // "Import car into  FM4  FM3 ...": only the target game is chosen here; the source game is read from the
             // folder chosen in the window (user 2026-11-08). Targets without a conversion yet are greyed (PortPairs).
-            Action<string, PortMode> perGame = delegate(string caption, PortMode mode)
+            Action<string, Func<string, bool>, Action<string>> gameRow = delegate(string caption, Func<string, bool> enabled, Action<string> click)
             {
                 Label label = new Label();
                 label.Text = caption;
@@ -181,12 +181,18 @@ namespace ForzaStudio
                 foreach (string target in PortPairs.Games)
                 {
                     string t = target;
-                    Button b = button(t, 56, delegate { this.ShowCarPort(mode, t, null); });
+                    Button b = button(t, 56, delegate { click(t); });
                     b.TextAlign = ContentAlignment.MiddleCenter;
-                    b.Enabled = (mode == PortMode.Import) ? PortPairs.CanImportInto(t) : PortPairs.CanCreateDlc(t);
+                    b.Enabled = enabled(t);
                     row.Controls.Add(b);
                 }
                 column.Controls.Add(row);
+            };
+            Action<string, PortMode> perGame = delegate(string caption, PortMode mode)
+            {
+                gameRow(caption,
+                    delegate(string t) { return (mode == PortMode.Import) ? PortPairs.CanImportInto(t) : PortPairs.CanCreateDlc(t); },
+                    delegate(string t) { this.ShowCarPort(mode, t, null); });
             };
 
             heading("Cars");
@@ -196,6 +202,11 @@ namespace ForzaStudio
             wide("Change Car Sound...", delegate { this.ShowChangeSound(); });
             wide("Car Performance From Game...", delegate { this.ShowPerformanceFromGame(); });
             wide("Copy Dash From Another Car...", delegate { this.CopyDashFromCar(); });
+            // Mod packs per game (user 2026-11-17): the game is picked here, not taken from the open folder.
+            gameRow("Mod packs (list, uninstall) of:",
+                // FM2/FM3 greyed until their carbin editing exists (user 2026-11-17): then use != ForzaGame.Unknown
+                delegate(string t) { return ModPack.GameOfTag(t) == ForzaGame.Motorsport4; },
+                delegate(string t) { this.ShowModPacks(ModPack.GameOfTag(t)); });
             heading("Database");
             wide("Database SQL...", delegate { this.ShowSqlConsole(); });
             heading("Texture");
@@ -205,8 +216,7 @@ namespace ForzaStudio
             wide("Check and Validate DLC...", delegate { using (DlcValidatorForm form = new DlcValidatorForm()) { form.ShowDialog(this); } });
             wide("Validate DLC for Installation...", delegate { using (DlcInstallForm form = new DlcInstallForm()) { form.ShowDialog(this); } });
             wide("Set Generated Thumbnail...", delegate { using (SetThumbnailsForm form = new SetThumbnailsForm()) { form.ShowDialog(this); } });
-            heading("Mod packs and settings");
-            wide("Mod Packs (uninstall)...", delegate { this.ShowModPacks(); });
+            heading("Settings");
             wide("Settings...", delegate { this.ShowSettings(); });
 
             ForzaTheme.Apply(column);

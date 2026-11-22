@@ -442,6 +442,18 @@ namespace ForzaStudio
             return true;
         }
 
+        // The game of a top bar tag ("FM2", "FM3", "FM4"); Unknown for a game without mod packs.
+        public static ForzaGame GameOfTag(string tag)
+        {
+            switch (tag)
+            {
+                case "FM2": return ForzaGame.Motorsport2;
+                case "FM3": return ForzaGame.Motorsport3;
+                case "FM4": return ForzaGame.Motorsport4;
+                default: return ForzaGame.Unknown;
+            }
+        }
+
         // The game of a game folder (FM4 when it is not known: the mod packs were FM4's first).
         public static ForzaGame GameOf(string targetRoot)
         {

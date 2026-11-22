@@ -11,10 +11,9 @@ namespace ForzaStudio
     // editor's copies of that car in %TEMP%\ForzaStudio\PackageCars go too, so the next Open Car Model reads the original.
     public partial class ArchiveEditorForm
     {
-        private void ShowModPacks()
+        private void ShowModPacks(ForzaGame game)
         {
-            // the game of the open game folder (FM4 when none): FM2, FM3 and FM4 have mod packs (ST-02 2026-11-15)
-            ForzaGame game = ModPack.GameOf(this.GameRoot);
+            // the game picked in the top bar (FM2, FM3 and FM4 have mod packs, ST-02 2026-11-15)
             string content = InstalledDlc.ContentFolder(game);
             if (content == null)
             {

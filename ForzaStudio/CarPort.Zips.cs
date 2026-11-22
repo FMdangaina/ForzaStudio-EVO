@@ -2752,10 +2752,11 @@ namespace ForzaStudio
         // The "offroad" and "small" choices: the program's own tire models as they are, under this car's name, whatever its source
         // has. Offroad = Service\OffroadTires\TireA/B/COffroad.zip (the FM4 tires made for the Raptor: same size as the normal
         // tires, deep tread); small = Service\SmallTires\TireA/B/CSmall.zip (FM4's TireA/B/CCIT_C1_11.zip: generic textures, the
-        // small tire .carbin; its A has the morph table, B and C do not). Only the .carbin entry takes the car's name.
+        // small tire .carbin; its A has the morph table, B and C do not); offroad big = Service\OffroadBigTires\TireA/B/COffroadBig.zip
+        // (FM4's TireA/B/CHUM_H1ALpha_06.zip, the H1 tires, never scaled). Only the .carbin entry takes the car's name.
         private void ProgramTire(string kind, string wheels, string set)
         {
-            string folder = set + "Tires";   // "Offroad" / "Small"
+            string folder = set + "Tires";   // "Offroad" / "Small" / "OffroadBig"
             string sourcePath = Path.Combine(Path.Combine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Service"), folder), "Tire" + kind + set + ".zip");
             if (!File.Exists(sourcePath))
             {
@@ -2826,6 +2827,11 @@ namespace ForzaStudio
                 if (string.Equals(this.Tires, "small", StringComparison.OrdinalIgnoreCase))
                 {
                     this.ProgramTire(kind, wheels, "Small");
+                    continue;
+                }
+                if (string.Equals(this.Tires, "offroadbig", StringComparison.OrdinalIgnoreCase))
+                {
+                    this.ProgramTire(kind, wheels, "OffroadBig");
                     continue;
                 }
                 string sourceName = this.MediaName;

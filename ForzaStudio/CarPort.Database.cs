@@ -42,8 +42,7 @@ namespace ForzaStudio
                 object fm2PiValue = fm2.Scalar("SELECT PerformanceIndex FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.MediaName);
                 if (fm2PiValue != null)
                 {
-                    this.fm2Pi = Convert.ToDouble(fm2PiValue, CultureInfo.InvariantCulture);
-                    this.fm2PiPairs = PerformanceIndexPairs(fm2, this.target, this.carId, this.SourceRoot, this.TargetRoot, this.OutputRoot);
+                    this.fm2Pi = Convert.ToDouble(fm2PiValue, CultureInfo.InvariantCulture);   // for the log: FM4's PI is computed (ComputePerformance)
                 }
                 foreach (string line in Fm2CarData.Apply(this.source, fm2, this.MediaName, null))
                 {
@@ -216,7 +215,15 @@ namespace ForzaStudio
             this.StockTires();
             this.DragTires();
             this.AddSwaps();
+            if (this.motorsport3)
+            {
+                // The suspension ratios go by FM4 class: the class of the PI FM4 computes for the car as it is now (springs,
+                // dampers and anti-roll bars are not in that calculation, so it does not depend on them).
+                this.ComputePerformance(false);
+                this.TuneMotorsport3Suspension();
+            }
             this.GenericUpgrades();
+            this.ComputePerformance(true);
             this.ReviewDatabase();
         }
 
@@ -785,22 +792,14 @@ namespace ForzaStudio
         // docs/FM3_GRIP_CM_SPRINGS.md).
         internal static readonly double[] SpringClassRatio = { 0.605, 0.748, 0.748, 0.805, 0.805, 0.857, 0.903, 0.941, 0.973, 1.0 };
 
-        // FM3 centre of mass and springs on FM4's scale: FM4 CMHeight = FM3 CMHeight + stock ride height
-        // (sd 2 cm), FM4 spring rates = FM3 x class ratio (median error 3.4 %), dampers and anti-roll bars
-        // likewise by class. Without it FM3 ports sit too low and stiff, hence too much grip. Ride height
-        // is left as it is.
-        private void TuneMotorsport3Handling()
+        // FM3 springs on FM4's scale: FM4 spring rates = FM3 x class ratio (median error 3.4 %), dampers and anti-roll bars
+        // likewise by class. Without it FM3 ports sit too stiff, hence too much grip. The class is the one of the PI FM4
+        // computes for the car (ComputePerformance, run just before this).
+        private void TuneMotorsport3Suspension()
         {
-            object ride = this.target.Scalar("SELECT avg(p.DefRideHeight) FROM List_UpgradeSpringDamper u JOIN List_SpringDamperPhysics p ON p.SpringDamperPhysicsID IN (u.FrontSpringDamperPhysicsID, u.RearSpringDamperPhysicsID) WHERE u.Ordinal = ? AND u.IsStock = 1", this.carId);
             object cls = this.target.Scalar("SELECT ClassID FROM Data_Car WHERE Id = ?", this.carId);
             long low = this.carId * 1000;
             long high = low + 999;
-            if (ride != null && !(ride is DBNull))
-            {
-                double height = Convert.ToDouble(ride, CultureInfo.InvariantCulture);
-                this.target.Execute("UPDATE List_UpgradeCarBodyWeight SET CMHeight = round(CMHeight + ?, 4) WHERE CarBodyID BETWEEN ? AND ?", height, low, high);
-                this.Line("  FM3 handling: CMHeight + stock ride height {0:0.000} m", height);
-            }
             if (cls != null && !(cls is DBNull))
             {
                 long c = Math.Max(0, Math.Min(9, Convert.ToInt64(cls)));
@@ -826,6 +825,23 @@ namespace ForzaStudio
                 {
                     this.Line("  FM3 handling: anti-roll bars left as they are (class {0}: FM4 ratios known for classes 0-6)", c);
                 }
+            }
+        }
+
+        // FM3 centre of mass, steering, brakes and chassis friction on FM4's scale: FM4 CMHeight = FM3 CMHeight + stock ride
+        // height (sd 2 cm); without it FM3 ports sit too low. Ride height is left as it is. Nothing here goes by class (the
+        // springs do: TuneMotorsport3Suspension), and all of it is done before FM4's PI is computed, which reads CMHeight,
+        // the braking friction scale and the chassis friction scales.
+        private void TuneMotorsport3Handling()
+        {
+            object ride = this.target.Scalar("SELECT avg(p.DefRideHeight) FROM List_UpgradeSpringDamper u JOIN List_SpringDamperPhysics p ON p.SpringDamperPhysicsID IN (u.FrontSpringDamperPhysicsID, u.RearSpringDamperPhysicsID) WHERE u.Ordinal = ? AND u.IsStock = 1", this.carId);
+            long low = this.carId * 1000;
+            long high = low + 999;
+            if (ride != null && !(ride is DBNull))
+            {
+                double height = Convert.ToDouble(ride, CultureInfo.InvariantCulture);
+                this.target.Execute("UPDATE List_UpgradeCarBodyWeight SET CMHeight = round(CMHeight + ?, 4) WHERE CarBodyID BETWEEN ? AND ?", height, low, high);
+                this.Line("  FM3 handling: CMHeight + stock ride height {0:0.000} m", height);
             }
             // Steering: on the 315 cars both games have, FM4 = FM3 x 1.2 on the maximum angle (35 -> 42, 30 -> 36, 25 -> 30; 275 + 23 + 15 cars)
             // and 105 on the three angular velocities where FM3 has 70 (turning) or 140 (straighten, countersteer), on all 315.
@@ -1495,217 +1511,36 @@ namespace ForzaStudio
             return false;
         }
 
-        // Data_Car: the FH2 row in FM4's columns; PI on the FM4 scale (MapPerformanceIndex), class
-        // from FM4's PI ranges, base-game content.
+        // Data_Car: the source row in FM4's columns, base-game content. Its PI, class, garage bars and Sim peaks are still
+        // the source game's here: ComputePerformance writes FM4's own once the car's rows are complete.
         private void PortCarRow(List<string> sourceColumns, List<string> targetColumns)
         {
             this.CopyRows("Data_Car", sourceColumns, targetColumns, "Id = " + this.carId);
-            double pi = Convert.ToDouble(this.source.Scalar("SELECT PerformanceIndex FROM Data_Car WHERE Id = ?", this.carId), CultureInfo.InvariantCulture);
-            if (this.fm2Pi >= 0)
-            {
-                pi = this.fm2Pi;   // FM2 stage: the stage database is the donor's, the PI is the FM2 car's
-            }
-            double fm4Pi;
-            if (this.fm2Pi >= 0 && this.fm2PiPairs != null)
-            {
-                fm4Pi = MapPerformanceIndex(this.fm2PiPairs, pi);
-            }
-            else if (!DlcSource.IsStage(this.SourceRoot) || !FixedPerformanceIndex(GameInfo.Detect(this.SourceRoot), pi, out fm4Pi))
-            {
-                fm4Pi = MapPerformanceIndex(PerformanceIndexPairs(this.source, this.target, this.carId, this.SourceRoot, this.TargetRoot, this.OutputRoot), pi);
-            }
-            object classId = ClassFor(this.target, fm4Pi, this.carId);
-            this.target.Execute("UPDATE Data_Car SET PerformanceIndex = ?, ClassID = ?, ContentId = 0, IsArcade = ?, IsPurchased = 1, IsInstalled = 1 WHERE Id = ?",
-                fm4Pi, (classId != null) ? Convert.ToInt64(classId) : 9L, this.Arcade ? 1L : 0L, this.carId);
-            this.Line("Data_Car {0}: PI {1:0.000} (" + this.game + ") -> {2:0.000} (FM4), class {3}, IsArcade {4}", this.carId, pi, fm4Pi, ClassName(this.target, classId), this.Arcade ? 1 : 0);
-            if (this.fm2Pi < 0)
-            {
-                this.PortRatings(targetColumns);
-            }
+            this.target.Execute("UPDATE Data_Car SET ContentId = 0, IsArcade = ?, IsPurchased = 1, IsInstalled = 1 WHERE Id = ?", this.Arcade ? 1L : 0L, this.carId);
+            this.Line("Data_Car {0}: IsArcade {1} (PI, class and ratings: FM4's own calculation, below)", this.carId, this.Arcade ? 1 : 0);
         }
 
-        private static readonly string[] RatingColumns = { "SpeedRating", "HandlingRating", "AccelerationRating", "LaunchRating", "BrakingRating" };
-
-        // The five bars of the garage on FM4's scale. The source game's bars are on its own (FH2's speed, acceleration and launch run
-        // 0.5 - 0.75 below FM4's on the 140 cars both games have, rmse 1.1 / 0.8 / 0.7 against the car's real FM4 bars), so each
-        // bar goes through a line fit on the cars the source and FM4 share (same MediaName), as the PI does: leave-one-out error
-        // 0.35 / 0.25 / 0.18 / 0.38 / 0.24 on those cars. Without enough shared cars (a DLC package alone) the bars stay the source's.
-        private void PortRatings(List<string> targetColumns)
+        // PI, class, the five garage bars, Sim peaks, curb weight and weight distribution of the ported car: FM4's own
+        // calculation (Fm4Perf: the simulated lap of Media\Physics\PI.xml, docs/FM4/PI_AND_RATINGS.md) on the rows the port
+        // wrote, stored as a whole set as FM4's own cars have it. Nothing is mapped from the source game's PI scale any more
+        // (user 2026-11-17: the lines fitted on the shared cars, Port.ini [PI] and the per-bar fits, are gone). final: the
+        // logged pass at the end of the database step; the earlier one only gives the FM3 suspension rules their class.
+        private void ComputePerformance(bool final)
         {
-            foreach (string column in RatingColumns)
+            string problem;
+            Fm4Perf.Result c = Fm4Perf.Store(this.target, this.carId, Path.Combine(this.TargetRoot, "Media"), out problem);
+            if (!final)
             {
-                if (!Has(targetColumns, column))
-                {
-                    return;
-                }
-            }
-            string select = "SELECT MediaName, " + string.Join(", ", RatingColumns);
-            Dictionary<string, double[]> horizon = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
-            foreach (object[] row in this.source.Query(select + " FROM Data_Car").Rows)
-            {
-                if (row[0] is string)
-                {
-                    double[] bars = new double[5];
-                    bool all = true;
-                    for (int i = 0; i < 5; i++)
-                    {
-                        all = all && row[1 + i] != null && row[1 + i] != DBNull.Value;
-                        bars[i] = (row[1 + i] == null || row[1 + i] == DBNull.Value) ? 0 : Convert.ToDouble(row[1 + i], CultureInfo.InvariantCulture);
-                    }
-                    if (all)
-                    {
-                        horizon[(string) row[0]] = bars;
-                    }
-                }
-            }
-            List<double[]> fromBars = new List<double[]>();
-            List<double[]> toBars = new List<double[]>();
-            foreach (object[] row in this.target.Query("SELECT Id, " + string.Join(", ", RatingColumns) + ", MediaName FROM Data_Car").Rows)
-            {
-                double[] bars;
-                string media = row[6] as string;
-                if (media != null && Convert.ToInt64(row[0], CultureInfo.InvariantCulture) != this.carId && horizon.TryGetValue(media, out bars)
-                    && !IsPorted(this.SourceRoot, this.TargetRoot, media) && (this.OutputRoot == null || !IsPorted(this.SourceRoot, this.OutputRoot, media)))
-                {
-                    double[] mine = new double[5];
-                    bool all = true;
-                    for (int i = 0; i < 5; i++)
-                    {
-                        all = all && row[1 + i] != null && row[1 + i] != DBNull.Value;
-                        mine[i] = (row[1 + i] == null || row[1 + i] == DBNull.Value) ? 0 : Convert.ToDouble(row[1 + i], CultureInfo.InvariantCulture);
-                    }
-                    if (all)
-                    {
-                        fromBars.Add(bars);
-                        toBars.Add(mine);
-                    }
-                }
-            }
-            double[] own;
-            if (fromBars.Count < 30 || !horizon.TryGetValue(Convert.ToString(this.source.Scalar("SELECT MediaName FROM Data_Car WHERE Id = ?", this.carId), CultureInfo.InvariantCulture), out own))
-            {
-                this.Line("ratings: kept as the source's ({0} cars shared with FM4, 30 needed to fit the lines)", fromBars.Count);
                 return;
             }
-            List<string> parts = new List<string>();
-            List<object> args = new List<object>();
-            List<string> sets = new List<string>();
-            for (int i = 0; i < 5; i++)
+            double sourcePi = (this.fm2Pi >= 0) ? this.fm2Pi : Convert.ToDouble(this.source.Scalar("SELECT PerformanceIndex FROM Data_Car WHERE Id = ?", this.carId), CultureInfo.InvariantCulture);
+            if (c == null)
             {
-                double mx = 0, my = 0;
-                for (int k = 0; k < fromBars.Count; k++)
-                {
-                    mx += fromBars[k][i] / fromBars.Count;
-                    my += toBars[k][i] / fromBars.Count;
-                }
-                double sxx = 0, sxy = 0;
-                for (int k = 0; k < fromBars.Count; k++)
-                {
-                    sxx += (fromBars[k][i] - mx) * (fromBars[k][i] - mx);
-                    sxy += (fromBars[k][i] - mx) * (toBars[k][i] - my);
-                }
-                double slope = (sxx > 1e-9) ? sxy / sxx : 1.0;
-                double mapped = Math.Max(0, Math.Min(10, my + (slope * (own[i] - mx))));
-                sets.Add(SqliteDatabase.Quote(RatingColumns[i]) + " = ?");
-                args.Add(mapped);
-                parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} {1:0.0} -> {2:0.0}", RatingColumns[i].Replace("Rating", ""), own[i], mapped));
+                this.Line("WARNING performance: NOT computed ({0}). PI, class, ratings and Sim peaks are still the " + this.game + " values (PI {1:0.000}): set them by hand", problem, sourcePi);
+                return;
             }
-            args.Add(this.carId);
-            this.target.Execute("UPDATE Data_Car SET " + string.Join(", ", sets.ToArray()) + " WHERE Id = ?", args.ToArray());
-            this.Line("ratings ({0} -> FM4 lines on {1} shared cars): {2}", this.game, fromBars.Count, string.Join(", ", parts.ToArray()));
-        }
-
-        // (FH2 PI, FM4 PI) of the cars both games have (same MediaName), sorted; the car being
-        // ported and the cars ported earlier (their FM4 PI came from this mapping) left out.
-        public static List<double[]> PerformanceIndexPairs(SqliteDatabase source, SqliteDatabase target, long exclude, string sourceRoot, string targetRoot)
-        {
-            return PerformanceIndexPairs(source, target, exclude, sourceRoot, targetRoot, null);
-        }
-
-        // outputRoot: a trial folder whose cars (earlier cars of the same DLC pack) are ported ones too.
-        public static List<double[]> PerformanceIndexPairs(SqliteDatabase source, SqliteDatabase target, long exclude, string sourceRoot, string targetRoot, string outputRoot)
-        {
-            Dictionary<string, double> horizon = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-            foreach (object[] row in source.Query("SELECT MediaName, PerformanceIndex FROM Data_Car").Rows)
-            {
-                if (row[0] is string && row[1] != null)
-                {
-                    horizon[(string) row[0]] = Convert.ToDouble(row[1], CultureInfo.InvariantCulture);
-                }
-            }
-            List<double[]> pairs = new List<double[]>();
-            foreach (object[] row in target.Query("SELECT Id, MediaName, PerformanceIndex FROM Data_Car").Rows)
-            {
-                double pi;
-                if (Convert.ToInt64(row[0]) != exclude && row[1] is string && row[2] != null && horizon.TryGetValue((string) row[1], out pi)
-                    && !IsPorted(sourceRoot, targetRoot, (string) row[1]) && (outputRoot == null || !IsPorted(sourceRoot, outputRoot, (string) row[1])))
-                {
-                    pairs.Add(new double[] { pi, Convert.ToDouble(row[2], CultureInfo.InvariantCulture) });
-                }
-            }
-            pairs.Sort(delegate(double[] a, double[] b) { return a[0].CompareTo(b[0]); });
-            return pairs;
-        }
-
-        // FM4 PI for a car of a DLC package ported without its base game (DlcSource): the base game's
-        // cars, which MapPerformanceIndex pairs with FM4's, are not there. One line per source game, fit
-        // on all the cars it shares with FM4: FH1 (2026-10-17) FM4 = 1.189 FH1 - 0.363, leave-one-out
-        // error 0.0145 (the local pairs 0.0130). FM3 (2026-10-18, 315 shared cars, fm4dev\Fm3DLC\tools\
-        // pifit): FM4 = 0.7779 FM3 + 0.1668, error 0.0191 (local 0.0184), right FM4 class on 264 of 315.
-        // Keeping FM3's displayed PI instead (both games interpolate it in their CarClasses bands, which
-        // differ) gets the class right on only 105: FM4 rated FM3's B 470-500 cars A 503-559. Without a
-        // line (FM3 DLC before this) the FH2 fallback put the HKS Genesis (FM3 B 497) in F.
-        public static bool FixedPerformanceIndex(ForzaGame game, double pi, out double fm4Pi)
-        {
-            // The lines are in Port.ini [PI] (these defaults).
-            fm4Pi = 0;
-            if (game == ForzaGame.Horizon1)
-            {
-                fm4Pi = Math.Max(0.001, Math.Min(0.999, (PortSettings.GetDouble("PI", "FH1.Slope", 1.189) * pi) + PortSettings.GetDouble("PI", "FH1.Offset", -0.363)));
-                return true;
-            }
-            if (game == ForzaGame.Motorsport3)
-            {
-                fm4Pi = Math.Max(0.001, Math.Min(0.999, (PortSettings.GetDouble("PI", "FM3.Slope", 0.7779) * pi) + PortSettings.GetDouble("PI", "FM3.Offset", 0.1668)));
-                return true;
-            }
-            return false;
-        }
-
-        // FM4 PI for an FH2 PI: a line through the 15 shared cars nearest in FH2 PI. On the 138 cars
-        // both games have (leave one out) the error is 0.013, against 0.027 for the single line
-        // FM4 = 1.025 FH2 - 0.261 fit on PI > 0.7, which puts slow cars a class too high
-        // (Ford Ka 0.331: 0.078 for 0.001). Outside the shared cars' range (above the MC12's 0.851,
-        // where FH2's hypercars are) it goes on from the edge with that line's slope: the edge fit
-        // is steeper and would push road cars into R1.
-        public static double MapPerformanceIndex(List<double[]> pairs, double pi)
-        {
-            const int Near = 15;
-            const double Slope = 1.025;
-            if (pairs.Count < Near)
-            {
-                return Math.Max(0.001, Math.Min(0.999, (Slope * pi) - 0.261));
-            }
-            double inside = Math.Max(pairs[0][0], Math.Min(pairs[pairs.Count - 1][0], pi));
-            List<double[]> near = new List<double[]>(pairs);
-            near.Sort(delegate(double[] a, double[] b) { return Math.Abs(a[0] - inside).CompareTo(Math.Abs(b[0] - inside)); });
-            near.RemoveRange(Near, near.Count - Near);
-            double mx = 0;
-            double my = 0;
-            foreach (double[] p in near)
-            {
-                mx += p[0] / Near;
-                my += p[1] / Near;
-            }
-            double sxx = 0;
-            double sxy = 0;
-            foreach (double[] p in near)
-            {
-                sxx += (p[0] - mx) * (p[0] - mx);
-                sxy += (p[0] - mx) * (p[1] - my);
-            }
-            double slope = (sxx > 1e-12) ? sxy / sxx : Slope;
-            return Math.Max(0.001, Math.Min(0.999, my + (slope * (inside - mx)) + (Slope * (pi - inside))));
+            this.Line("performance (FM4's own calculation): PI {0:0.000} (" + this.game + ") -> {1:0.0000} = {2} (lap {3:0.0} s), speed {4:0.00}, acceleration {5:0.00}, launch {6:0.00}, braking {7:0.00}, handling {8:0.00}, {9:0} kg, {10:0.0}% front",
+                sourcePi, c.Pi, Fm4Perf.Shown(this.target, c.Pi), c.LapTime, c.SpeedRating, c.AccelerationRating, c.LaunchRating, c.BrakingRating, c.HandlingRating, c.Mass, c.FrontWeight * 100);
         }
 
         // The FM4 class of a PI: the first in CarClasses whose MaxPerformanceIndex reaches it (F 0.157,

@@ -6,9 +6,9 @@ namespace ForzaStudio
     using System.IO;
     using System.Text;
 
-    // The port's own rules, sections [Ids] [PI] [Tires] [Damage] [Lod0] of ForzaStudio.ini (AppIni; it was Port.ini
+    // The port's own rules, sections [Ids] [Tires] [Damage] [Lod0] of ForzaStudio.ini (AppIni; it was Port.ini
     // before 2026-10-25; ROADMAP 14.1 "all port settings in clear .ini files", 12.3 Settings window): car and row
-    // Ids, the PI line of car DLC packages, the drag tyre row. Tools > Settings > PORT edits them. The generic
+    // Ids, the drag tyre row. Tools > Settings > PORT edits them. The generic
     // upgrade rules (CarUpgrades) are in the same file.
     internal static class PortSettings
     {
@@ -24,15 +24,6 @@ namespace ForzaStudio
 ; No fixed Ids here any more: every new Id (cars and rows) is one above the largest the database, FM4 + its DLC
 ; (GameIdLimits) and the packs installed in Xenia's content folder use (user 2026-10-25).
 ; A DLC pack asks for its own first car Id in the pack window.
-
-[PI]
-; Car DLC packages come without their base game to compare with: FM4 PI = Slope x source PI + Offset,
-; fit on the cars that game shares with FM4 (FH1 2026-10-17, error 0.0145; FM3 2026-10-18, 315 cars,
-; error 0.0191).
-FH1.Slope = 1.189
-FH1.Offset = -0.363
-FM3.Slope = 0.7779
-FM3.Offset = 0.1668
 
 [Tires]
 ; FM4 sells drag tyres (compound 9) to 502 of its 503 cars, always level 4 for 10000 Cr. A ported car

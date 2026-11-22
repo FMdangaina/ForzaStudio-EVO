@@ -85,7 +85,7 @@ namespace ForzaStudio
             public bool Arcade;
             public string Brakes;       // CarPort.BrakeChoice text: what goes on a car with no brakes
             public string Sound;        // CarPort.SoundFrom: the FM4 car whose engine sound setup the car gets, null = the source's
-            public string Tires = "normal";   // CarPort.Tires: "normal" / "offroad" / "small"
+            public string Tires = "normal";   // CarPort.Tires: "normal" / "offroad" / "small" / "offroadbig"
             public long? MakeId;        // CarPort.MakeId: the make chosen for the car, null = the source's
             public List<CarPort.Issue> Issues;
             public int Applied;
@@ -162,8 +162,7 @@ namespace ForzaStudio
             public long Type;
             public double Weight;
             public double Pi;           // own game's PI
-            public double Fm4Pi;        // FH/FH2 cars: the PI they would get in FM4
-            public string Fm4Class;
+            public string Class = "";   // own game's class and shown PI ("B 441"); the target's are computed by the port, never estimated here
             public Status State;
             public string Note;
             public bool Traffic;        // placeholder close-up models: FH traffic cars in yellow; FM2 cars (no close-up models, not traffic) in blue
@@ -340,7 +339,6 @@ namespace ForzaStudio
             this.cars.Columns.Add("Year", 50);
             this.cars.Columns.Add("Media name", 180);
             this.cars.Columns.Add("PI FH", 60);
-            this.cars.Columns.Add("PI FM4", 60);
             this.cars.Columns.Add("Class", 76);
             this.cars.Columns.Add("DLC", 170);
             this.cars.Columns.Add("In target", 220);
@@ -429,8 +427,9 @@ namespace ForzaStudio
             this.tires.Items.Add("Normal");
             this.tires.Items.Add("Offroad");
             this.tires.Items.Add("Small");
+            this.tires.Items.Add("Offroad Big");
             this.tires.SelectedIndex = 0;
-            new ToolTip().SetToolTip(this.tires, "Normal: the tire models the source car has (FH1 / FH2 Raptor, Wrangler), else FM4's generic tires.\nOffroad: the program's own offroad tire models (Service\\OffroadTires, same size as the normal tires) put under this car's name.\nSmall: the program's own small tire models (Service\\SmallTires, FM4's C1 tires) put under this car's name");
+            new ToolTip().SetToolTip(this.tires, "Normal: the tire models the source car has (FH1 / FH2 Raptor, Wrangler), else FM4's generic tires.\nOffroad: the program's own offroad tire models (Service\\OffroadTires, same size as the normal tires) put under this car's name.\nSmall: the program's own small tire models (Service\\SmallTires, FM4's C1 tires) put under this car's name.\nOffroad Big: FM4's H1 tires (Service\\OffroadBigTires, bigger than the normal tires) put under this car's name");
             options.Controls.Add(tiresLabel);
             options.Controls.Add(this.tires);
             // Brakes for a car whose source has none (traffic, FM2...): the game's generic ones, chosen here.
@@ -1425,7 +1424,7 @@ namespace ForzaStudio
         // the Tires box as CarPort.Tires: Normal / Offroad / Small
         private string TiresChoice()
         {
-            return (this.tires.SelectedIndex == 1) ? "offroad" : (this.tires.SelectedIndex == 2) ? "small" : "normal";
+            return (this.tires.SelectedIndex == 1) ? "offroad" : (this.tires.SelectedIndex == 2) ? "small" : (this.tires.SelectedIndex == 3) ? "offroadbig" : "normal";
         }
 
         private CarPort.BrakeChoice CurrentBrakes()
@@ -1446,7 +1445,7 @@ namespace ForzaStudio
             List<string> saved = new List<string>();
             foreach (PackEntry entry in this.pack)
             {
-                saved.Add(entry.Car.MediaName + "|" + entry.Donor + "|" + (entry.Arcade ? "1" : "0") + "|" + entry.Brakes + "|" + entry.Sound + "|" + (entry.MakeId.HasValue ? entry.MakeId.Value.ToString(CultureInfo.InvariantCulture) : "") + "|" + (entry.Tires == "offroad" ? "1" : entry.Tires == "small" ? "2" : "0"));
+                saved.Add(entry.Car.MediaName + "|" + entry.Donor + "|" + (entry.Arcade ? "1" : "0") + "|" + entry.Brakes + "|" + entry.Sound + "|" + (entry.MakeId.HasValue ? entry.MakeId.Value.ToString(CultureInfo.InvariantCulture) : "") + "|" + (entry.Tires == "offroad" ? "1" : entry.Tires == "small" ? "2" : entry.Tires == "offroadbig" ? "3" : "0"));
             }
             AppSettings.Set("CarPort.PackCars", string.Join(";", saved.ToArray()));
             AppSettings.Set("CarPort.PackSource", this.sourceBox.Text.Trim());
@@ -1579,7 +1578,7 @@ namespace ForzaStudio
                             entry.Arcade = parts[2] == "1";
                             entry.Brakes = (parts.Length > 3) ? parts[3] : new CarPort.BrakeChoice().ToString();
                             entry.Sound = (parts.Length > 4 && parts[4].Length > 0) ? parts[4] : null;
-                            entry.Tires = (parts.Length > 6 && parts[6] == "1") ? "offroad" : (parts.Length > 6 && parts[6] == "2") ? "small" : "normal";
+                            entry.Tires = (parts.Length > 6 && parts[6] == "1") ? "offroad" : (parts.Length > 6 && parts[6] == "2") ? "small" : (parts.Length > 6 && parts[6] == "3") ? "offroadbig" : "normal";
                             long savedMake;
                             if (parts.Length > 5 && long.TryParse(parts[5], NumberStyles.Integer, CultureInfo.InvariantCulture, out savedMake))
                             {
@@ -2449,9 +2448,8 @@ namespace ForzaStudio
                         item.SubItems.Add(car.Year.ToString(CultureInfo.InvariantCulture));
                         item.SubItems.Add(car.MediaName);
                         item.SubItems.Add(car.Pi.ToString("0.000", CultureInfo.InvariantCulture));
-                        item.SubItems.Add(car.Fm4Pi.ToString("0.000", CultureInfo.InvariantCulture));
-                        // The class badge with the in-game PI (PerformanceIndex * 1000 + 100), as in the game.
-                        item.SubItems.Add(car.Fm4Class + " " + ((int) Math.Round((car.Fm4Pi * 1000) + 100)).ToString(CultureInfo.InvariantCulture));
+                        // The class badge with the PI the source game shows.
+                        item.SubItems.Add(car.Class);
                         item.SubItems.Add(car.Dlc ?? "");
                         item.SubItems.Add(car.Note);
                         if (car.State != Status.New)
@@ -2583,7 +2581,6 @@ namespace ForzaStudio
             {
                 motorsport = Fm4Cars(Cars(to, Names(target)));
                 List<Car> ported = new List<Car>();
-                List<double[]> gamePairs = null;
                 // The cars of the packs installed in Xenia for FM4 (official: donors; built with this program: already in target).
                 Dictionary<string, string> packCars = InstalledPackCars();
                 List<KeyValuePair<string, List<Car>>> lists = new List<KeyValuePair<string, List<Car>>>();
@@ -2599,18 +2596,13 @@ namespace ForzaStudio
                         notes.AppendLine(Path.GetFileName(source) + ": left out, no cars in it (tracks or other content)");
                         continue;
                     }
-                    List<double[]> pairs = null;
-                    if (gamePairs == null && !DlcSource.IsStage(source))
-                    {
-                        pairs = gamePairs = new List<double[]>();
-                    }
-                    lists.Add(new KeyValuePair<string, List<Car>>(source, ReadCars(source, target, to, motorsport, packCars, ported, notes, pairs)));
+                    lists.Add(new KeyValuePair<string, List<Car>>(source, ReadCars(source, target, to, motorsport, packCars, ported, notes)));
                 }
                 if (catalog != null && catalog.Count > 0)
                 {
                     foreach (KeyValuePair<string, DlcCatalog.Pack> one in catalog)
                     {
-                        lists.Add(new KeyValuePair<string, List<Car>>(one.Key, CatalogCars(new List<KeyValuePair<string, DlcCatalog.Pack>> { one }, target, to, motorsport, packCars, ported, gamePairs, notes)));
+                        lists.Add(new KeyValuePair<string, List<Car>>(one.Key, CatalogCars(new List<KeyValuePair<string, DlcCatalog.Pack>> { one }, target, to, motorsport, packCars, ported, notes)));
                     }
                 }
                 foreach (KeyValuePair<string, List<Car>> list in lists)
@@ -2799,16 +2791,25 @@ namespace ForzaStudio
             return cars;
         }
 
+        // "B 441": the class of a PI and the number shown, by the CarClasses of the car's OWN game; "" for a database without
+        // that table (FM2). The target game's PI is never estimated in the list: the port computes it (Fm4Perf / Fm3Perf).
+        private static string OwnClass(SqliteDatabase db, double pi, long id)
+        {
+            if (db == null || !DbIds.HasTable(db, "CarClasses"))
+            {
+                return "";
+            }
+            return CarPort.ClassName(db, CarPort.ClassFor(db, pi, id)) + " " + CarPerformance.ShownPi(db, pi).ToString(CultureInfo.InvariantCulture);
+        }
+
         // One source root's cars, with their FM4 state; FM4 cars they were ported over go into 'ported'.
-        // pairsOut: when not null, gets the PI pairs of this source against FM4 (the game's, reused for its catalog DLC cars).
-        private static List<Car> ReadCars(string source, string target, SqliteDatabase to, List<Car> motorsport, Dictionary<string, string> packCars, List<Car> ported, System.Text.StringBuilder notes, List<double[]> pairsOut)
+        private static List<Car> ReadCars(string source, string target, SqliteDatabase to, List<Car> motorsport, Dictionary<string, string> packCars, List<Car> ported, System.Text.StringBuilder notes)
         {
             using (SqliteDatabase from = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(Path.Combine(Path.Combine(source, "Media"), "db"), "gamedb.slt"))))
             {
                 List<Car> horizon = Cars(from, Names(source));
                 bool package = DlcSource.IsStage(source);
                 ForzaGame game = GameInfo.Detect(source);
-                List<double[]> pairs = (package && game != ForzaGame.Motorsport2) ? null :CarPort.PerformanceIndexPairs(from, to, -1, source, target);
                 Dictionary<string, Car> byName = new Dictionary<string, Car>(StringComparer.OrdinalIgnoreCase);
                 foreach (Car car in motorsport)
                 {
@@ -2840,11 +2841,8 @@ namespace ForzaStudio
                 {
                     car.Root = source;
                     car.Game = game;
-                    double fixedPi;
-                    car.Fm4Pi = (package && CarPort.FixedPerformanceIndex(game, car.Pi, out fixedPi)) ? fixedPi
-                        : CarPort.MapPerformanceIndex(pairs ?? new List<double[]>(), car.Pi);
-                    car.Fm4Class = CarPort.ClassName(to, CarPort.ClassFor(to, car.Fm4Pi, car.Id));
-                    string zip = Path.Combine(sourceCars, car.MediaName + ".zip");
+                    car.Class = OwnClass(from, car.Pi, car.Id);
+                    string zip =Path.Combine(sourceCars, car.MediaName + ".zip");
                     KeyValuePair<bool, string> listed;
                     bool inList = lazy.TryGetValue(car.MediaName, out listed);
                     if (File.Exists(zip))
@@ -2863,17 +2861,33 @@ namespace ForzaStudio
                     }
                     SetState(car, File.Exists(zip) || inList, delegate { return CarPort.IsPorted(source, target, car.MediaName); }, game, byName, packCars, ported, notes, Path.GetFileName(source));
                 }
-                if (pairsOut != null)
-                {
-                    pairsOut.AddRange(pairs ?? new List<double[]>());
-                }
                 return horizon;
             }
         }
 
         // The cars of DLC packages known from DlcCatalog: listed without opening the package (Root stays null and
-        // Package names the file; RootOf stages it when the car is chosen). pairs: the base game's PI pairs (FM2).
-        private static List<Car> CatalogCars(List<KeyValuePair<string, DlcCatalog.Pack>> found, string target, SqliteDatabase to, List<Car> motorsport, Dictionary<string, string> packCars, List<Car> ported, List<double[]> pairs, System.Text.StringBuilder notes)
+        // Package names the file; RootOf stages it when the car is chosen). Their class comes from the CarClasses of the
+        // pack's game, when its folder is set in Settings.
+        private static List<Car> CatalogCars(List<KeyValuePair<string, DlcCatalog.Pack>> found, string target, SqliteDatabase to, List<Car> motorsport, Dictionary<string, string> packCars, List<Car> ported, System.Text.StringBuilder notes)
+        {
+            Dictionary<ForzaGame, SqliteDatabase> games = new Dictionary<ForzaGame, SqliteDatabase>();
+            try
+            {
+                return CatalogCars(found, target, motorsport, packCars, ported, notes, games);
+            }
+            finally
+            {
+                foreach (SqliteDatabase db in games.Values)
+                {
+                    if (db != null)
+                    {
+                        db.Dispose();
+                    }
+                }
+            }
+        }
+
+        private static List<Car> CatalogCars(List<KeyValuePair<string, DlcCatalog.Pack>> found, string target, List<Car> motorsport, Dictionary<string, string> packCars, List<Car> ported, System.Text.StringBuilder notes, Dictionary<ForzaGame, SqliteDatabase> games)
         {
             List<Car> cars = new List<Car>();
             Dictionary<string, Car> byName = new Dictionary<string, Car>(StringComparer.OrdinalIgnoreCase);
@@ -2885,16 +2899,28 @@ namespace ForzaStudio
             {
                 DlcCatalog.Pack pack = one.Value;
                 ForzaGame game = pack.Game;
+                SqliteDatabase own;
+                if (!games.TryGetValue(game, out own))
+                {
+                    try
+                    {
+                        string folder = GameInfo.ConfiguredFolder(game);
+                        string path = (folder == null) ? null : Path.Combine(Path.Combine(Path.Combine(folder, "Media"), "db"), "gamedb.slt");
+                        own = (path != null && File.Exists(path)) ? SqliteDatabase.FromBytes(File.ReadAllBytes(path)) : null;
+                    }
+                    catch (Exception)
+                    {
+                        own = null;
+                    }
+                    games[game] = own;
+                }
                 foreach (DlcCatalog.CarRow row in pack.Cars)
                 {
                     Car car = new Car { Id = row.Id, MediaName = row.MediaName, Name = row.Name, Year = row.Year, Make = row.Make, Placement = row.Placement, Drive = row.Drive, Type = row.Type, Weight = row.Weight, Pi = row.Pi };
                     car.Package = one.Key;
                     car.Game = game;
                     car.Dlc = !string.IsNullOrEmpty(pack.Title) ? pack.Title : Path.GetFileName(one.Key);
-                    double fixedPi;
-                    car.Fm4Pi = (game != ForzaGame.Motorsport2 && CarPort.FixedPerformanceIndex(game, car.Pi, out fixedPi)) ? fixedPi
-                        : CarPort.MapPerformanceIndex(pairs ?? new List<double[]>(), car.Pi);
-                    car.Fm4Class = CarPort.ClassName(to, CarPort.ClassFor(to, car.Fm4Pi, car.Id));
+                    car.Class = OwnClass(own, car.Pi, -1);
                     car.Traffic = row.Traffic;
                     string build = row.Build ?? "";
                     string media = row.MediaName;
@@ -3081,7 +3107,7 @@ namespace ForzaStudio
             FillLastColumn(this.cars);
         }
 
-        // The car list's columns: Id, Car, Year, Media name, PI source, PI FM4, Class (by FM4 PI), DLC, In target.
+        // The car list's columns: Id, Car, Year, Media name, PI source, Class (the source game's), DLC, In target.
         private static int CompareCars(Car a, Car b, int column)
         {
             switch (column)
@@ -3090,10 +3116,9 @@ namespace ForzaStudio
                 case 1: return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
                 case 2: return a.Year.CompareTo(b.Year);
                 case 3: return string.Compare(a.MediaName, b.MediaName, StringComparison.OrdinalIgnoreCase);
-                case 4: return a.Pi.CompareTo(b.Pi);
-                case 5:
-                case 6: return a.Fm4Pi.CompareTo(b.Fm4Pi);
-                case 7: return string.Compare(a.Dlc ?? "", b.Dlc ?? "", StringComparison.OrdinalIgnoreCase);
+                case 4:
+                case 5: return a.Pi.CompareTo(b.Pi);
+                case 6: return string.Compare(a.Dlc ?? "", b.Dlc ?? "", StringComparison.OrdinalIgnoreCase);
                 default: return string.Compare(a.Note ?? "", b.Note ?? "", StringComparison.OrdinalIgnoreCase);
             }
         }
@@ -3121,8 +3146,8 @@ namespace ForzaStudio
                 this.UpdateButtons();
                 return;
             }
-            this.details.Text = string.Format("{0} ({1}, id {2}): {7} PI {3:0.000} -> FM4 PI {4:0.000}, class {5}.  {6}",
-                car.Name, car.MediaName, car.Id, car.Pi, car.Fm4Pi, car.Fm4Class,
+            this.details.Text = string.Format("{0} ({1}, id {2}): {6} PI {3:0.000}{4} (the target's PI and class are computed by the port: its log).  {5}",
+                car.Name, car.MediaName, car.Id, car.Pi, (car.Class.Length > 0) ? ", " + car.Class : "",
                 (car.State == Status.New) ? "Not in FM4: it will be added." : (car.State == Status.InFm4) ? car.Note + ". Trial / install adds it beside FM4's as " + RenamedPort(car) + " (name + \"" + RenamedSuffix + "\")." : car.Note + ".", this.sourceTag);
             if (car.State == Status.New || InTarget(car.State))
             {
@@ -3200,7 +3225,6 @@ namespace ForzaStudio
             score += (car.Type == donor.Type) ? 1 : 0;
             score -= Math.Abs(car.Year - donor.Year) / 15.0;
             score -= (car.Weight > 0) ? 3 * Math.Abs(car.Weight - donor.Weight) / car.Weight : 0;
-            score -= 5 * Math.Abs(car.Fm4Pi - donor.Pi);
             return score;
         }
 
@@ -3364,7 +3388,7 @@ namespace ForzaStudio
             {
                 if (item.Tag == car)
                 {
-                    item.SubItems[8].Text = car.Note;
+                    item.SubItems[7].Text = car.Note;
                     item.ForeColor = (car.State != Status.New) ? ForzaTheme.TextDim : this.cars.ForeColor;
                 }
             }

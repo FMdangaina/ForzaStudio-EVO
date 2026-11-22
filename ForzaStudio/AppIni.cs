@@ -8,7 +8,7 @@ namespace ForzaStudio
     // ForzaStudio.ini next to the exe: ALL the tool's settings in one file (user 2026-10-25). Sections:
     //   [App]                 folders, viewer, music, last used paths (key=value; a value runs to the end of the line,
     //                         a semicolon in it is part of it); read and written by AppSettings
-    //   [Ids] [PI] [Tires] [Damage] [Lod0]            the port (PortSettings)
+    //   [Ids] [Tires] [Damage] [Lod0]            the port (PortSettings)
     //   [General] [Drivetrain swap] [List_Upgrade...]  the generic upgrades of ported cars (CarUpgrades)
     // A first start (or a missing file) builds it from the old Port.ini, Upgrades.ini and settings.txt when they exist
     // (moved to bak\), else from the defaults.
@@ -46,7 +46,7 @@ namespace ForzaStudio
                 StringBuilder text = new StringBuilder();
                 text.AppendLine("; ForzaStudio EVO " + System.Windows.Forms.Application.ProductVersion + " - ALL settings in this one file. Edit freely, here or in Tools > Settings.");
                 text.AppendLine("; [App] folders, viewer, music, last used paths (key=value, a value may contain a semicolon).");
-                text.AppendLine("; [Ids] [PI] [Tires] [Damage] [Lod0] the port.  [General] [Drivetrain swap] [List_Upgrade...] the generic upgrades.");
+                text.AppendLine("; [Ids] [Tires] [Damage] [Lod0] the port.  [General] [Drivetrain swap] [List_Upgrade...] the generic upgrades.");
                 text.AppendLine();
                 string port = Legacy("Port.ini");
                 string upgrades = Legacy("Upgrades.ini");

@@ -11,7 +11,7 @@ namespace ForzaStudio
     // Tools > Settings (ROADMAP 12.3, user 2026-10-20), three game-style tabs:
     //   FOLDERS  the FM4 folder installs go to, the source games, Xenia (settings.txt: the port window
     //            starts from them);
-    //   PORT     the values of Port.ini (car and row Ids, PI lines of DLC packages, drag tyres);
+    //   PORT     the values of Port.ini (car and row Ids, drag tyres);
     //   UPGRADES Upgrades.ini section by section, each key with the file's note (user 2026-10-20);
     //            both files can be set back to their defaults (a .bak copy first);
     //   VIEWER   textures at start, the language of the database's text, the music.
@@ -35,10 +35,6 @@ namespace ForzaStudio
         // Port.ini values shown in the PORT tab: section, key, caption.
         private static readonly string[][] PortValues =
         {
-            new string[] { "PI", "FH1.Slope", "FH1 DLC PI line: slope" },
-            new string[] { "PI", "FH1.Offset", "FH1 DLC PI line: offset" },
-            new string[] { "PI", "FM3.Slope", "FM3 DLC PI line: slope" },
-            new string[] { "PI", "FM3.Offset", "FM3 DLC PI line: offset" },
             new string[] { "Tires", "DragLevel", "Drag tyres: upgrade level" },
             new string[] { "Tires", "DragPrice", "Drag tyres: price (Cr)" },
         };

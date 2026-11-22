@@ -233,6 +233,7 @@ namespace ForzaStudio
             this.PortWheel(from, to);
             this.CockpitCamera();
             this.TuneForMotorsport3();
+            this.ComputePerformance();
         }
 
 
@@ -717,30 +718,29 @@ namespace ForzaStudio
                     values[iconIndex] = icon;
                 }
             }
-            // PI on the FM3 scale: the inverse of the FM3 -> FM4 map, fitted on the cars both games have.
-            int pi = toColumns.FindIndex(delegate(string c) { return c == "PerformanceIndex"; });
-            if (pi >= 0)
-            {
-                List<double[]> pairs = CarPort.PerformanceIndexPairs(this.target, this.source, -1, this.TargetRoot, this.SourceRoot);
-                List<double[]> inverse = new List<double[]>();
-                foreach (double[] pair in pairs)
-                {
-                    inverse.Add(new double[] { pair[1], pair[0] });
-                }
-                inverse.Sort(delegate(double[] a, double[] b) { return a[0].CompareTo(b[0]); });
-                double fm4 = Convert.ToDouble(values[pi], CultureInfo.InvariantCulture);
-                double fm3 = CarPort.MapPerformanceIndex(inverse, fm4);
-                values[pi] = fm3;
-                int cls = toColumns.FindIndex(delegate(string c) { return c == "ClassID"; });
-                if (cls >= 0)
-                {
-                    values[cls] = CarPort.ClassFor(this.target, fm3, this.carId);
-                }
-                this.Line("  PI {0:0.0000} (FM4) -> {1:0.0000} (FM3 scale, {2} cars shared), class {3}", fm4, fm3, pairs.Count, (cls >= 0) ? CarPort.ClassName(this.target, values[cls]) : "?");
-            }
+            // PI, class, garage bars and Sim peaks are still FM4's here: ComputePerformance writes FM3's own at the end of the
+            // database step.
             this.target.Execute("DELETE FROM Data_Car WHERE Id = ?", this.carId);
             this.Insert("Data_Car", toColumns, values);
             this.Line("  Data_Car: FM4 row on the FM3 row of {0} (GaugeID: the dash step sets it)", this.DonorMediaName);
+        }
+
+        // PI, class, the five garage bars, Sim peaks, curb weight and weight distribution of the ported car: FM3's own
+        // calculation (Fm3Perf: the simulated lap of Media\Physics\PI.xml, docs/FM3/PI_AND_RATINGS.md) on the rows the port
+        // wrote, stored as a whole set as FM3's own cars have it. Nothing is mapped from FM4's PI scale any more (user
+        // 2026-11-17: the line fitted on the cars both games have is gone).
+        private void ComputePerformance()
+        {
+            double fm4 = Convert.ToDouble(this.source.Scalar("SELECT PerformanceIndex FROM Data_Car WHERE Id = ?", this.carId), CultureInfo.InvariantCulture);
+            string problem;
+            Fm3Perf.Result c = Fm3Perf.Store(this.target, this.carId, Path.Combine(this.TargetRoot, "Media"), out problem);
+            if (c == null)
+            {
+                this.Line("WARNING performance: NOT computed ({0}). PI, class, ratings and Sim peaks are still FM4's values (PI {1:0.000}): set them by hand", problem, fm4);
+                return;
+            }
+            this.Line("performance (FM3's own calculation): PI {0:0.000} (FM4) -> {1:0.0000} = {2} (lap {3:0.0} s), speed {4:0.00}, acceleration {5:0.00}, launch {6:0.00}, braking {7:0.00}, handling {8:0.00}, {9:0} kg, {10:0.0}% front",
+                fm4, c.Pi, Fm3Perf.Shown(this.target, c.Pi), c.LapTime, c.SpeedRating, c.AccelerationRating, c.LaunchRating, c.BrakingRating, c.HandlingRating, c.Mass, c.FrontWeight * 100);
         }
 
         private int CopyRows(string table, List<string> sourceColumns, List<string> targetColumns, string where, string donorWhere, bool deleteFirst)

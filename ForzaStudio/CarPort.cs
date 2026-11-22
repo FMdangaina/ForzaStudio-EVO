@@ -45,7 +45,7 @@ namespace ForzaStudio
         public string MediaName;        // the car, e.g. MCL_P1_13
         public string DonorMediaName;   // an FM4 car close to it, e.g. MCL_MP412C_11 (brakes, templates)
         public string DonorRoot;        // the donor is a car of an installed DLC pack: that pack laid out as a game folder (found by ResolveDonor), else null
-        public string Tires = "normal"; // "normal": the source's own tire models (BuildTireZips); "offroad" / "small": the program's Service\OffroadTires / SmallTires models under the car's name
+        public string Tires = "normal"; // "normal": the source's own tire models (BuildTireZips); "offroad" / "small" / "offroadbig": the program's Service\OffroadTires / SmallTires / OffroadBigTires models under the car's name
         public string RenameTo;         // a car FM4 already has, ported beside it under this MediaName (for tests); null = the source's name
         public string DisplaySuffix;    // text added to the car's DisplayName / ModelShort when renamed, e.g. " FH"
         public bool DeferIntegrity;     // a pack trial: the database rules are checked once for the whole pack, not after every car
@@ -118,7 +118,6 @@ namespace ForzaStudio
         private readonly List<string> engineMedia = new List<string>();
         private bool fm2Stage;
         private double fm2Pi = -1;                  // the FM2 car's PerformanceIndex (FM2 stage), -1 = none
-        private List<double[]> fm2PiPairs;          // (FM2 PI, FM4 PI) of the cars both games have
         private readonly List<long> wheelIds = new List<long>();
         private readonly List<long> originalWheels = new List<long>();   // wheels FM4 already had before the port
         private readonly Dictionary<string, ForzaZip> changedZips = new Dictionary<string, ForzaZip>(StringComparer.OrdinalIgnoreCase);
