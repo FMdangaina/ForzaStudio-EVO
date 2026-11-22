@@ -25,6 +25,7 @@ namespace ForzaStudio
             public string Root;         // the staged DLC pack the car comes from, or null for the FM4 folder itself
             public string Dlc;          // the pack's name, or ""
             public bool InFm3;
+            public bool Traffic;        // FH traffic car: placeholder close-up models, rebuilt by step 1 (shown yellow)
         }
 
         // Dlc mode: cars go into a pack list, then Trial Pack, Build DLC Package / Build for Xbox 360.
@@ -234,7 +235,21 @@ namespace ForzaStudio
             carsArea.Controls.Add(this.cars);
             carsArea.Controls.Add(selectedCar);
             carsArea.Controls.Add(filter);
-            carsArea.Controls.Add(CarPortForm.SectionHeader("Cars"));
+            Control carsHeader = CarPortForm.SectionHeader("Cars");
+            // The traffic colour of the car list at the right of the header, as the FM4 window draws it (user 2026-11-22).
+            carsHeader.Paint += delegate(object sender, PaintEventArgs e)
+            {
+                const string name = "Traffic car (close-up rebuilt)";
+                Size size = TextRenderer.MeasureText(name, ForzaTheme.Regular);
+                int x = carsHeader.Width - 8 - size.Width;
+                TextRenderer.DrawText(e.Graphics, name, ForzaTheme.Regular, new Point(x, 7), ForzaTheme.Yellow);
+                using (Brush dot = new SolidBrush(ForzaTheme.Yellow))
+                {
+                    e.Graphics.FillEllipse(dot, x - 14, 11, 9, 9);
+                }
+            };
+            carsHeader.Resize += delegate { carsHeader.Invalidate(); };
+            carsArea.Controls.Add(carsHeader);
 
             // Report under both areas, as a tab like the FM4 window's.
             this.report = new TextBox();
@@ -443,7 +458,8 @@ namespace ForzaStudio
                 }
                 Rectangle text = new Rectangle(e.Bounds.X + 4, e.Bounds.Y, e.Bounds.Width - 6, e.Bounds.Height);
                 bool dim = e.Item.ForeColor == ForzaTheme.TextDim;
-                Color fore = selected ? Color.White : ((e.ColumnIndex == 0 || dim) ? ForzaTheme.TextDim : ForzaTheme.Text);
+                bool yellow = e.Item.ForeColor == ForzaTheme.Yellow;   // traffic cars; review warnings
+                Color fore = selected ? Color.White : ((e.ColumnIndex == 0 || dim) ? ForzaTheme.TextDim : yellow ? ForzaTheme.Yellow : ForzaTheme.Text);
                 TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ForzaTheme.Regular, text, fore, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             };
         }
@@ -675,6 +691,10 @@ namespace ForzaStudio
                         {
                             item.ForeColor = ForzaTheme.TextDim;
                         }
+                        else if (car.Traffic)
+                        {
+                            item.ForeColor = ForzaTheme.Yellow;
+                        }
                         this.items.Add(item);
                     }
                     this.donors.Items.Clear();
@@ -739,6 +759,9 @@ namespace ForzaStudio
                 bool needsZip = packRoot == null && GameInfo.Detect(root) == ForzaGame.Motorsport2;
                 // an FM2 package's stage holds the whole FM2 database (the game's + the package's): only the package's own cars
                 Dictionary<string, KeyValuePair<bool, string>> own = (packRoot != null && DlcSource.IsFm2Raw(root)) ? DlcSource.LazyCars(root) : null;
+                // FH traffic cars (FH1 / FH2 folder or a staged FH package), yellow as in the FM4 window
+                bool horizonSource = CarPortViaFm4.IsHorizon(root);
+                Dictionary<string, KeyValuePair<bool, string>> lazy = horizonSource ? DlcSource.LazyCars(root) : null;
                 int noFiles = 0;
                 foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year FROM Data_Car ORDER BY Id").Rows)
                 {
@@ -768,12 +791,32 @@ namespace ForzaStudio
                     car.Root = packRoot;
                     car.Dlc = pack;
                     car.InFm3 = inFm3.Contains(car.MediaName);
+                    car.Traffic = horizonSource && IsTraffic(root, car.MediaName, lazy);
                     into.Add(car);
                 }
                 if (noFiles > 0)
                 {
                     notes.AppendLine(noFiles + " cars of the source database have no car zip in its folder: left out");
                 }
+            }
+        }
+
+        // A car with placeholder close-up models (CarPort.HasPlaceholderCloseUp on its zip, or the package index of a lazy stage).
+        private static bool IsTraffic(string root, string media, Dictionary<string, KeyValuePair<bool, string>> lazy)
+        {
+            try
+            {
+                string zip = GamePaths.FindMedia(root, "cars", media);
+                if (zip != null && File.Exists(zip))
+                {
+                    return CarPort.HasPlaceholderCloseUp(zip, media);
+                }
+                KeyValuePair<bool, string> listed;
+                return lazy != null && lazy.TryGetValue(media, out listed) && listed.Key;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 

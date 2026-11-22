@@ -1085,6 +1085,16 @@ namespace ForzaStudio
                     model.ConvertMotorsport4ToMotorsport3();
                     this.RenameMaterials(model, name);
                     data = model.ToBytes();
+                    // Every mesh into the draw pass of its FM3 material and every part's see-through flag as its meshes say
+                    // (MaterialSlots, FM3's rule on all its stock files): a review fix gave glass to a mesh left in the
+                    // opaque pass, which FM3 does not draw (FH traffic Yukon tail light glass lights_gls_* 2026-11-22, as
+                    // the FH2 595 in FM4 on 2026-11-08).
+                    MaterialSlots slots = new MaterialSlots(data);
+                    data = slots.ToBytes();
+                    if (slots.Fixes.Count > 0)
+                    {
+                        this.Line("  {0}: draw pass / see-through flag as FM3 has them: {1}", name, string.Join(", ", slots.Fixes.ToArray()));
+                    }
                     if (name.Contains("_caliper") || name.Contains("_rotor"))
                     {
                         name = name.Replace("_lod0.carbin", ".carbin");
@@ -1261,6 +1271,7 @@ namespace ForzaStudio
         private readonly Dictionary<string, List<string[]>> unknownPlaces = new Dictionary<string, List<string[]>>(StringComparer.Ordinal);   // list, part
         private readonly Dictionary<string, List<string>> unknownNow = new Dictionary<string, List<string>>(StringComparer.Ordinal);          // the names a fix gave it
         private int materialsRenamed;
+        private readonly List<string> emptyParts = new List<string>();   // <part>_LODn dummies left out of the review
 
         private static string LodTwin(string material)
         {
@@ -1282,6 +1293,17 @@ namespace ForzaStudio
                     }
                     string original = sub.Name;
                     string list = Fm4MaterialUse.ListName(false, fileName, sub.Lod);
+                    if (CarPort.IsEmptyPart(section, sub))
+                    {
+                        // <part>_LODn: an empty-part dummy (a 0.2 m cube or a few-index LOD 2-5 subsection, FH traffic and
+                        // FM4's own cars alike), never seen; out of the review as in the FM4 port (user 2026-10-18,
+                        // again 2026-11-22: bumperFa_LOD3..5 / bumperRa_LOD1..4 listed in the FM3 Review)
+                        if (!this.emptyParts.Contains(original))
+                        {
+                            this.emptyParts.Add(original);
+                        }
+                        continue;
+                    }
                     object chosen;
                     if (this.Fixes != null && this.Fixes.TryGetValue("material:" + original, out chosen) && chosen is string && ((string) chosen).Length > 0)
                     {
@@ -1332,6 +1354,10 @@ namespace ForzaStudio
             if (this.materialsRenamed > 0)
             {
                 this.Line("materials: {0} mesh(es) renamed to the FM3 material chosen in the review", this.materialsRenamed);
+            }
+            if (this.emptyParts.Count > 0)
+            {
+                this.Line("materials: empty parts, not reviewed: {0}", string.Join(", ", this.emptyParts.ToArray()));
             }
             List<string> left = new List<string>();
             foreach (string material in this.unknownOrder)

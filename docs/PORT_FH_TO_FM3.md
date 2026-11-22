@@ -369,3 +369,46 @@ while the rear wing's move to the new car id; harmless in FM4 (the rows exist) b
   rim upgrade in FM3; Review grid drawn at full size.
 - Still to test: FM2 DLC packages as a source of the FM3 window; Build turned off after a review fix changes; FM2-born
   FM3 cockpit in the viewport.
+
+## 20. FH traffic cars -> FM3, first offline trial (2026-11-22, user: "auto traffic FH1/2 su FM3, non ne abbiamo provata una")
+
+- `via.exe` FH1 -> FM3 (`out_traffic`): GMC_YukonXL_01, FOR_FocusZX4_05, FOR_F350SuperDuty_08, TOY_RAV4Sport_04: 4 / 4 OK,
+  8 s each. Step 1 (CarPort) does the whole traffic rebuild as for FM4: lod0 / cockpit from LOD 1, empty parts dropped,
+  plates removed, light placeholders removed, generic brakes, collision from the donor's spheres, driver rig, cameras,
+  wheel LOD 0 from LOD 1. Step 2: tire seat ring on the rebuilt wheel (Yukon radius 0.235), FM3 cockpit camera, FM3 PI
+  (Yukon E 205, Focus F 187, F350 E 203, RAV4 E 233).
+- Open, to see in game:
+  - Sound: Focus / F350 / RAV4 have FH's NA_Int_HT / NA_EngAmb_HT layers (bank NA.fsb, in no game). In FM4 only the two
+    electric cars (Volt, Leaf) use NA_* and run; no FM3 car does. If FM3 hangs or the car is silent, this is the first
+    suspect (Change Car Sound / the window's engine sound choice gives a real one). Yukon has real banks.
+  - Materials: FH traffic light materials (slorange, oldhead, hidhead, lindtail...) reach FM3 as they are (step 1 leaves
+    material fixes to step 2): 10-36 per car "may render black" in the Review tab, fixes are the user's choice.
+  - The FM3 car list does not mark traffic cars (the FM4 window shows them yellow).
+- 2026-11-22 (user: "metti il giallo per le traffic"): the FM3 car list shows FH traffic cars in yellow with the FM4 window's
+  legend "Traffic car (close-up rebuilt)" (CarPortFm3Form.IsTraffic = CarPort.HasPlaceholderCloseUp, or a lazy stage's
+  index). `traf.exe`: 18 FH1 + 14 FH2 cars. Side effect: StyleList now draws yellow items, so the Review tab's WARNING /
+  silent / missing rows show yellow as their code always meant. Built 13:11, app check pending.
+- 2026-11-22 user: FH1 traffic DOD_Durango_99 ported straight into FM3 (single car, not a pack): OK in game. First FH
+  traffic car seen in FM3.
+  Sound changed in the window: OK; cockpit OK. Next: DLC pack with the Yukon.
+- 2026-11-22 user (Review screenshot: bumperFa_LOD3..5, bumperRa_LOD1..4 "no FM3 car uses"): the empty-part dummies
+  `<part>_LODn` were reviewed by the FM3 step (FM4's material lists hold them, FM3's survey does not). Fix:
+  CarPortToFm3.RenameMaterials skips CarPort.IsEmptyPart subsections, report line "materials: empty parts, not reviewed".
+  Offline (`out_traffic2`): RAV4 19 -> 8 review rows, Yukon 36 -> 16; what is left are FH light materials (slorange,
+  oldhead, hidhead, indicator_left...), the user's fixes. Compiled; bin\Debug not updated (app open).
+- 2026-11-22 user: the Yukon (FH1 traffic) has no tail light glass in FM3, "as the FH2 595 in FM4". `pass3.exe`: glassLTL /
+  glassRTL hold lights_gls_* (FH names FM3 lacks) in the OPAQUE pass. A review fix renamed them only (to red_glass etc.),
+  so the glass stayed in the opaque pass, which FM3 does not draw: the 595 bug (transparent-part-flag), never handled on
+  the FM3 port because CarbinModel.ForGame skips FM3 files. Fix: CarPortToFm3 runs MaterialSlots.ToBytes (FM3's rule:
+  every mesh into its material's pass, part see-through flag from its meshes) on each converted carbin, report line
+  "draw pass / see-through flag as FM3 has them". `fixglass.exe` (port with review fixes): Yukon glass -> red_glass /
+  detail_glass_* now in the see-through pass, flag 1, main and lod0. Without fixes only flags of parts with no FM3 glass
+  change; an FH1 R8 GT: nothing moved. Built 13:31.
+
+## 21. Last user checks, topic closed (2026-11-22, after the 13:31 build)
+
+- OK in game / in the app: Yukon pack with review fixes shows the tail light glass; Focus ZX4 in a pack with FH's NA_*
+  sound layers (no hang, sound plays); an FM2 DLC package car in the FM3 window; Build turned off after a review fix
+  changes post Trial Pack; FM2-born FM3 cockpit in the viewport; FH traffic cars yellow in the FM3 list.
+- Nothing left open on the ports to FM3 from FH1 / FH2 / FM2 (traffic cars and FM2 DLC packages included). Next topic:
+  ports with FM2 as the target.
