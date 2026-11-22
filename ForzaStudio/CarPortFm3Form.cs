@@ -392,7 +392,7 @@ namespace ForzaStudio
         {
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
-                dialog.Title = "FM4 DLC packages (Xbox 360 package files)";
+                dialog.Title = "DLC packages of the source game, FM4 or FM2 (Xbox 360 package files)";
                 dialog.Multiselect = true;
                 dialog.CheckFileExists = true;
                 if (dialog.ShowDialog(this) != DialogResult.OK)
@@ -407,7 +407,7 @@ namespace ForzaStudio
                     }
                 }
             }
-            this.status.Text = this.packFiles.Count + " FM4 DLC package(s) added: Load Cars lists their cars with the game's.";
+            this.status.Text = this.packFiles.Count + " DLC package(s) added: Load Cars lists their cars with the source game's.";
             if (Directory.Exists(this.sourceBox.Text) && Directory.Exists(this.targetBox.Text))
             {
                 this.LoadCars();
@@ -643,9 +643,9 @@ namespace ForzaStudio
                     string label = !string.IsNullOrEmpty(pack.Title) ? pack.Title : Path.GetFileName(pack.Folder);
                     try
                     {
-                        if (pack.Problem != null || pack.Game != ForzaGame.Motorsport4)
+                        if (pack.Problem != null || pack.Game != packGame)
                         {
-                            notes.AppendLine(label + ": left out, " + (pack.Problem ?? "not an FM4 package"));
+                            notes.AppendLine(label + ": left out, " + (pack.Problem ?? "not an " + GameInfo.Tag(packGame) + " package"));
                             continue;
                         }
                         string root = pack.Stage(notes);
@@ -737,6 +737,8 @@ namespace ForzaStudio
                 }
                 // the FM2 game folder: only the cars with a zip in Media\cars (step 1 lays the car out from it), as the FM4 window lists them
                 bool needsZip = packRoot == null && GameInfo.Detect(root) == ForzaGame.Motorsport2;
+                // an FM2 package's stage holds the whole FM2 database (the game's + the package's): only the package's own cars
+                Dictionary<string, KeyValuePair<bool, string>> own = (packRoot != null && DlcSource.IsFm2Raw(root)) ? DlcSource.LazyCars(root) : null;
                 int noFiles = 0;
                 foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year FROM Data_Car ORDER BY Id").Rows)
                 {
@@ -747,6 +749,10 @@ namespace ForzaStudio
                     if (needsZip && GamePaths.FindMedia(root, "cars", (string) row[1]) == null)
                     {
                         noFiles++;
+                        continue;
+                    }
+                    if (own != null && own.Count > 0 && !own.ContainsKey((string) row[1]))
+                    {
                         continue;
                     }
                     if (!listed.Add((string) row[1]))

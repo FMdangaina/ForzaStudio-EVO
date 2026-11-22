@@ -336,3 +336,36 @@ while the rear wing's move to the new car id; harmless in FM4 (the rows exist) b
   tire, Lancer LOD 5 x0.96). FM2 -> FM3 inherits it (FM3's own sizing now a no-op, RX-7 / Veilside 0.248). Known limit: a
   wheel shared by two cars with different tire sizes (RX-7 245/40, S900 255/35) is staged per car, the last one wins.
   FM2 cars ported before need a re-port. In-game check pending.
+
+## 18. The open points closed (2026-11-22, user: "fai tutto lavoro aperto e poi io testo tutto")
+
+- **CHS Data_Car missing in packs (validator ERROR).** Cause: `CarPortToFm3.PortStrings` wrote a language only when the
+  source table of that language had the key. FM4 has no CHS, so CHS fell back to the FM4 / stage EN.zip, while the car's
+  names were in the pack's own EN table: the FM3 CHS Data_Car.str stayed unchanged and BuildStringsFm3 left CHS out of the
+  pack. Fix: a language that lacks the key takes the English text of the source (`FindKey`, "EN"), as the method's comment
+  always said. Offline (`out_pack_fm2_own`, `strnew.exe`): the 4 new keys in all 16 languages, CHS included. Packs built
+  before keep the error; it showed no effect in game.
+- **One FM2 wheel, two tire sizes.** FM2 has 6 such wheels (RX-7 AB Flug 245/40 R18 / Supra S900 255/35 R18, MR2,
+  Integra R x2, Civic R, Celica APR / Impreza Tommy Kaira). `Fm2Source.StageWheel` now gives the car its own wheel, named
+  after the car (as FM2 names its wheels and as Duplicate Car names an own wheel), when another FM2 car uses the same wheel
+  with a different declared front tire (`SharedWithOtherTire`). Report line "is shared with an FM2 car of another tire
+  size, this car gets its own wheel <car>". Wheels shared with the same tire (both Veilsides) stay shared.
+  Offline FM2 -> FM4 (`out_fm2_fm4_own`): RX-7 tire 0.327 = 1.000 x, S900 0.318 = 1.000 x, both rims 0.248 = 1.084 x;
+  Veilside 99 unchanged. FM2 -> FM3 pack trial: RX-7 wheel 12345, S900 its own 12347; dbcheck3 0 errors 0 warnings.
+- **Veilside and Lingenfelter FM3 PI 0.613: not a clamp.** `perf3.exe` (Fm3Perf.Compute): Lingenfelter PI 0.6138, lap
+  121.229 s, top 109.9 m/s, corner 14.57, 1414 kg; Veilside PI 0.6135, lap 121.249 s, top 110.7, corner 14.31, 1479 kg,
+  more power. Different inputs, the same lap by chance. Both 53% front: FM2's FrontWeight-pct, kept.
+- **FM2 DLC packages as a source of the FM3 window.** `CarPortViaFm4.GoesThroughFm4` accepts an FM2 package stage
+  (raw=fm2); step 1 (CarPort) already lays such a car out with the FM2 game's wheels / thumbnails / strings. The FM3 window
+  lists FM2 packages (Package... and "Include the game's DLC" = Xenia's FM2 content folder) when the source is the FM2
+  folder, only each package's own cars (`DlcSource.LazyCars`; the stage database is the whole FM2 one), and RunCar passes
+  the car's stage as the chain's source. Offline (`stage2.exe`, `pack3fm2.exe` on Nissan Tournament Pack): NIS_350Z_DLC1 +
+  PEU_908_DLC2 -> FM3 cars 1717 / 1718, names from the package in all languages, dbcheck3 0 errors 0 warnings.
+- Build: compiled 0 errors; bin\Debug NOT updated (ForzaStudio and Xenia were open), exe in obj\x86\Debug.
+
+## 19. User checks (2026-11-22, after the 13:05 build)
+
+- OK: FM3 pack RX-7 + S900 rebuilt (no CHS error, S900 own wheel); S900 own wheel in FM4; "+" new make for FM3; 19" / 20"
+  rim upgrade in FM3; Review grid drawn at full size.
+- Still to test: FM2 DLC packages as a source of the FM3 window; Build turned off after a review fix changes; FM2-born
+  FM3 cockpit in the viewport.

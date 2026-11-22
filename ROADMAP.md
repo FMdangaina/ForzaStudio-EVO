@@ -26,10 +26,11 @@ left as they are because the numbers are used all over the notes:
 - Tasks named `D-n`, `T-EDn`, `T-Gn` are rows of the `TODO.md` tables (sections 1 and 2a); `ST-0n` are the items of
   Sprint 2 (goal 21), each with its own document.
 
-## 2. Now (2026-11-17)
+## 2. Now (2026-11-22)
 
 | | What | Where |
 |---|---|---|
+| 🧪 To test | **Ports to FM3 from FH1 / FH2 / FM2** (through the FM4 form) and **FM2 -> FM4 wheel sizing**: FH packs and the FM2 pack (offer 107) OK in game; checked by the user 2026-11-22: FM2 -> FM4 wheels, own wheel for FM2 cars sharing a wheel, CHS strings, "+" new make for FM3, 19"/20" rim upgrade in FM3, Review grid. Left to test: FM2 DLC packages as an FM3 source, Build guard after a review change, FM2 cockpit in the viewport. Committed e52f061 + the next commit | `docs/PORT_FH_TO_FM3.md` sections 8-18 |
 | 🧪 To test | **Driver points** (commit bdb6278): DRIVER tab on the main model (LOD 1..5) and on `_lod0` / `_cockpit` (LOD 0); the port rebuilds LOD 0 points only for a cockpit it built from LOD 1; FM2 ports take the LOD 1..5 points from the FM2 model. Compile-checked only | `URGENT.md` (seven checks), `UNTESTED.md` D5b / D5c, `docs/DRIVER_POSITION.md` |
 | ✅ Just closed | **Editor workflow** (`TODO.md` 15.3): steps A to E done and checked in the app by the user (2026-11-16/17): Undo / Redo and no Apply, pick modes, move / scale handles, Copy Part preview, F1 help, no menus (top bar, FILES bar, Tools panel) | `docs/UI_WORKFLOW.md` |
 | ✅ Checked by the user 2026-11-21, to commit | **Sprint 2, ST-03** part import and model editing inside FM2 and FM3 cars: Copy Part from every game into FM4 / FM3 / FM2, part and mesh edits, MESH tab, UV Mapper, Export / Import OBJ (one part), Export / Import Model (OBJ folder, FBX, glTF), baked light computed or taken from the source vertices (no donor). Left for later: crash deformation words without a donor; Gauges on FM3 | `docs/ST03_PART_IMPORT.md` |
