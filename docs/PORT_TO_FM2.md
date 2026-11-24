@@ -195,7 +195,8 @@ Closed in game since this list was first written: the R33 race front bumper with
 model header and part physics from the source (2026-11-23), the sound as PCM banks (2026-11-24, section 6; memory fine,
 no XMA1 repacking needed).
 
-- Port window: the user picks the variants to leave out when the car does not fit the 65536 opaque buffer.
+- Port window: built 2026-11-24 (section 7); the user's check in the app and of the Cobalt SS (car 668) in game is
+  pending.
 - Names, thumbnail.
 - The zip's ShaderSettings.xml is still the template's (FM2 per-car shader file; the source has none).
 - Rim size upgrade on a converted wheel (FM2 has no morph table): to study. FM2's own rim / tire size rule is not
@@ -203,8 +204,8 @@ no XMA1 repacking needed).
 - Split of a triangle with UVs wider than 50; FM3 wheels with two `wheel` parts; wheel textures keep the source's mip
   levels (FM2's have one).
 - Light fitted on the source's own values instead of the template's baker (FM4 / FM3 hold bands 0-1).
-- The window (to describe to the user first) and the review grid for the materials FM2 lacks (P1 15, GTX1 13): the
-  user's choice per material, never automatic.
+- Materials grid: built 2026-11-24 (section 7b); the user's check in the app and of the RS 4 Avant (car 669) in game is
+  pending.
 - Combo_Colors_Exceptions (FM4 second colour / stripes): FM2 has no such table, not ported.
 - List_Wheels.IconPath stays the template's picture (FM2 has no picture of the source rim).
 
@@ -296,3 +297,54 @@ driveline 1) do not exist on the GTX1 (2 / 0). A NEW GTX1 works (user 2026-11-24
 
 **Other-game routes into FM2 closed by the user 2026-11-24:** FM4 (5 cars), FH2 (P1), FM3 (X5), FH1 DLC (GTX1). Left: the zip's ShaderSettings.xml is
 still the template Ford GT's (FM2 per-car shader file; the source has none).
+
+## 7. The port window (2026-11-24, user: "parti da A")
+
+Top bar > Cars > "Import car from another Forza, into:" > **FM2** opens `CarPortFm2Form` (the FM3 window's layout:
+source folder, FM2 folder, Load Cars, car list with search and "Include the game's DLC", FM2 template car, Trial Run,
+Install In FM2..., Report tab). Cars FM2 already has under the same MediaName are not listed.
+
+- **Trial Run** writes nothing: `CarPortToFm2.Plan` (`Fm2CarbinModel.PortPlan`) converts every source part against the
+  template and gives its vertices and its buffer (see-through = first, opaque = second, 65536 each); the report also
+  holds the Duplicate Car plan of the template copy.
+- **Variants tab**: one row per upgrade variant (`IsUpgradeVariant`: kit letter other than a, or `...race`) with a
+  Port tick, the vertices and the buffer; two counters above (green, red over 65536). Every variant starts ticked:
+  leaving one out is the user's choice (rule of 2026-11-22), the tool picks none. Install stays off while a counter
+  is over, and needs a trial against the template chosen. The unticked parts go to `CarPortToFm2.SkipParts`.
+- **Install** asks, checks Xenia (`XeniaGuard`), then runs `CarPortFm2Chain`: the plan checked again, 1 Duplicate Car
+  of the template under the source's MediaName / name / year, 2 `CarPortToFm2`, 3 `CarDataToFm2` + `Fm2Perf` +
+  StockGarage + integrity (database written only if it passes; copy in `bak\fm2port_<time>`), 4 `Fm2SoundPort` and
+  Data_Engine.MediaName. A failed sound step is reported and does not undo the car.
+- **DLC cars**: `CarPortFm2Chain.StageDlc` does what `gtxsrc.exe` did (stage copied to
+  `%TEMP%\ForzaStudio\Fm2PortSource\<pack>`, database = the game's with the pack's merge over it, car and wheel taken
+  out as zips); the game folder is the sound fallback. Not run yet from the window.
+
+Checks: `plan.exe` (read-only) gives 22227 / 18006 for the 458 and 1154 / 68432 for the R33 (65256 without bumperFb):
+the numbers of the real ports. `E:\DEV\fm4dev\ui\shotfm2.exe` renders the window off screen (Cobalt SS: 97,367 opaque,
+Install off; 8 front bumpers unticked: 63,318, Install on). `chain.exe ... write` ran the four steps for the FM4
+Cobalt SS `CHE_CobaltSS_10` -> car 668 on `AUD_RS6_03` in DEV: 16502 + 63318 vertices as counted, PI C 491, sound
+4N2_Ecotec_305Stock_Exh (log `chain_CHE_CobaltSS_10.txt`). The window's own Install click and the car in game: user.
+
+User 2026-11-24: Cobalt SS OK in game.
+
+Not in the window yet: a second port over a car already installed (to change the variants or the materials the car
+must be removed first).
+
+### 7b. Materials tab (2026-11-24, user: "vai con B")
+
+The trial also plans the stock wheel (`CarPortToFm2.PlanWheel`) and lists each source material, per part and LOD
+(`PlanPart.Materials`). **Materials** tab: one row per material FM2's own cars do not use in that list (car: car_LOD1-5;
+wheel: wheels_LOD1-5 of `docs\FM2\MaterialUse.txt`, the rule the editor's tree uses for FM2 models): Where (car /
+wheel), the material, the parts that use it, and a drop-down **FM2 material (your choice)** that starts on "(leave as
+is)" and offers the techniques of FM2's car effect (`ShaderTextures.Motorsport2TechniqueNames`) that FM2's cars
+(wheels) use. The tool chooses nothing. The choices stay with the car's trial and are used by the next trial and
+the install (`CarPortToFm2.CarMaterials` / `WheelMaterials` -> `Fm2CarbinModel.PortMaterials`: each converted part's
+meshes are renamed BEFORE the part goes into a buffer, so a see-through choice moves the part to the see-through
+buffer; the counters and the Variants tab follow at once).
+
+Checks: `shotfm2.exe` with FH2 Audi RS 4 Avant `AUD_RS4Avant_13` on `AUD_RS6_03`: 8 rows (bottom, chrome_2, drlwhite,
+grille2_alpha, indicator_left / right, taillightst, xenonhead; wheel none), 38 choices each; bottom -> detail_glass_clear
+moved 28,719 vertices from the opaque to the see-through counter. `chain.exe ... write mat=drlwhite:head_light
+mat=xenonhead:head_light mat=indicator_left:detail_glass_amber mat=indicator_right:detail_glass_amber
+mat=taillightst:tail_light` (test choices, not a recommendation) installed it as car **669** in DEV: 37 meshes renamed,
+none of the five names left in the written model, model check OK, PI B 668, sound 8N0_S4V8_O1002_Exh. In game: user.

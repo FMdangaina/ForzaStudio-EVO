@@ -55,6 +55,111 @@ namespace ForzaStudio
             return LeftOut(part) || this.SkipParts.Exists(delegate(string skip) { return string.Equals(skip, part, StringComparison.OrdinalIgnoreCase); });
         }
 
+        // The user's material choices (the port window's Materials grid): a source material -> the FM2 material its meshes
+        // get, for the car model and for the wheel model. Empty: every material keeps the source's name. Never filled by
+        // the tool (user rule: material fixes are the user's choice).
+        public Dictionary<string, string> CarMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
+        public Dictionary<string, string> WheelMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        // True when FM2's own cars (wheel: its wheels) use the material in a mesh of this LOD: the editor's rule for the
+        // FM2 models (ShaderProfiles, docs\FM2\MaterialUse.txt).
+        public static bool Fm2Uses(bool wheel, uint lod, string material)
+        {
+            return ShaderProfiles.IsUsed(ShaderProfile.Fm2, wheel ? "wheels_LOD" + Math.Max(1u, Math.Min(lod, 5u)) : "car_LOD1-5", material);
+        }
+
+        // The materials to choose from: the techniques of FM2's car effect that FM2's cars (wheel: wheels) use, by name.
+        public static List<string> Fm2Materials(bool wheel)
+        {
+            List<string> names = new List<string>();
+            foreach (string technique in ShaderTextures.Motorsport2TechniqueNames())
+            {
+                bool used = false;
+                for (uint lod = 1; lod <= (wheel ? 5u : 1u) && !used; lod++)
+                {
+                    used = Fm2Uses(wheel, lod, technique);
+                }
+                if (used)
+                {
+                    names.Add(technique);
+                }
+            }
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            return names;
+        }
+
+        // The port window's trial: the source parts Run() would write into the FM2 car, with the vertices each takes in its
+        // shared buffer and the materials of each. Nothing is written. The template is TemplateMediaName, else the target
+        // car itself. SkipParts are not applied: the window shows every variant and the user ticks the ones to port.
+        public List<Fm2CarbinModel.PlanPart> Plan()
+        {
+            string templateName = this.TemplateMediaName ?? this.TargetMediaName;
+            return this.PlanOf(GamePaths.FindCar(this.SourceRoot, this.SourceMediaName), this.SourceMediaName, GamePaths.FindCar(this.TargetRoot, templateName), templateName, true);
+        }
+
+        // The same for the wheel Run() would port: the source car's stock wheel against the template car's. Null when the
+        // databases or the folders do not give both wheels (Run() then leaves the FM2 wheel as it is).
+        public List<Fm2CarbinModel.PlanPart> PlanWheel()
+        {
+            string templateName = this.TemplateMediaName ?? this.TargetMediaName;
+            const string Query = "SELECT w.MediaName FROM Data_Car c JOIN List_Wheels w ON w.ID = c.StockWheelID WHERE c.MediaName = ? COLLATE NOCASE";
+            string sourceWheel, templateWheel;
+            using (SqliteDatabase sourceDb = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(Path.Combine(Path.Combine(this.SourceRoot, "Media"), "db"), "gamedb.slt"))))
+            using (SqliteDatabase targetDb = SqliteDatabase.FromBytes(File.ReadAllBytes(Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "db"), "gamedb.slt"))))
+            {
+                sourceWheel = sourceDb.Scalar(Query, this.SourceMediaName) as string;
+                templateWheel = targetDb.Scalar(Query, templateName) as string;
+            }
+            if (sourceWheel == null || templateWheel == null)
+            {
+                return null;
+            }
+            string sourcePath = GamePaths.FindMedia(this.SourceRoot, "wheels", sourceWheel);
+            string templatePath = GamePaths.FindMedia(this.TargetRoot, "wheels", templateWheel);
+            if (sourcePath == null || templatePath == null || !File.Exists(sourcePath) || !File.Exists(templatePath))
+            {
+                return null;
+            }
+            return this.PlanOf(sourcePath, sourceWheel, templatePath, templateWheel, false);
+        }
+
+        private List<Fm2CarbinModel.PlanPart> PlanOf(string sourceZipPath, string sourceName, string templateZipPath, string templateName, bool car)
+        {
+            string what = car ? "car" : "wheel";
+            if (sourceZipPath == null || !File.Exists(sourceZipPath))
+            {
+                throw new InvalidOperationException(string.Format("The source folder has no {0} {1}.", what, sourceName));
+            }
+            if (templateZipPath == null || !File.Exists(templateZipPath))
+            {
+                throw new InvalidOperationException(string.Format("The FM2 folder has no {0} {1}.", what, templateName));
+            }
+            ForzaZip source = new ForzaZip(sourceZipPath);
+            ForzaZip template = new ForzaZip(templateZipPath);
+            ForzaZip.Entry from = FindEntry(source, sourceName + ".carbin");
+            ForzaZip.Entry to = FindEntry(template, templateName + ".carbin");
+            if (from == null)
+            {
+                throw new InvalidOperationException(string.Format("The source {0} zip has no {1}.carbin.", what, sourceName));
+            }
+            if (to == null)
+            {
+                throw new InvalidOperationException(string.Format("The FM2 {0} zip has no {1}.carbin.", what, templateName));
+            }
+            byte[] raw = source.Read(from);
+            CarbinFamily family = CarbinFormat.Identify(raw).Family;
+            if (family != CarbinFamily.Motorsport4 && family != CarbinFamily.Motorsport3 && family != CarbinFamily.Horizon)
+            {
+                throw new InvalidOperationException(string.Format("The source {0} model is not an FM4, FM3 or FH model.", what));
+            }
+            Dictionary<string, byte[]> files = new Dictionary<string, byte[]>();
+            files[""] = raw;
+            CarbinModel model4 = new CarbinModel(PartSource.ForMotorsport2(files, new List<string>(), new Dictionary<string, List<string>>())[""]);
+            Fm2CarbinModel model = new Fm2CarbinModel(template.Read(to));
+            model.PortMaterials = car ? this.CarMaterials : this.WheelMaterials;
+            return model.PortPlan(model4, family == CarbinFamily.Horizon, car ? new Predicate<string>(LeftOut) : null);
+        }
+
         public void Run()
         {
             string sourceZipPath = GamePaths.FindCar(this.SourceRoot, this.SourceMediaName);
@@ -217,6 +322,7 @@ namespace ForzaStudio
                     }
                 }
             }
+            model.PortMaterials = car ? this.CarMaterials : this.WheelMaterials;
             // baked light computed on the wheel too (2026-11-23, user: the R33 rim's light copied from the nearest template
             // vertex looked wrong in game; the baker is calibrated on the template wheel's own values)
             foreach (string line in model.ReplaceWholeModel(model4, family == CarbinFamily.Horizon, car ? new Predicate<string>(this.LeftOutHere) : null, true))

@@ -252,6 +252,17 @@ namespace ForzaStudio
             "weatherstrip=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;wheel_emblem=baseSampler,damageSampler,dirtMaskSampler;" +
             "white_brake=baseSampler,dirtMaskSampler;window=damageGlassSampler,dirtMaskSampler;window_2=damageGlassSampler,dirtMaskSampler";
 
+        // The techniques of FM2's car effect: the material names the game can draw.
+        public static List<string> Motorsport2TechniqueNames()
+        {
+            List<string> names = new List<string>();
+            foreach (string item in Motorsport2Techniques.Split(';'))
+            {
+                names.Add(item.Substring(0, item.IndexOf('=')));
+            }
+            return names;
+        }
+
         private bool singleModel;      // FM2: no _LOD0 files
 
         private void AddMotorsport2()

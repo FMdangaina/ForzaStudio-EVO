@@ -20,6 +20,8 @@ namespace ForzaStudio
         {
             { "FM4", new[] { "FM2", "FM3", "FH1", "FH2" } },
             { "FM3", new[] { "FM2", "FM4", "FH1", "FH2" } },
+            // FM2 <- FM3 / FM4 / FH1 / FH2 is CarPortFm2Form (CarPortFm2Chain), 2026-11-24.
+            { "FM2", new[] { "FM3", "FM4", "FH1", "FH2" } },
         };
 
         // Targets whose Create DLC Package exists.

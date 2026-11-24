@@ -50,6 +50,101 @@ namespace ForzaStudio
             }
             return false;
         }
+
+        // One source part as ReplaceWholeModel would write it (the port window's plan: nothing is changed here).
+        public sealed class PlanPart
+        {
+            public string Name;
+            public int Vertices;
+            public bool Variant;        // an upgrade variant: the user may leave it out when a buffer is full
+            public bool SeeThrough;     // first shared buffer (a part with a see-through material), else the second
+            public Dictionary<string, List<uint>> Materials = new Dictionary<string, List<uint>>(StringComparer.Ordinal);   // the source's material -> the LODs it is on
+
+            // The buffer of the part with these material choices (source material -> FM2 material; null: none).
+            public void Choose(Dictionary<string, string> materials)
+            {
+                this.SeeThrough = false;
+                foreach (string material in this.Materials.Keys)
+                {
+                    string chosen;
+                    this.SeeThrough |= IsSeeThrough((materials != null && materials.TryGetValue(material, out chosen)) ? chosen : material);
+                }
+            }
+        }
+
+        // The user's material choices for a whole-car port (the port window's Materials grid): a source material ->
+        // the FM2 material its meshes get. Read by ReplaceWholeModel and PortPlan as each part is converted, before the
+        // part goes into its buffer (a see-through material decides the buffer). Null or empty: every name stays.
+        public Dictionary<string, string> PortMaterials;
+
+        // Returns how many meshes of the converted part were renamed.
+        private int ChooseMaterials(Part made)
+        {
+            int renamed = 0;
+            if (this.PortMaterials != null)
+            {
+                foreach (Mesh mesh in made.Meshes)
+                {
+                    string chosen;
+                    if (this.PortMaterials.TryGetValue(mesh.MaterialName, out chosen) && chosen != mesh.MaterialName)
+                    {
+                        mesh.MaterialName = chosen;
+                        renamed++;
+                    }
+                }
+            }
+            return renamed;
+        }
+
+        // The parts ReplaceWholeModel(source, horizon, leaveOut, ...) would port, stock parts first, each with the
+        // vertices it takes in its shared buffer (65536 each). This model (the template) is not changed.
+        public List<PlanPart> PortPlan(CarbinModel source, bool horizon, Predicate<string> leaveOut)
+        {
+            List<string> names = new List<string>();
+            foreach (CarbinModel.Section section in source.Sections)
+            {
+                bool any = false;
+                foreach (CarbinModel.SubSection sub in section.SubSections)
+                {
+                    any |= sub.Lod != 0 && sub.Indices.Count > 0 && sub.Stripped == null;
+                }
+                if (!any || (leaveOut != null && leaveOut(section.Name))
+                    || names.Exists(delegate(string n) { return string.Equals(n, section.Name, StringComparison.OrdinalIgnoreCase); }))
+                {
+                    continue;
+                }
+                names.Add(section.Name);
+            }
+            List<string> ordered = names.FindAll(delegate(string n) { return !IsUpgradeVariant(n); });
+            ordered.AddRange(names.FindAll(IsUpgradeVariant));
+            List<PlanPart> plan = new List<PlanPart>();
+            List<string> notes = new List<string>();
+            foreach (string name in ordered)
+            {
+                byte[] vertices;
+                Part made = this.FromMotorsport4(source, name, name, horizon, notes, out vertices, null, null, false);
+                PlanPart part = new PlanPart();
+                part.Name = name;
+                part.Vertices = vertices.Length / VertexStride;
+                part.Variant = IsUpgradeVariant(name);
+                foreach (Mesh mesh in made.Meshes)
+                {
+                    List<uint> lods;
+                    if (!part.Materials.TryGetValue(mesh.MaterialName, out lods))
+                    {
+                        part.Materials[mesh.MaterialName] = lods = new List<uint>();
+                    }
+                    if (!lods.Contains(mesh.Lod))
+                    {
+                        lods.Add(mesh.Lod);
+                    }
+                }
+                part.Choose(this.PortMaterials);
+                plan.Add(part);
+            }
+            return plan;
+        }
+
         // source: the source car's main model in FM4 form (PartSource.ForMotorsport2). horizon: FH damage words are not
         // FM4 words, the nearest vertex of this car gives them. leaveOut: source parts that do not go into an FM2 car
         // (null: none). light: compute the baked light (false: the nearest template vertex's values stay, wheels).
@@ -135,12 +230,14 @@ namespace ForzaStudio
             List<string> added = new List<string>();
             List<string> full = new List<string>();
             int replacedCount = 0;
+            int renamedMeshes = 0;
             foreach (string name in names)
             {
                 Part replaced = this.Find(name);
                 byte[] vertices;
                 Part made = this.FromMotorsport4(source, name, (replaced != null) ? replaced.Name : name, horizon, notes, out vertices,
                     (replaced != null) ? replaced.Name : null, (replaced != null) ? replaced.Name : null, false);
+                renamedMeshes += this.ChooseMaterials(made);
                 try
                 {
                     if (replaced != null)
@@ -177,6 +274,16 @@ namespace ForzaStudio
             }
             log.Add(string.Format("{0} parts: {1} in the draw-order place of the template's part of the same name, {2} new{3}; physics (flag, centre of mass, detach) and glass shards from the source, none from the template", names.Count - full.Count, replacedCount, added.Count,
                 (added.Count > 0) ? ": " + string.Join(", ", added.ToArray()) : ""));
+            if (this.PortMaterials != null && this.PortMaterials.Count > 0)
+            {
+                List<string> choices = new List<string>();
+                foreach (KeyValuePair<string, string> pair in this.PortMaterials)
+                {
+                    choices.Add(pair.Key + " -> " + pair.Value);
+                }
+                choices.Sort(StringComparer.OrdinalIgnoreCase);
+                log.Add(string.Format("materials renamed by the user's choice ({0} meshes): {1}", renamedMeshes, string.Join(", ", choices.ToArray())));
+            }
             if (this.HeaderVersion == 2)
             {
                 log.Add(this.HeaderFromSource(source));

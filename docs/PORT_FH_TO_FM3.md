@@ -2,7 +2,7 @@
 
 Asked by the user on 2026-11-21: "procediamo con i port, parti da FH1/2 verso FM3. Cerchiamo di capire se FM3 ha gomme
 diverse per auto e come funzionano i suoi digital dash." This lifts the FM3 pause (2026-11-03) for this port.
-Nothing is coded yet. Related: `PORT_ALL_GAMES.md` (matrix, 5 of 20), `PORT_FM4_TO_FM3.md` (the FM3 writer),
+Built and closed in game since (sections 8-21). Related: `PORT_ALL_GAMES.md` (matrix, 12 of 20 on 2026-11-24), `PORT_FM4_TO_FM3.md` (the FM3 writer),
 `ANARK_DASH.md` (dash format). Harnesses: `E:\DEV\fm4dev\FHtoFM3` (read-only on the game folders).
 
 ## 1. Tyres: FM3 has no tyres per car

@@ -262,6 +262,11 @@
                 new CarPortFm3Form(mode).Show(this);
                 return;
             }
+            if (targetGame == "FM2")
+            {
+                new CarPortFm2Form().Show(this);    // import only: PortPairs has no DLC package for FM2
+                return;
+            }
             string root = (this.zip == null) ? null : GamePaths.FindRoot(this.zip.FilePath);
             bool fm4 = root != null && GameInfo.Detect(root) == ForzaGame.Motorsport4;
             CarPortForm port = new CarPortForm(fm4 ? root : null, mode);

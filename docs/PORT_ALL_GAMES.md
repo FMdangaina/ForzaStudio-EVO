@@ -4,6 +4,9 @@ Goal (user, 2026-11-03): every game must be able to go to every other one, each 
 Games: FM2, FM3, FM4, FH1, FH2 (FM1 is read-only, see `docs/` FM1 notes). Reference car: **Supra RZ '98**
 (`TOY_SupraRZ_98`, Id 461 in all five games).
 
+> **State 2026-11-24: 12 of 20** (section 1): the FM3 and FM2 targets were built one route at a time, not as the
+> reader / writer plan below. Older notes:
+
 > **State 2026-11-17: paused** since 2026-11-03 (`ROADMAP.md` goal 18); the matrix below is still 5 of 20. Done since
 > then, and useful here: one description of the `.carbin` of the five games (`CARBIN_ALL_GAMES.md`, 2026-11-10, its
 > section 6 is about this plan) and how FM4 reads it (`CARBIN_FROM_XEX.md`); the editor now works inside FM2 and FM3
@@ -36,14 +39,21 @@ This is a plan, nothing is coded yet. Related documents: `PORT_FM4_TO_FM3.md` (t
 
 | From \ To | FM2 | FM3 | FM4 | FH1 | FH2 |
 |---|---|---|---|---|---|
-| **FM2** | – | ⬜ | ✅ | ⬜ | ⬜ |
-| **FM3** | ⬜ | – | ✅ | ⬜ | ⬜ |
-| **FM4** | ⬜ | ✅ | – | ⬜ | ⬜ |
-| **FH1** | ⬜ | ⬜ | ✅ | – | ⬜ |
-| **FH2** | ⬜ | ⬜ | ✅ | ⬜ | – |
+| **FM2** | – | ✅ | ✅ | ⬜ | ⬜ |
+| **FM3** | ✅ | – | ✅ | ⬜ | ⬜ |
+| **FM4** | ✅ | ✅ | – | ⬜ | ⬜ |
+| **FH1** | ✅ | ✅ | ✅ | – | ⬜ |
+| **FH2** | ✅ | ✅ | ✅ | ⬜ | – |
 
-5 of 20 directions exist: the four "to FM4" ports (`CarPort*.cs`, `Fm2Source.cs`, `CarbinModelMotorsport3.cs`) and
-FM4 → FM3 (`CarPortToFm3.cs`, `CarbinModelToMotorsport3.cs`, `Fm3Textures.cs`).
+**State 2026-11-24: 12 of 20 directions exist**, every one checked in game by the user:
+- the four "to FM4" ports (`CarPort*.cs`, `Fm2Source.cs`, `CarbinModelMotorsport3.cs`);
+- to FM3 from FM4 (`CarPortToFm3.cs`, `CarbinModelToMotorsport3.cs`, `Fm3Textures.cs`) and from FH1 / FH2 / FM2 through
+  their FM4 form (`CarPortViaFm4.cs`, `PORT_FH_TO_FM3.md`);
+- to FM2 from FM4, FM3, FH1 and FH2, DLC packs included (`CarPortToFm2.cs`, `CarDataToFm2*.cs`, `Fm2SoundPort.cs`,
+  window `CarPortFm2Form.cs` + `CarPortFm2Chain.cs`; `PORT_TO_FM2.md`). Not through FM4: each source goes straight
+  into an FM2 copy of a template car, and nothing of the template stays.
+
+Left: the two Horizon games as targets (8 directions).
 
 FH1 and FH2 share models and tables (76 of 76 damage tables identical, same car zip), so the real number of formats is four:
 **FM2, FM3, FM4, FH** (FH1/FH2 differ in the database and in what is installed).

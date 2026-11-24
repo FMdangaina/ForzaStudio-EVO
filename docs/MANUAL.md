@@ -865,6 +865,34 @@ Every file is backed up to `bak\` first. Use this only if you want the car in th
 
 Technical details of the package format are in [DLC_PACKAGES.md](DLC_PACKAGES.md).
 
+### Porting a car into Forza Motorsport 2
+
+On the top bar, **Cars > Import car from another Forza, into: FM2** opens the FM2 port window. It takes cars of
+Forza Motorsport 4, Forza Motorsport 3, Forza Horizon and Forza Horizon 2 (with **Include the game's DLC**, the DLC
+installed in Xenia too).
+
+1. Check the **Source game** and **Forza Motorsport 2** folders and press **Load Cars**. The list shows the cars
+   FM2 does not have. Write to the `_DEV` copy of the game: the window starts on it when there is one.
+2. Pick a car and an **FM2 template car**. The new car starts as a copy of the template, then the model, wheel,
+   textures, livery masks, database rows and engine sound are all replaced with the source car's. Nothing of the
+   template stays.
+3. Press **Trial Run**. Nothing is written. The **Report** tab lists every part with its vertices.
+4. **Variants** tab. FM2 holds at most 65,536 vertices in each of a car's two buffers (opaque and see-through). The
+   two counters at the top turn red when a buffer is over. Every upgrade variant (body kits, race bumpers, wings)
+   starts ticked: untick the ones you want to leave out until both counters are green. The stock parts always go.
+5. **Materials** tab. It lists the source materials no FM2 car uses (they may draw black in game), with the parts
+   that use them. For each one, choose an FM2 material in the last column, or leave it as it is. The tool chooses
+   nothing for you. A see-through material (glass, window, detail_glass_...) moves its parts into the see-through
+   buffer, and the counters change at once. The choices are kept for that car and used by the next trial and the
+   install.
+6. **Install In FM2...** is on once the trial has been run with the template chosen and both counters are green.
+   It asks you to confirm, asks about Xenia if it is open, then runs four steps: the copy, the model, the database
+   (FM2's own PI and ratings; written only if the integrity check passes) and the engine sound (FSB banks built from
+   the source game's sounds). The report says how far each step went. The database is backed up in
+   `bak\fm2port_<time>` first.
+
+A car bought in a saved game before a port was installed over it can crash: sell it and buy a new one.
+
 ## 12. Music
 
 When you open a game folder, ForzaStudio EVO plays that game's music in the status bar:
@@ -905,8 +933,9 @@ converted with `xma2encode` from the Xbox 360 SDK, which is Microsoft's and **no
 
 **Not available yet**
 
-- **Car ports other than into FM4 and FM4 to FM3:** FH1 / FH2 or FM2 to FM3, and anything to FM2 or to the
-  Horizon games (see `PORT_ALL_GAMES.md`).
+- **Car ports into the Horizon games** (see `PORT_ALL_GAMES.md`). Ports into FM4, FM3 and FM2 exist.
+- **FM2 port window:** no DLC package for FM2 yet; a car already ported into FM2 cannot be ported again over itself
+  (remove it first); the rim size upgrade and the car's `ShaderSettings.xml` still come from the template car.
 - **Gauges, Driver and Exhaust tabs on FM2 / FM3 cars** (FM4 header data).
 - **Parts from a lod0, cockpit or brake file into a main model** (LOD 0 into LODs 1 to 5).
 - **Automatic LODs.**

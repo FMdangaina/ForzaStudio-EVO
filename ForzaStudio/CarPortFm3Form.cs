@@ -430,7 +430,7 @@ namespace ForzaStudio
         }
 
         // Lists drawn like the FM4 window's: upper-case headers over a red rule, alternating dark rows, the selection in Forza red.
-        private static void StyleList(ListView list)
+        internal static void StyleList(ListView list)
         {
             list.OwnerDraw = true;
             list.Resize += delegate { FillLastColumn(list); };
