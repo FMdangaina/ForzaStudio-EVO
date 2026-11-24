@@ -294,10 +294,16 @@ namespace ForzaStudio
                         a = q;
                     }
                 }
-                stock[p] = size == 1 || p == ((a >= 0) ? a : first);
+                stock[p] = size == 1 || p == ((a >= 0) ? a : (this.noStockWithoutA ? -1 : first));
             }
             return stock;
         }
+
+        // A car ported from FM4 / FH can hold upgrade variants of a group without its "a" part (FM4's R33: skirtLb, c, e, f
+        // and no skirtLa, the stock sill is in the body). The game then shows none of them by default, so none stands in the
+        // light scene: with the first variant standing, the body's sill was baked as if a skirt covered it (dark blotches
+        // in game, user 2026-11-22). Set by ReplaceWholeModel only; the stock files keep the rule above.
+        private bool noStockWithoutA;
 
         // LOD 1 opaque triangles of a part (positions: car space; values: the 16 lighting values of each vertex).
         private static void AddPartTriangles(LightScene scene, Part part, double[] positions, double[][] values)
@@ -675,6 +681,14 @@ namespace ForzaStudio
             LightSetup();
             LightModel model = this.CalibrateLighting();
             fitted = string.Format(CultureInfo.InvariantCulture, "light sent back {0:0.00}, ground {1}", model.Rho, (model.GroundY < -10) ? "none" : string.Format(CultureInfo.InvariantCulture, "at {0:0.00} m", model.GroundY));
+            return this.ComputeLighting(part, vertices, replaced, model);
+        }
+
+        // The same with a baker given by the caller (a whole car ported into this model has no stored values to fit on:
+        // Fm2CarbinModelPort.cs fits on the template before it is replaced).
+        private int ComputeLighting(Part part, byte[] vertices, string replaced, LightModel model)
+        {
+            LightSetup();
             int count = vertices.Length / VertexStride;
             double[] positions = LocalPositions(part, vertices);
             bool[] opaque = new bool[count];

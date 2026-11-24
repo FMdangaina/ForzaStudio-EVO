@@ -1204,6 +1204,7 @@ namespace ForzaStudio
             }
             List<List<int>> meshIndices = new List<List<int>>();
             int splitTriangles = 0;
+            int squeezedTriangles = 0;
             foreach (CarbinModel.SubSection sub in subs)
             {
                 List<int> indices = new List<int>();
@@ -1253,7 +1254,7 @@ namespace ForzaStudio
                             int[] s = null;
                             if (wide.Contains(islandOf[a]) || wide.Contains(islandOf[b]) || wide.Contains(islandOf[c]))
                             {
-                                s = TriangleShift(uv, corners, name);
+                                s = TriangleShift(uv, corners, name, ref squeezedTriangles);
                                 splitTriangles++;
                             }
                             if (indices.Count > 0)
@@ -1322,6 +1323,10 @@ namespace ForzaStudio
             {
                 notes.Add(string.Format("{0}: UVs moved by whole numbers to fit FM2's +-25 ({1} connected piece{2}{3}); a tiled texture looks the same", newName, shiftedPieces, (shiftedPieces == 1) ? "" : "s",
                     (splitTriangles > 0) ? string.Format(", {0} triangles of wider pieces one by one, {1} vertices written twice", splitTriangles, outVertex.Count - count) : ""));
+            }
+            if (notes != null && squeezedTriangles > 0)
+            {
+                notes.Add(string.Format("{0}: {1} triangles of a tiled texture wider than FM2's 50: centred, their UVs held at +-25 (fewer repeats on those triangles only)", newName, squeezedTriangles));
             }
 
             int[] bufferIndex = new int[count];
@@ -1433,8 +1438,10 @@ namespace ForzaStudio
         }
 
         // A whole-number shift that puts one triangle's UVs inside +-25: a step of 40 when it fits (neighbours then
-        // share it), else the nearest whole number; a triangle wider than 50 cannot be written.
-        private static int[] TriangleShift(float[][] uv, int[] corners, string name)
+        // share it), else the nearest whole number. A triangle wider than 50 (2026-11-23, FM4 458 Italia: grille1 of LOD
+        // 3-5, a tiled grille repeated up to 62 times on one triangle) is centred and counted in 'squeezed': the UV writer
+        // (ForzaVertex.Fm2UvWord) holds its corners at +-25, so only that triangle shows fewer repeats.
+        private static int[] TriangleShift(float[][] uv, int[] corners, string name, ref int squeezed)
         {
             int[] s = new int[2];
             for (int c = 0; c < 2; c++)
@@ -1454,7 +1461,8 @@ namespace ForzaStudio
                 }
                 else
                 {
-                    throw new InvalidOperationException(string.Format("{0}: one of its triangles has {1} texture coordinates from {2:0.00} to {3:0.00}, wider than the 50 FM2 can hold.", name, (c == 0) ? "U" : "V", -hi, -lo));
+                    s[c] = fine;
+                    squeezed++;
                 }
             }
             return s;

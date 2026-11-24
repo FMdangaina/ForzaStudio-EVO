@@ -114,7 +114,15 @@ namespace ForzaStudio
             this.SharedZipPath = Path.Combine(Path.Combine(media, "cars"), "Shared.zip");
             try
             {
-                if (!Directory.Exists(shaders) || !File.Exists(this.SharedZipPath))
+                // FM2 and FM3: loose Media\cars\Shared folder, no textures.xml (the table is in default.xex).
+                bool motorsport3 = !File.Exists(this.SharedZipPath) && Directory.Exists(Path.Combine(Path.Combine(media, "cars"), "Shared"));
+                // FM2 has no Media\Shaders either: its car effect is inside default.xex.
+                if (motorsport3 && !Directory.Exists(shaders))
+                {
+                    this.AddMotorsport2();
+                    return;
+                }
+                if (!Directory.Exists(shaders) || (!File.Exists(this.SharedZipPath) && !motorsport3))
                 {
                     this.Problem = "no Media\\Shaders\\Cars or Media\\cars\\Shared.zip in " + root;
                     return;
@@ -140,6 +148,11 @@ namespace ForzaStudio
                     {
                         // A file the reader does not understand only loses its techniques.
                     }
+                }
+                if (motorsport3)
+                {
+                    this.AddMotorsport3Definitions();
+                    return;
                 }
                 ForzaZip shared = GamePaths.OpenZip(this.SharedZipPath);
                 ForzaZip.Entry entry = shared.Find("textures.xml");
@@ -177,6 +190,102 @@ namespace ForzaStudio
             }
         }
 
+        // FM3 has no textures.xml: its car loader (default.xex 82643B18) names the file of every sampler
+        // itself. Car = the car's folder, %SHAREDCARFOLDER% = game:\media\cars\shared. baseSampler and
+        // damageSampler are nodamage / damage (+ _LOD0) as in the other games (Resolve).
+        private void AddMotorsport3Definitions()
+        {
+            const string Shared = "%SHAREDCARFOLDER%";
+            this.Define("LightsSampler", "lights.xds", "", "LOD15", "lights_LOD0.xds", "", "LOD0");
+            this.Define("DamageLightsSampler", "damagelights.xds", "", "LOD15", "damagelights_lod0.xds", "", "LOD0");
+            this.Define("HeadlightSampler", "headlight.xpr", Shared, "");
+            this.Define("Badge2Sampler", "badge2.xds", "", "");
+            this.Define("CockpitInteriorHiSampler", "Interior_LOD0.xds", "", "");
+            this.Define("CockpitWoodSampler", "wood.xds", "", "");
+            this.Define("CockpitPlasticNormalSampler", "plastic_NRM.xds", Shared, "");
+            this.Define("CockpitPlastic2NormalSampler", "plastic2_NRM.xds", Shared, "");
+            this.Define("CockpitPlastic3NormalSampler", "plastic3_NRM.xds", Shared, "");
+            this.Define("CockpitLeatherNormalSampler", "leather_NRM.xds", Shared, "");
+            this.Define("CockpitLeather2NormalSampler", "leather2_NRM.xds", Shared, "");
+            this.Define("CockpitLeather3NormalSampler", "leather3_NRM.xds", Shared, "");
+            this.Define("CockpitStitchingNormalSampler", "stitches_NRM.xds", Shared, "");
+            this.Define("CockpitStaticCubeMapSampler", "staticCube.xpr", Shared, "");
+            this.Define("BumperFrameSampler", "bumper_frame.xds", Shared, "");
+            this.Define("CarbonFiberSampler", "carbonFiberNormal.xds", Shared, "");
+            this.Define("DirtMaskSampler", "dirt_mask.xds", Shared, "");
+            this.Define("DirtSampler", "dirt_pattern.xds", Shared, "");
+            this.Define("DamageGlassSampler", "glass_texture.xds", Shared, "");
+            this.Define("Grille1Sampler", "grille1_alpha.xds", Shared, "");
+            this.Define("Grille2Sampler", "grille2_alpha.xds", Shared, "");
+            this.Define("UndercarriageSampler", "undercarriage.xds", Shared, "");
+        }
+
+        // FM2 keeps everything in default.xex: the car effect (the D3DX effect at file offset 0x66F50 of the
+        // decrypted image, read with EffectReader: technique -> samplers below, the `_packed` twins and the
+        // debug / shadow techniques left out) and the file of every sampler (car loader 825658A8). One
+        // model file per car and no _LOD0 textures.
+        private const string Motorsport2Techniques =
+            "badge=baseSampler,dirtMaskSampler;badge2=badge2Sampler,dirtMaskSampler;badge_chrome=dirtMaskSampler;black=;" +
+            "black_glass=dirtMaskSampler;blur_lip=baseSampler,damageSampler,dirtMaskSampler;" +
+            "blur_rim=baseSampler,blurRimSampler,blurRimSampler2,damageSampler,dirtMaskSampler;" +
+            "body=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;body_2=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;" +
+            "bumper_frame=bumperFrameSampler,dirtMaskSampler;caliper=baseSampler;carbon_fiber=carbonFiberSampler,dirtMaskSampler;" +
+            "chrome=dirtMaskSampler;chrome_2=dirtMaskSampler;chrome_blur_lip=dirtMaskSampler;" +
+            "chrome_blur_rim=blurRimSampler,blurRimSampler2,dirtMaskSampler;chrome_rim=dirtMaskSampler;cloth=;cloth2=;" +
+            "detail_glass_amber=damageLightsSampler,dirtMaskSampler,lightsSampler;" +
+            "detail_glass_clear=damageLightsSampler,dirtMaskSampler,lightsSampler;" +
+            "detail_glass_red=damageLightsSampler,dirtMaskSampler,lightsSampler;" +
+            "dullplastic=baseSampler,damageSampler,dirtMaskSampler;emblem=baseSampler,dirtMaskSampler;" +
+            "frame=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;glass=damageGlassSampler,dirtMaskSampler;" +
+            "glass_2=damageGlassSampler,dirtMaskSampler;grille1=grille1Sampler;grille2=grille2Sampler;" +
+            "head_light=dirtMaskSampler,lightsSampler;head_light2=baseSampler,dirtMaskSampler;hub=baseSampler;" +
+            "inner_rim=baseSampler,damageSampler,dirtMaskSampler;interior=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;" +
+            "matte=baseSampler,damageSampler,dirtMaskSampler;matte_colors=baseSampler,damageSampler,dirtMaskSampler;" +
+            "misc=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;missing=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;" +
+            "plastic=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;plastic2=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;" +
+            "race_kit_red=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;red_glass=damageGlassSampler,dirtMaskSampler;" +
+            "reflector=damageLightsSampler,dirtMaskSampler,lightsSampler;reverse_light=dirtMaskSampler,lightsSampler;" +
+            "rim=baseSampler,damageSampler,dirtMaskSampler;rotor=baseSampler;" +
+            "rubber_trim=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;rubber_trim_2=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;" +
+            "tail_light=dirtMaskSampler,lightsSampler;tail_light_on=dirtMaskSampler,lightsSampler;" +
+            "textured_reflector=damageLightsSampler,dirtMaskSampler,lightsSampler;tire=dirtMaskSampler,tireSampler;" +
+            "weatherstrip=baseSampler,damageSampler,dirtMaskSampler,dirtSampler;wheel_emblem=baseSampler,damageSampler,dirtMaskSampler;" +
+            "white_brake=baseSampler,dirtMaskSampler;window=damageGlassSampler,dirtMaskSampler;window_2=damageGlassSampler,dirtMaskSampler";
+
+        private bool singleModel;      // FM2: no _LOD0 files
+
+        private void AddMotorsport2()
+        {
+            const string Shared = "%SHAREDCARFOLDER%";
+            this.singleModel = true;
+            foreach (string item in Motorsport2Techniques.Split(';'))
+            {
+                int equals = item.IndexOf('=');
+                this.techniques[item.Substring(0, equals)] = new List<string>(item.Substring(equals + 1).Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
+            }
+            this.Define("LightsSampler", "lights.xds", "", "");
+            this.Define("DamageLightsSampler", "damagelights.xds", "", "");
+            this.Define("Badge2Sampler", "badge2.xds", "", "");
+            this.Define("BumperFrameSampler", "bumper_frame.xds", Shared, "");
+            this.Define("CarbonFiberSampler", "carbonFiberNormal.xds", Shared, "");
+            this.Define("DirtMaskSampler", "dirt_mask.xds", Shared, "");
+            this.Define("DirtSampler", "dirt_pattern.xds", Shared, "");
+            this.Define("DamageGlassSampler", "glass_texture.xds", Shared, "");
+            this.Define("Grille1Sampler", "grille1.xds", Shared, "");
+            this.Define("Grille2Sampler", "grille2.xds", Shared, "");
+        }
+
+        // A sampler's files as (file, searchPath, loadFlags) triples.
+        private void Define(string sampler, params string[] entries)
+        {
+            List<Definition> list = new List<Definition>();
+            for (int index = 0; index + 2 < entries.Length; index += 3)
+            {
+                list.Add(new Definition { File = entries[index], Path = entries[index + 1], Flags = entries[index + 2] });
+            }
+            this.definitions[sampler] = list;
+        }
+
         // The technique a material draws with in a model file, or null when the game has none (the
         // `missing` technique: black).
         public string TechniqueOf(string material, Kind kind)
@@ -211,7 +320,8 @@ namespace ForzaStudio
                 List<string> samplers = this.techniques[technique];
                 foreach (string sampler in ColourSamplers)
                 {
-                    if (samplers.Contains(sampler))
+                    // FM3 spells them lightsSampler, undercarriageSampler...
+                    if (samplers.Exists(delegate(string name) { return string.Equals(name, sampler, StringComparison.OrdinalIgnoreCase); }))
                     {
                         wantsColour = true;
                         Texture texture = this.Resolve(sampler, kind);
@@ -262,7 +372,7 @@ namespace ForzaStudio
 
         private Texture Resolve(string sampler, Kind kind)
         {
-            string suffix = (kind == Kind.Main) ? "" : "_LOD0";
+            string suffix = (kind == Kind.Main || this.singleModel) ? "" : "_LOD0";
             if (sampler == "baseSampler" || sampler == "damageSampler")
             {
                 return new Texture { Sampler = sampler, File = (sampler == "baseSampler" ? "nodamage" : "damage") + suffix + ".xds", Where = Place.Car };

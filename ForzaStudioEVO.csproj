@@ -172,6 +172,14 @@
     <Compile Include="ForzaStudio\Fm2CarbinModelLighting.cs" />
     <Compile Include="ForzaStudio\Fm2CarbinModelMesh.cs" />
     <Compile Include="ForzaStudio\Fm2CarbinModelObj.cs" />
+    <Compile Include="ForzaStudio\Fm2CarbinModelPort.cs" />
+    <Compile Include="ForzaStudio\Fm2CarbinModelWheelLight.cs" />
+    <Compile Include="ForzaStudio\Fm2SoundPort.cs" />
+    <Compile Include="ForzaStudio\SourceDatabaseMerge.cs" />
+    <Compile Include="ForzaStudio\CarPortToFm2.cs" />
+    <Compile Include="ForzaStudio\CarDataToFm2.cs" />
+    <Compile Include="ForzaStudio\CarDataToFm2.Typical.cs" />
+    <Compile Include="ForzaStudio\CarDataToFm2.Specific.cs" />
     <Compile Include="ForzaStudio\PartObjImport.cs" />
     <Compile Include="ForzaStudio\CarPortViaFm4.cs" />
     <Compile Include="ForzaStudio\Fm2CarbinModelUv.cs" />
@@ -529,6 +537,7 @@
     <EmbeddedResource Include="docs\FM3\SsParams.txt"><LogicalName>SsParams_FM3.txt</LogicalName></EmbeddedResource>
     <EmbeddedResource Include="docs\HZN\SsParams.txt"><LogicalName>SsParams_FH.txt</LogicalName></EmbeddedResource>
     <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

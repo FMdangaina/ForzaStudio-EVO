@@ -477,7 +477,9 @@ namespace ForzaStudio
             ShaderTextures table = ShaderTextures.For(this.GameRoot);
             if (table.Problem != null)
             {
-                this.SetStatus("Automatic textures not available: " + table.Problem);
+                this.SetStatus((auto > 0)
+                    ? string.Format("Textures from the car folder: {0} parts textured, {1} without (no game texture table: {2})", auto, missing, table.Problem)
+                    : "Automatic textures not available: " + table.Problem);
             }
             else if (auto + missing > 0)
             {
@@ -531,7 +533,7 @@ namespace ForzaStudio
             ShaderTextures table = ShaderTextures.For(this.GameRoot);
             if (table.Problem != null)
             {
-                return false;
+                return this.SetFolderTexture(mesh, lods);
             }
             foreach (ShaderTextures.Texture texture in table.ColourTextures(mesh.MaterialName, this.TextureKind(mesh, lods)))
             {
@@ -546,6 +548,45 @@ namespace ForzaStudio
                 {
                     this.meshTextures[mesh] = source;
                     this.autoTextureSampler[mesh] = texture.Sampler;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // No textures.xml table for this game (FM3 has no Shared.zip, a model outside a game folder...):
+        // the car's own textures next to the model, by the names every Forza car zip uses
+        // (nodamage / nodamage_lod0 / interior_lod0 / lights / lights_lod0).
+        private bool SetFolderTexture(ForzaMesh mesh, Dictionary<ForzaMesh, int> lods)
+        {
+            ShaderTextures.Kind kind = this.TextureKind(mesh, lods);
+            string material = (mesh.MaterialName ?? "").ToLowerInvariant();
+            List<string> names = new List<string>();
+            if (kind == ShaderTextures.Kind.Cockpit && material.StartsWith("interior"))
+            {
+                names.Add("interior_lod0.xds");
+            }
+            if (material.Contains("light"))
+            {
+                names.Add((kind == ShaderTextures.Kind.Main) ? "lights.xds" : "lights_lod0.xds");
+            }
+            if (kind == ShaderTextures.Kind.Main)
+            {
+                names.Add("nodamage.xds");
+                names.Add("nodamage_lod0.xds");
+            }
+            else
+            {
+                names.Add("nodamage_lod0.xds");
+                names.Add("nodamage.xds");
+            }
+            foreach (string name in names)
+            {
+                string source = ArchivePrefix + name;
+                if (this.SourceExists(source) && this.LoadPreview(source, true) != null)
+                {
+                    this.meshTextures[mesh] = source;
+                    this.autoTextureSampler[mesh] = "car folder";
                     return true;
                 }
             }
@@ -741,7 +782,7 @@ namespace ForzaStudio
                 return "(none)";
             }
             return source.StartsWith(ArchivePrefix) ? source.Substring(ArchivePrefix.Length)
-                : source.StartsWith(SharedPrefix) ? source.Substring(SharedPrefix.Length) + " (Shared.zip)"
+                : source.StartsWith(SharedPrefix) ? source.Substring(SharedPrefix.Length) + " (cars\\Shared)"
                 : Path.GetFileName(source) + " (folder)";
         }
 
@@ -900,7 +941,9 @@ namespace ForzaStudio
             return File.Exists(source);
         }
 
-        // The game folder's Media\cars\Shared.zip, or null.
+        // The game folder's Media\cars\Shared.zip, or null. FM3 has a loose Media\cars\Shared folder instead.
+        private ForzaZip sharedFolder;
+
         private ForzaZip SharedZip
         {
             get
@@ -908,7 +951,20 @@ namespace ForzaStudio
                 string path = ShaderTextures.For(this.GameRoot).SharedZipPath;
                 try
                 {
-                    return (path != null && File.Exists(path)) ? GamePaths.OpenZip(path) : null;
+                    if (path != null && File.Exists(path))
+                    {
+                        return GamePaths.OpenZip(path);
+                    }
+                    string folder = (path == null) ? null : Path.Combine(Path.GetDirectoryName(path), "Shared");
+                    if (folder == null || !Directory.Exists(folder))
+                    {
+                        return null;
+                    }
+                    if (this.sharedFolder == null || !string.Equals(this.sharedFolder.FilePath, Path.GetFullPath(folder).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    {
+                        this.sharedFolder = ForzaZip.OpenFolder(folder);
+                    }
+                    return this.sharedFolder;
                 }
                 catch (Exception)
                 {

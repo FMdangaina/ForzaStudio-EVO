@@ -556,6 +556,12 @@ namespace ForzaStudio
                 this.Line("  shared textures: not checked ({0})", source.Problem ?? "no FM4 Media\\cars\\Shared.zip");
                 return;
             }
+            // FM3: a loose Shared folder and a table from its exe (ShaderTextures); the port is as before.
+            if (!File.Exists(source.SharedZipPath))
+            {
+                this.Line("  shared textures: not checked (the source game has no Media\\cars\\Shared.zip)");
+                return;
+            }
             ForzaZip sourceShared = GamePaths.OpenZip(source.SharedZipPath);
             ForzaZip targetShared = GamePaths.OpenZip(target.SharedZipPath);
             SortedDictionary<string, List<string>> needed = new SortedDictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);

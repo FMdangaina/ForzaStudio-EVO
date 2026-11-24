@@ -30,7 +30,7 @@ left as they are because the numbers are used all over the notes:
 
 | | What | Where |
 |---|---|---|
-| 🔧 Now | **Ports with FM2 as the target** (FM3 / FM4 / FH1 / FH2 -> FM2): read-only study first, then a proposal to the user before any code | `docs/PORT_ALL_GAMES.md` |
+| 🔧 Now | **Ports with FM2 as the target** (FM3 / FM4 / FH1 / FH2 -> FM2): model, database, colours and sound OK in game 2026-11-24 on 8 cars in `FM2_Extracted_DEV` (FM4 x5, FH2 P1, FM3 X5, FH1 DLC GTX1), through the harness chain; to commit. Open: the port window (variants to leave out when the buffer is full), the review grid for materials FM2 lacks, rim size upgrade on converted wheels, per-car `ShaderSettings.xml` | `docs/PORT_TO_FM2.md` |
 | ✅ Just closed | **Ports to FM3 from FH1 / FH2 / FM2** (through the FM4 form, FH traffic cars and FM2 DLC packages included) and **FM2 -> FM4 wheel sizing**: every check OK in game / in the app by the user 2026-11-22. Committed e52f061 + f67443d; last fixes (traffic yellow, empty parts out of the review, FM3 draw pass / see-through flag) to commit | `docs/PORT_FH_TO_FM3.md` sections 8-21 |
 | 🧪 To test | **Driver points** (commit bdb6278): DRIVER tab on the main model (LOD 1..5) and on `_lod0` / `_cockpit` (LOD 0); the port rebuilds LOD 0 points only for a cockpit it built from LOD 1; FM2 ports take the LOD 1..5 points from the FM2 model. Compile-checked only | `URGENT.md` (seven checks), `UNTESTED.md` D5b / D5c, `docs/DRIVER_POSITION.md` |
 | ✅ Just closed | **Editor workflow** (`TODO.md` 15.3): steps A to E done and checked in the app by the user (2026-11-16/17): Undo / Redo and no Apply, pick modes, move / scale handles, Copy Part preview, F1 help, no menus (top bar, FILES bar, Tools panel) | `docs/UI_WORKFLOW.md` |
