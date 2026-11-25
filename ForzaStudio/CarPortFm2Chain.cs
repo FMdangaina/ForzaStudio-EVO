@@ -24,6 +24,7 @@ namespace ForzaStudio
         public List<string> SkipParts = new List<string>();     // upgrade variants the user left out
         public Dictionary<string, string> CarMaterials = new Dictionary<string, string>(StringComparer.Ordinal);     // the user's choices: source material -> FM2 material
         public Dictionary<string, string> WheelMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
+        public string UseSoundOf;           // "Use sound": an FM2 car whose engine sound the car gets; null: "Port sound" (the source's)
         public List<string> Log = new List<string>();
         public long CarId;
         public bool SoundDone;
@@ -284,7 +285,7 @@ namespace ForzaStudio
             this.Log.Add("== step 3 of 4 done: database");
 
             // 4. the engine sound
-            this.Say("Building the engine sound (the longest step)...");
+            this.Say(string.IsNullOrEmpty(this.UseSoundOf) ? "Building the engine sound (the longest step)..." : "Giving the car the sound of " + this.UseSoundOf + "...");
             Fm2SoundPort sound = new Fm2SoundPort();
             try
             {
@@ -299,6 +300,7 @@ namespace ForzaStudio
                 sound.SourceCarMedia = this.SourceMediaName;
                 sound.TargetRoot = this.TargetRoot;
                 sound.CarMedia = this.NewMediaName;
+                sound.UseSoundOf = this.UseSoundOf;
                 sound.Write = true;
                 sound.BackupFolder = (backup != null) ? Path.Combine(backup, "sound") : null;
                 sound.Run();

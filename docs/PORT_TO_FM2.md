@@ -120,6 +120,9 @@ Facts found on the way (each a bug before its fix):
   at 1); an upgrade at or under the stock level, or at a level no FM2 car uses (FM4's level 4), is not ported.
 - **Rows are paired** stock with stock, then upgrades in order, body kit by `PartsStringId` (the same id = the same model
   letter in both games: id - stock id + a; race 27 / 54 / 81).
+- **Front / rear tables** (anti-roll bars, rim size, tire width) become FM2's one row per level (`MergeSides`, section
+  7c): a side with no part at a level keeps its part of the level below, adding no price or mass; the stock row is at
+  the lowest stock level of the sides and holds both stock parts.
 - **Numbers stored as text**: FM2 and FM4 keep `PartsStringId` of the body kit tables as text ("27"); read as numbers,
   written in the storage type FM2's template row has.
 - **Ranges**: springs / anti-roll bars converted column by column could end with Min above Max; FM2 keeps Min = Def = Max
@@ -348,3 +351,102 @@ moved 28,719 vertices from the opaque to the see-through counter. `chain.exe ...
 mat=xenonhead:head_light mat=indicator_left:detail_glass_amber mat=indicator_right:detail_glass_amber
 mat=taillightst:tail_light` (test choices, not a recommendation) installed it as car **669** in DEV: 37 meshes renamed,
 none of the five names left in the written model, model check OK, PI B 668, sound 8N0_S4V8_O1002_Exh. In game: user.
+
+User 2026-11-25: the window clicked through in the app OK (Trial Run, Variants, Materials, Install), RS 4 Avant 669 OK
+in game. User 2026-11-26: a DLC car ported from the window, OK in game.
+
+### 7c. Front / rear upgrade rows (2026-11-25, user: "problemi su swaybar upgrades", rule A: "A, vai pure")
+
+FM4 / FM3 / FH1 / FH2 keep front and rear anti-roll bars, rims and tire widths in two tables, and FM2 keeps both sides in
+one row per level. The two sides were merged by level number, which went wrong when the sides differ:
+- **Anti-roll bars, different stock levels.** The FM4 Peugeot 107 `PEU_107_11` (user's own FM4 car, car **670** in FM2
+  DEV) has its front stock bar at level 1 and its rear stock bar at level 0, plus a rear-only level 1 bar (500 cr). The
+  same shape is on 22 FM4 cars (Elise 111S, Eclipse GTS, 510, DMC-12, ...), 4 FM3, 7 FH1 and 15 FH2 cars
+  (`frcensus.exe`). Merged by level, level 1 became a second stock row with the rear bar's price, and level 0 kept the
+  template's front bar. No FM2 car has two stock rows (`levels.exe`).
+- **Rims / tire widths, one side with more levels.** In 93 FM4 cars (rims) and 141 (tire widths) one side has more
+  levels. The rows of the extra levels had no column for the other side, and that side kept the template's value. For
+  example, FH2 P1 665 had a rear rim of 19 (the template's) at level 3, next to the 21 front.
+
+Rule A (user's choice): `CarDataToFm2.MergeSides` keeps every part of the source.
+- The stock row is at the lowest stock level of the sides and holds every side's stock part.
+- Each level where a side has an upgrade becomes one row. The other side keeps its part of the level below, or its
+  stock part if it has no upgrade below, and adds no price or mass. FM2's own rows do the same: on `FER_Enzo_02`, the
+  front rim stays at 20 at the level where the rear goes to 21.
+- The 107 becomes 0 stock, 1 (the rear street bar only), 2, 3. FM2 has that pattern on 10 of its cars.
+- Rule B, not chosen, would have followed FM2's own Elise and Eclipse: stock at level 1, and the rear-only bar left out.
+- Sides with the same levels give the rows the old merge gave.
+
+Checks (`swayfix\run.ps1`: `data2.exe` dry runs of the 11 ported cars, old and new exe):
+- 107: sway rows 0 stock / 1 (150 cr, the price rule's) / 2 / 3, front and rear from the source.
+- 458 662, P1 665 and GTX1 667: the tire / rim rows of the extra levels now have the source side's own last value
+  (P1 rim level 3 is 21 / 21, before 21 / 19).
+- RS 4 Avant 669 and X5 666: one sway upgrade price moves by a few credits (1792 -> 2016, 477 -> 481), because the
+  learned price rule now pairs Elise and Eclipse right.
+- R33, GT-R, H1, Q7 and Cobalt: no difference.
+
+Written to DEV 2026-11-25 (`data2.exe ... write`, ids kept, integrity OK, backups in `swayfix\new\bak`): 670, 662, 665,
+667. The 107's values then showed a second fault, below.
+
+**FM2's upgrade ladder** (user: "sì, vai con la regola FM2 e guarda anche le molle"). FM2 builds its upgrade anti-roll
+bars and springs / dampers from the same car's stock part. Measured on its 310 cars (`swayfix\ladder.cs`,
+`springs.cs`):
+- **Fixed factors, every car:** bar stiffness, spring rate and damper rates are stock x1.10 / 1.20 / 1.50 above a level
+  0 stock part, x1.11 / 1.44 above level 1, x1.375 above level 2. For the spring rate the level 1 -> 3 step is x1.44
+  front and x1.50 rear.
+- **Same as stock:** the geometry columns (camber change, caster, pivots, bump stops, toe, ...).
+- **Not a factor:** ride height (about x0.95 / 0.85 / 0.75) varies, and so do the race level's adjustable Min / Max.
+
+FM4's upgrade bars are 2-7 times the stock bar. The per-row ratio learned from the shared cars had to squeeze them, and
+the 107's level 1 bar came out softer than the stock: 1.81 / 3.36 against 4.36 / 8.82.
+
+`CarDataToFm2.LearnLadders` learns this from FM2's own cars: per side, column and level step (stock level -> level),
+"= stock" or "stock x factor" where 95% of at least 5 cars agree. `ApplyLadder` then builds each upgrade physics row from
+the car's converted stock row. Columns without a ladder (ride height, race Min / Max) keep the row conversion. Result:
+315 columns with a ladder (216 = stock, 99 x factor).
+
+**Learning only from FM2's own cars** (`LearnAll`): cars with an id above FM2's base game (617,
+`GameIdLimits.MaxCarBase`) are left out. A ported car has the source's MediaName, so it counted as a car "both games
+have" and taught the conversion its own output.
+
+Check (`swayfix\new2`: `ladchk.exe`, the database step in memory, all 14 ported cars 660-673): no upgrade below the
+stock. The 107: bars 4.37 / 8.82 stock, then x1.10 / 1.20 / 1.50; springs 56.4 / 34.6 stock, then the same factors.
+Integrity OK on all.
+
+Written to DEV 2026-11-25 for all 14 cars (660-673, `new2\data2.exe ... write`; database before:
+`new2\gamedb_before_ladder.slt`). Checked on the written database:
+- `ids.exe`: every upgrade id kept.
+- `dbladder.exe`: one stock row per table and no upgrade below the stock, front and rear, bars and springs.
+
+In game: user.
+
+### 7d. Traffic cars in the car list (2026-11-25, user: "non vedo le cose degli altri forza come giallo per traffic car")
+
+FH traffic cars (placeholder close-up models: `CarPort.HasPlaceholderCloseUp`, or the index of a staged package) are
+listed in yellow, with a "Traffic car" legend at the right of the Cars header, found as the FM3 window finds them
+(`CarPortFm3Form.IsTraffic`). Off-screen check (`ui\shottraffic.exe`): FH1 source, 16 yellow rows of 134. Porting a
+traffic car into FM2 has not been tried yet (user: next).
+
+### 7e. Engine sound choice and FM4 expansion packs (2026-11-25)
+
+**Port sound / Use sound** (user: "nel port mi devi consentire di fare port sound -> use sound", for the traffic cars'
+odd sounds). The "Selected car" area has an **Engine sound** row:
+- **Port sound (the source car's)**, the default: step 4 as before, the source's banks rebuilt for FM2.
+- **Use sound of the FM2 car:** a drop-down of FM2's cars. It starts on the template car until the user picks another.
+
+FM2 finds a car's sound by `Data_Engine.MediaName` (= the car's) in `DSPTuning.zip\<car>_DSPTuning.xml`, which names
+each exhaust level's HT and bank (section 6). "Use sound" (`Fm2SoundPort.UseSoundOf`, `RunUse`) copies the chosen car's
+DSPTuning under the new car's name (root `name` attribute changed) and builds no bank. `<car>_ED.xml` (emitter
+positions, the car's own body) is still built from the source's CMT. The install question and the Report name the
+sound used.
+
+Check `PortToFM2\usesnd.exe` (Write = false): FH1 Prius with the FM2 RS 6's sound gives a DSPTuning with banks
+AUD_S4_04_111303_8S0 / SPY_C8_00_Bizarre_8S2 / ..., and an ED from the Prius CMT (217 values). Not yet tried in game.
+
+**FM4 expansion packs** (offers 1-4, e.g. "2006-Current Model Year Car Pack" with the M5 2009 `BMW_M5_09`; user: M5 E60
+not listed). These packs have no database of their own: their cars' rows are in FM4's. The window did not tell
+`DlcSource` which FM4 folder to take them from, so the pack could be left out ("set the Forza Motorsport 4 folder").
+`LoadCars` now calls `GameInfo.UseSourceFolder(game, source)`, as the FM4 port window does. Checks: `ui\fm4packs.exe`
+finds the pack with 56 cars including the M5. `ui\stagem5.exe` stages it as Install does: car zip extracted, 1
+Data_Car row, 0 tables with a different row count. `plan.exe` on the stage: 3591 see-through + 33787 opaque vertices,
+fits.

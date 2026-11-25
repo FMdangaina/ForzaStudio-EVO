@@ -39,6 +39,10 @@ namespace ForzaStudio
         public string BackupFolder;         // copies of the files before the first write (null: none)
         public bool Write;                  // false: build everything, write nothing to the game (banks go to OutputFolder)
         public string OutputFolder;         // dry run / checks: the built banks, HT, DSP and ED as files (null: none)
+        // "Use sound" (user 2026-11-25: "port sound / use sound", for the traffic cars' odd sounds): an FM2 car's MediaName;
+        // its DSPTuning (the banks, HTs and DSP of each exhaust level) is copied under the car's name and no bank is built.
+        // The ED (emitter positions: the car's own body) is still built from the source's CMT. null: port the source's sound.
+        public string UseSoundOf;
         public List<string> Log = new List<string>();
 
         private sealed class Wave
@@ -85,6 +89,11 @@ namespace ForzaStudio
 
         public void Run()
         {
+            if (!string.IsNullOrEmpty(this.UseSoundOf))
+            {
+                this.RunUse();
+                return;
+            }
             if (!File.Exists(Decoder))
             {
                 throw new FileNotFoundException("vgmstream-cli.exe is missing next to the program (vgmstream folder).");
@@ -177,6 +186,48 @@ namespace ForzaStudio
                 hts[bank.Name + "_HT.xml"] = Xml(bank.Ht);
             }
             this.PutEntries(Path.Combine(engines, "HarmonicTuning.zip"), hts);
+            this.PutEntries(Path.Combine(engines, "DSPTuning.zip"), new Dictionary<string, byte[]> { { this.CarMedia + "_DSPTuning.xml", Xml(dsp) } });
+            this.PutEntries(Path.Combine(this.TargetCars, "EmitterData.zip"), new Dictionary<string, byte[]> { { this.CarMedia + "_ED.xml", Xml(ed) } });
+        }
+
+        // "Use sound": the FM2 car's DSPTuning under this car's name (FM2 finds it by Data_Engine.MediaName = the car's), the ED
+        // from the source's CMT as a port builds it.
+        private void RunUse()
+        {
+            if (this.Write && Path.GetFullPath(this.TargetRoot).TrimEnd('\\').EndsWith("_Extracted", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Never write to an _Extracted folder: use the _DEV copy.");
+            }
+            string engines = Path.Combine(this.TargetCars, "Engines");
+            XElement dsp = XmlEntry(Path.Combine(engines, "DSPTuning.zip"), this.UseSoundOf + "_DSPTuning.xml");
+            if (dsp == null)
+            {
+                throw new InvalidOperationException("FM2 has no " + this.UseSoundOf + "_DSPTuning.xml: that car's sound cannot be used.");
+            }
+            dsp.SetAttributeValue("name", this.CarMedia);
+            List<string> levels = new List<string>();
+            XElement exhaust = dsp.Element("Exhaust");
+            if (exhaust != null)
+            {
+                foreach (XElement upgrade in exhaust.Elements("Upgrade"))
+                {
+                    levels.Add(StripHt((string) upgrade.Attribute("Tuning") ?? "?"));
+                }
+            }
+            this.Log.Add(string.Format("sound: the FM2 sound of {0} (user's choice): {1}_DSPTuning.xml = a copy of {0}'s, exhaust levels 0-3 = {2}; no bank built",
+                this.UseSoundOf, this.CarMedia, string.Join(" / ", levels.ToArray())));
+            XElement ed = this.BuildEd();
+            if (this.OutputFolder != null)
+            {
+                Directory.CreateDirectory(this.OutputFolder);
+                File.WriteAllBytes(Path.Combine(this.OutputFolder, this.CarMedia + "_DSPTuning.xml"), Xml(dsp));
+                File.WriteAllBytes(Path.Combine(this.OutputFolder, this.CarMedia + "_ED.xml"), Xml(ed));
+            }
+            if (!this.Write)
+            {
+                this.Log.Add("dry run: nothing written to the game");
+                return;
+            }
             this.PutEntries(Path.Combine(engines, "DSPTuning.zip"), new Dictionary<string, byte[]> { { this.CarMedia + "_DSPTuning.xml", Xml(dsp) } });
             this.PutEntries(Path.Combine(this.TargetCars, "EmitterData.zip"), new Dictionary<string, byte[]> { { this.CarMedia + "_ED.xml", Xml(ed) } });
         }

@@ -26,6 +26,7 @@ namespace ForzaStudio
             public string Root;         // the staged DLC pack the car comes from, or null for the game folder itself
             public DlcSource Pack;
             public string Dlc;          // the pack's name, or ""
+            public bool Traffic;        // FH traffic car (placeholder close-up models): shown yellow, as in the FM3 / FM4 windows
         }
 
         // What the last trial run of a car found: its parts against one template.
@@ -101,6 +102,10 @@ namespace ForzaStudio
         private readonly CheckBox includeDlc;
         private readonly ListView cars;
         private readonly ComboBox templates;
+        private readonly RadioButton portSound;
+        private readonly RadioButton useSound;
+        private readonly ComboBox soundCars;    // the FM2 cars (templateList); "Use sound": the one whose engine sound the car gets
+        private bool soundPicked;               // the user chose a sound car: a template change no longer moves it
         private readonly Button trial;
         private readonly Button install;
         private readonly TextBox report;
@@ -229,24 +234,60 @@ namespace ForzaStudio
             this.templates.Location = new Point(8, 28);
             this.templates.Width = 460;
             this.templates.MaxDropDownItems = 24;
-            this.templates.SelectedIndexChanged += delegate { this.ShowTrial(); this.UpdateButtons(); };
+            this.templates.SelectedIndexChanged += delegate
+            {
+                // "Use sound" starts on the template car until the user picks another
+                if (!this.soundPicked && this.templates.SelectedIndex >= 0 && this.templates.SelectedIndex < this.soundCars.Items.Count)
+                {
+                    this.soundCars.SelectedIndex = this.templates.SelectedIndex;
+                    this.soundPicked = false;
+                }
+                this.ShowTrial();
+                this.UpdateButtons();
+            };
+            // Engine sound (user 2026-11-25: "port sound / use sound"): the source's, built into FM2 banks, or an FM2 car's
+            Label soundLabel = new Label();
+            soundLabel.Text = "Engine sound:";
+            soundLabel.Location = new Point(8, 66);
+            soundLabel.AutoSize = true;
+            this.portSound = new RadioButton();
+            this.portSound.Text = "Port sound (the source car's)";
+            this.portSound.Location = new Point(104, 63);
+            this.portSound.AutoSize = true;
+            this.portSound.Checked = true;
+            this.useSound = new RadioButton();
+            this.useSound.Text = "Use sound of the FM2 car:";
+            this.useSound.Location = new Point(300, 63);
+            this.useSound.AutoSize = true;
+            this.soundCars = new ComboBox();
+            this.soundCars.DropDownStyle = ComboBoxStyle.DropDownList;
+            this.soundCars.Location = new Point(480, 62);
+            this.soundCars.Width = 360;
+            this.soundCars.MaxDropDownItems = 24;
+            this.soundCars.Enabled = false;
+            this.soundCars.SelectionChangeCommitted += delegate { this.soundPicked = true; };
+            this.useSound.CheckedChanged += delegate { this.soundCars.Enabled = this.useSound.Checked; };
             this.trial = new Button();
             this.trial.Text = "Trial Run";
             this.trial.Size = new Size(110, 28);
-            this.trial.Location = new Point(8, 62);
+            this.trial.Location = new Point(8, 94);
             this.trial.Click += delegate { this.RunTrial(); };
             this.install = new Button();
             this.install.Text = "Install In FM2...";
             this.install.Size = new Size(130, 28);
-            this.install.Location = new Point(124, 62);
+            this.install.Location = new Point(124, 94);
             this.install.Click += delegate { this.Install(); };
             options.Controls.Add(templateLabel);
             options.Controls.Add(this.templates);
+            options.Controls.Add(soundLabel);
+            options.Controls.Add(this.portSound);
+            options.Controls.Add(this.useSound);
+            options.Controls.Add(this.soundCars);
             options.Controls.Add(this.trial);
             options.Controls.Add(this.install);
             Panel selectedCar = new Panel();
             selectedCar.Dock = DockStyle.Bottom;
-            selectedCar.Height = 130;
+            selectedCar.Height = 162;
             selectedCar.Controls.Add(options);
             selectedCar.Controls.Add(CarPortForm.SectionHeader("Selected car"));
 
@@ -255,7 +296,21 @@ namespace ForzaStudio
             carsArea.Controls.Add(this.cars);
             carsArea.Controls.Add(selectedCar);
             carsArea.Controls.Add(filter);
-            carsArea.Controls.Add(CarPortForm.SectionHeader("Cars"));
+            Control carsHeader = CarPortForm.SectionHeader("Cars");
+            // the traffic colour of the car list at the right of the header, as the FM3 window draws it (user 2026-11-25)
+            carsHeader.Paint += delegate(object sender, PaintEventArgs e)
+            {
+                const string name = "Traffic car";
+                Size size = TextRenderer.MeasureText(name, ForzaTheme.Regular);
+                int x = carsHeader.Width - 8 - size.Width;
+                TextRenderer.DrawText(e.Graphics, name, ForzaTheme.Regular, new Point(x, 7), ForzaTheme.Yellow);
+                using (Brush dot = new SolidBrush(ForzaTheme.Yellow))
+                {
+                    e.Graphics.FillEllipse(dot, x - 14, 11, 9, 9);
+                }
+            };
+            carsHeader.Resize += delegate { carsHeader.Invalidate(); };
+            carsArea.Controls.Add(carsHeader);
 
             this.report = new TextBox();
             this.report.Dock = DockStyle.Fill;
@@ -510,6 +565,10 @@ namespace ForzaStudio
             }
             AppSettings.Set("PortFm2.Source", source);
             AppSettings.Set("PortFm2.Target", target);
+            // the source folder gives its game's packages their base database: FM4's expansions (offers 1-4, e.g. the
+            // 2006-Current Model Year pack with the M5 2009) have no database of their own (user 2026-11-25: M5 E60 not
+            // listed), as the FM4 port window does
+            GameInfo.UseSourceFolder(game, source);
             bool dlcToo = this.includeDlc.Checked;
             this.status.Text = "Reading the databases...";
             this.Background(delegate
@@ -598,13 +657,20 @@ namespace ForzaStudio
                         item.SubItems.Add(car.Year.ToString(CultureInfo.InvariantCulture));
                         item.SubItems.Add(car.MediaName);
                         item.SubItems.Add(car.Dlc);
+                        if (car.Traffic)
+                        {
+                            item.ForeColor = ForzaTheme.Yellow;
+                        }
                         this.items.Add(item);
                     }
                     this.templateList = templateCars;
                     this.templates.Items.Clear();
+                    this.soundCars.Items.Clear();
+                    this.soundPicked = false;
                     foreach (string[] one in templateCars)
                     {
                         this.templates.Items.Add(one[1] + "  (" + one[0] + ")");
+                        this.soundCars.Items.Add(one[1] + "  (" + one[0] + ")");
                     }
                     this.Filter();
                     this.ShowTrial();
@@ -623,6 +689,9 @@ namespace ForzaStudio
             StringTable names = StringTableOrNull(root);
             HashSet<string> own = (pack != null) ? new HashSet<string>(pack.Cars(), StringComparer.OrdinalIgnoreCase) : null;
             HashSet<string> listed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // FH traffic cars (FH1 / FH2 folder or a staged FH package): yellow, found as the FM3 window finds them
+            bool horizon = CarPortViaFm4.IsHorizon(root);
+            Dictionary<string, KeyValuePair<bool, string>> lazy = horizon ? DlcSource.LazyCars(root) : null;
             foreach (SourceCar already in into)
             {
                 listed.Add(already.MediaName);
@@ -664,6 +733,7 @@ namespace ForzaStudio
                     car.Root = packRoot;
                     car.Pack = pack;
                     car.Dlc = label;
+                    car.Traffic = horizon && CarPortFm3Form.IsTraffic(root, media, lazy);
                     into.Add(car);
                 }
             }
@@ -1031,7 +1101,18 @@ namespace ForzaStudio
                 return;
             }
             string left = (current.Skip.Count > 0) ? "\n\nUpgrade variants left out: " + string.Join(", ", new List<string>(current.Skip).ToArray()) + "." : "";
-            if (MessageBox.Show(this, "Install " + car.Name + " in Forza Motorsport 2?\n\nFolder: " + target + "\nTemplate car: " + template
+            string useSoundOf = null;
+            if (this.useSound.Checked)
+            {
+                if (this.soundCars.SelectedIndex < 0 || this.soundCars.SelectedIndex >= this.templateList.Count)
+                {
+                    MessageBox.Show(this, "Choose the FM2 car whose engine sound the car gets.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                useSoundOf = this.templateList[this.soundCars.SelectedIndex][0];
+            }
+            string soundLine = "\nEngine sound: " + ((useSoundOf == null) ? "ported from the source car" : "the FM2 sound of " + useSoundOf);
+            if (MessageBox.Show(this, "Install " + car.Name + " in Forza Motorsport 2?\n\nFolder: " + target + "\nTemplate car: " + template + soundLine
                 + "\n\nThe game's database, zip list and sound files are changed and the car's files are added." + left, this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             {
                 return;
@@ -1062,6 +1143,7 @@ namespace ForzaStudio
                     chain.SkipParts.AddRange(skip);
                     chain.CarMaterials = carMaterials;
                     chain.WheelMaterials = wheelMaterials;
+                    chain.UseSoundOf = useSoundOf;
                     chain.Progress = delegate(string step)
                     {
                         this.BeginInvoke((MethodInvoker) delegate { this.status.Text = car.Name + ": " + step; });

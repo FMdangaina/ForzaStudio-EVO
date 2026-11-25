@@ -802,7 +802,7 @@ namespace ForzaStudio
         }
 
         // A car with placeholder close-up models (CarPort.HasPlaceholderCloseUp on its zip, or the package index of a lazy stage).
-        private static bool IsTraffic(string root, string media, Dictionary<string, KeyValuePair<bool, string>> lazy)
+        internal static bool IsTraffic(string root, string media, Dictionary<string, KeyValuePair<bool, string>> lazy)
         {
             try
             {

@@ -81,6 +81,10 @@ namespace ForzaStudio
         private readonly Dictionary<string, Rule> rules = new Dictionary<string, Rule>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Dictionary<long, int>> sharedAero = new Dictionary<string, Dictionary<long, int>>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> logged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // FM2's own upgrade ladder (LearnLadders): side|column|S<stock level>>L<level> -> the factor an upgrade's physics value
+        // is of the same car's stock value (1: the stock value itself).
+        private readonly Dictionary<string, double> ladder = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        private const int LadderMinRows = 5;
 
         // ---- the table pairs ----
 
@@ -701,6 +705,7 @@ namespace ForzaStudio
                 default: column = "EngineID"; key = CarEngine.StockEngine(db, car); break;
             }
             List<Dictionary<string, object>> merged = new List<Dictionary<string, object>>();
+            List<List<Dictionary<string, object>>> sides = new List<List<Dictionary<string, object>>>();
             foreach (string[] source in pair.Sources)
             {
                 if (!HasTable(db, source[0]))
@@ -729,38 +734,161 @@ namespace ForzaStudio
                     }
                     continue;
                 }
-                if (merged.Count == 0)
+                if (rows.Count > 0)
                 {
-                    merged = rows;
-                    continue;
+                    sides.Add(rows);
                 }
-                // a second table (rear): its columns go into the row of the same level; MassDiff and Price add up
-                foreach (Dictionary<string, object> row in rows)
-                {
-                    Dictionary<string, object> into = merged.Find(delegate(Dictionary<string, object> m) { return D(Get(m, "Level")) == D(Get(row, "Level")); });
-                    if (into == null)
-                    {
-                        merged.Add(row);
-                        continue;
-                    }
-                    foreach (KeyValuePair<string, object> kv in row)
-                    {
-                        if (string.Equals(kv.Key, "MassDiff", StringComparison.OrdinalIgnoreCase) || string.Equals(kv.Key, "Price", StringComparison.OrdinalIgnoreCase))
-                        {
-                            into[kv.Key] = D(Get(into, kv.Key)) + D(kv.Value);
-                        }
-                        else if (!into.ContainsKey(kv.Key))
-                        {
-                            into[kv.Key] = kv.Value;
-                        }
-                    }
-                }
+            }
+            if (sides.Count == 1)
+            {
+                merged = sides[0];
+            }
+            else if (sides.Count > 1)
+            {
+                merged = MergeSides(sides);
             }
             merged.Sort(delegate(Dictionary<string, object> a, Dictionary<string, object> b)
             {
                 int c = D(Get(a, "Level")).CompareTo(D(Get(b, "Level")));
                 return (c != 0) ? c : D(Get(a, "Sequence")).CompareTo(D(Get(b, "Sequence")));
             });
+            return merged;
+        }
+
+        // Front / rear source tables into FM2's one row per level, which holds both sides.
+        // - A side with no part of its own at a level keeps its part of the level below (its stock part when it has no
+        //   upgrade below), adding no price or mass: FM2's own rows do this (FER_Enzo_02 rims: front 20 / rear 21 at the top level).
+        // - The stock row is at the lowest stock level of the sides and holds every side's stock part, so a side's upgrade below
+        //   the other side's stock level is kept (FM4 PEU_107_11, LOT_Elise111S_05, ...: front stock at level 1, rear stock at
+        //   level 0 plus a rear-only level 1 bar; FM2 has this "0 stock, 1, 2, 3" pattern on 10 of its cars). Merging by level
+        //   number made that level 1 a second stock row with the rear bar's price, and left the template's front bar at level 0.
+        // Sides with the same levels give the rows the old merge gave.
+        private static List<Dictionary<string, object>> MergeSides(List<List<Dictionary<string, object>>> sides)
+        {
+            int n = sides.Count;
+            // a side's own columns: the ones no other side has (the renamed Front... / Rear... columns)
+            List<HashSet<string>> own = new List<HashSet<string>>();
+            for (int i = 0; i < n; i++)
+            {
+                HashSet<string> mine = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string column in sides[i][0].Keys)
+                {
+                    bool shared = false;
+                    for (int j = 0; j < n && !shared; j++)
+                    {
+                        shared = j != i && sides[j][0].ContainsKey(column);
+                    }
+                    if (!shared)
+                    {
+                        mine.Add(column);
+                    }
+                }
+                own.Add(mine);
+            }
+            List<Dictionary<string, object>> stock = new List<Dictionary<string, object>>();
+            double stockLevel = double.MaxValue;
+            foreach (List<Dictionary<string, object>> side in sides)
+            {
+                Dictionary<string, object> s = side.Find(delegate(Dictionary<string, object> r) { return D(Get(r, "IsStock")) == 1; });
+                if (s == null)
+                {
+                    s = side[0];
+                    foreach (Dictionary<string, object> r in side)
+                    {
+                        if (D(Get(r, "Level")) < D(Get(s, "Level")))
+                        {
+                            s = r;
+                        }
+                    }
+                }
+                stock.Add(s);
+                stockLevel = Math.Min(stockLevel, D(Get(s, "Level")));
+            }
+            List<double> levels = new List<double>();
+            levels.Add(stockLevel);
+            foreach (List<Dictionary<string, object>> side in sides)
+            {
+                foreach (Dictionary<string, object> r in side)
+                {
+                    double level = D(Get(r, "Level"));
+                    if (level > stockLevel && D(Get(r, "IsStock")) != 1 && !levels.Contains(level))
+                    {
+                        levels.Add(level);
+                    }
+                }
+            }
+            levels.Sort();
+            List<Dictionary<string, object>> merged = new List<Dictionary<string, object>>();
+            foreach (double level in levels)
+            {
+                Dictionary<string, object>[] part = new Dictionary<string, object>[n];
+                bool[] counts = new bool[n];
+                int baseSide = -1;
+                for (int i = 0; i < n; i++)
+                {
+                    if (level == stockLevel)
+                    {
+                        part[i] = stock[i];
+                        counts[i] = true;
+                        if (baseSide < 0 && D(Get(stock[i], "Level")) == stockLevel)
+                        {
+                            baseSide = i;
+                        }
+                        continue;
+                    }
+                    Dictionary<string, object> exact = null, below = null;
+                    foreach (Dictionary<string, object> r in sides[i])
+                    {
+                        double l = D(Get(r, "Level"));
+                        if (D(Get(r, "IsStock")) == 1 || l <= stockLevel)
+                        {
+                            continue;
+                        }
+                        if (l == level && exact == null)
+                        {
+                            exact = r;
+                        }
+                        else if (l < level && (below == null || l > D(Get(below, "Level"))))
+                        {
+                            below = r;
+                        }
+                    }
+                    part[i] = exact ?? below ?? stock[i];
+                    counts[i] = exact != null;
+                    if (baseSide < 0 && exact != null)
+                    {
+                        baseSide = i;
+                    }
+                }
+                if (baseSide < 0)
+                {
+                    continue;
+                }
+                Dictionary<string, object> row = new Dictionary<string, object>(part[baseSide], StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < n; i++)
+                {
+                    if (i == baseSide)
+                    {
+                        continue;
+                    }
+                    foreach (KeyValuePair<string, object> kv in part[i])
+                    {
+                        bool money = string.Equals(kv.Key, "MassDiff", StringComparison.OrdinalIgnoreCase) || string.Equals(kv.Key, "Price", StringComparison.OrdinalIgnoreCase);
+                        if (money)
+                        {
+                            if (counts[i])
+                            {
+                                row[kv.Key] = D(Get(row, kv.Key)) + D(kv.Value);
+                            }
+                        }
+                        else if (own[i].Contains(kv.Key) || !row.ContainsKey(kv.Key))
+                        {
+                            row[kv.Key] = kv.Value;
+                        }
+                    }
+                }
+                merged.Add(row);
+            }
             return merged;
         }
 
@@ -804,10 +932,14 @@ namespace ForzaStudio
         private void LearnAll()
         {
             int cars = 0;
+            // FM2's own cars only: a car added by a port or a copy (id above the base game's) holds converted rows, and
+            // learning from them teaches the conversion its own output (the ported FM4 cars have the source's MediaName)
+            long fm2Cars = GameIdLimits.MaxCarBase(Game);
             foreach (object[] car in this.Target.Query("SELECT Id, MediaName FROM Data_Car").Rows)
             {
                 object other = this.Source.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", car[1]);
-                if (other == null || Convert.ToInt64(car[0], CultureInfo.InvariantCulture) == this.Car || string.Equals(this.LearnExclude, car[1] as string, StringComparison.OrdinalIgnoreCase))
+                if (other == null || Convert.ToInt64(car[0], CultureInfo.InvariantCulture) == this.Car || string.Equals(this.LearnExclude, car[1] as string, StringComparison.OrdinalIgnoreCase)
+                    || (fm2Cars > 0 && Convert.ToInt64(car[0], CultureInfo.InvariantCulture) > fm2Cars))
                 {
                     continue;
                 }
@@ -831,6 +963,151 @@ namespace ForzaStudio
                 }
             }
             this.Log.Add(string.Format("rules learned from the {0} cars both games have", cars));
+        }
+
+        // FM2's upgrade anti-roll bars and springs / dampers are its stock part times a fixed factor, the same on every FM2
+        // car (E:\DEV\fm4dev\PortToFM2\swayfix ladder / springs, 310 cars): bar and spring rate x1.10 / 1.20 / 1.50 above a
+        // level 0 stock part, x1.11 / 1.44 above level 1, x1.375 above level 2; the geometry columns are the stock's. FM4's
+        // upgrades are 2-7 times the stock bar, so a ratio learned per row made upgrades softer than the stock (FM4 107, user
+        // 2026-11-25: "sì, vai con la regola FM2 e guarda anche le molle"). Learned here from FM2's own cars: a column and
+        // level step where 95% of the cars have the same factor (or the stock value) gets that factor; the others (race
+        // levels' adjustable Min / Max, ride heights that vary) keep the row conversion.
+        private void LearnLadders()
+        {
+            long fm2Cars = GameIdLimits.MaxCarBase(Game);
+            Dictionary<string, List<double[]>> found = new Dictionary<string, List<double[]>>(StringComparer.OrdinalIgnoreCase);
+            foreach (Pair pair in CarPairs)
+            {
+                if (!HasTable(this.Target, pair.Table))
+                {
+                    continue;
+                }
+                foreach (string column in Columns(this.Target, pair.Table))
+                {
+                    string physics = PhysicsTable(column);
+                    if (physics != "List_AntiSwayPhysics" && physics != "List_SpringDamperPhysics")
+                    {
+                        continue;
+                    }
+                    string key = PhysicsKey(physics);
+                    Dictionary<string, Dictionary<string, object>> parts = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+                    foreach (Dictionary<string, object> r in Rows(this.Target, "SELECT * FROM " + SqliteDatabase.Quote(physics)))
+                    {
+                        parts[Convert.ToString(Get(r, key), CultureInfo.InvariantCulture)] = r;
+                    }
+                    Dictionary<long, List<Dictionary<string, object>>> byCar = new Dictionary<long, List<Dictionary<string, object>>>();
+                    foreach (Dictionary<string, object> r in Rows(this.Target, "SELECT Ordinal, Level, IsStock, " + SqliteDatabase.Quote(column) + " AS Part FROM " + SqliteDatabase.Quote(pair.Table)
+                        + " WHERE Ordinal <> ?" + (fm2Cars > 0 ? " AND Ordinal <= " + fm2Cars.ToString(CultureInfo.InvariantCulture) : ""), this.Car))
+                    {
+                        long car = (long) D(Get(r, "Ordinal"));
+                        List<Dictionary<string, object>> list;
+                        if (!byCar.TryGetValue(car, out list))
+                        {
+                            byCar[car] = list = new List<Dictionary<string, object>>();
+                        }
+                        list.Add(r);
+                    }
+                    foreach (List<Dictionary<string, object>> rows in byCar.Values)
+                    {
+                        Dictionary<string, object> stock = rows.Find(delegate(Dictionary<string, object> r) { return D(Get(r, "IsStock")) == 1; });
+                        Dictionary<string, object> stockPart;
+                        if (stock == null || !parts.TryGetValue(Convert.ToString(Get(stock, "Part"), CultureInfo.InvariantCulture), out stockPart))
+                        {
+                            continue;
+                        }
+                        foreach (Dictionary<string, object> up in rows)
+                        {
+                            Dictionary<string, object> upPart;
+                            if (D(Get(up, "IsStock")) == 1 || !parts.TryGetValue(Convert.ToString(Get(up, "Part"), CultureInfo.InvariantCulture), out upPart))
+                            {
+                                continue;
+                            }
+                            string step = LadderStep((long) D(Get(stock, "Level")), (long) D(Get(up, "Level")));
+                            foreach (KeyValuePair<string, object> kv in stockPart)
+                            {
+                                double s, u;
+                                if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase) || string.Equals(kv.Key, "Ordinal", StringComparison.OrdinalIgnoreCase)
+                                    || !Numeric(kv.Value, out s) || !Numeric(Get(upPart, kv.Key), out u))
+                                {
+                                    continue;
+                                }
+                                string k = pair.Table + "." + column + "|" + kv.Key + "|" + step;
+                                List<double[]> list;
+                                if (!found.TryGetValue(k, out list))
+                                {
+                                    found[k] = list = new List<double[]>();
+                                }
+                                list.Add(new double[] { s, u });
+                            }
+                        }
+                    }
+                }
+            }
+            int same = 0, factors = 0;
+            foreach (KeyValuePair<string, List<double[]>> kv in found)
+            {
+                List<double[]> list = kv.Value;
+                if (list.Count < LadderMinRows)
+                {
+                    continue;
+                }
+                int equal = list.FindAll(delegate(double[] x) { return x[0] == x[1]; }).Count;
+                double factor = double.NaN;
+                if (equal * 100 >= list.Count * 95)
+                {
+                    factor = 1;
+                    same++;
+                }
+                else
+                {
+                    List<double> ratios = new List<double>();
+                    foreach (double[] x in list)
+                    {
+                        if (x[0] != 0)
+                        {
+                            ratios.Add(x[1] / x[0]);
+                        }
+                    }
+                    if (ratios.Count == 0)
+                    {
+                        continue;
+                    }
+                    ratios.Sort();
+                    double m = ratios[ratios.Count / 2];
+                    int hits = list.FindAll(delegate(double[] x) { return (x[0] == 0 && x[1] == 0) || Math.Abs(x[1] - x[0] * m) <= Math.Abs(x[0] * m) * 0.01; }).Count;
+                    if (hits * 100 < list.Count * 95 || Math.Abs(m - 1) < 1e-9)
+                    {
+                        continue;
+                    }
+                    factor = Math.Round(m, 4);
+                    factors++;
+                }
+                this.ladder[kv.Key] = factor;
+                string[] k3 = kv.Key.Split('|');
+                this.Note(k3[0], k3[1], k3[2], (factor == 1) ? "the stock part's value (FM2's own cars, " + equal + " of " + list.Count + ")"
+                    : "stock part x" + Num(factor) + " (FM2's own cars, " + list.Count + " rows)");
+            }
+            this.Log.Add(string.Format(CultureInfo.InvariantCulture, "FM2's upgrade ladder (anti-roll bars, springs / dampers): {0} columns = stock, {1} columns = stock x a fixed factor", same, factors));
+        }
+
+        private static string LadderStep(long stockLevel, long level)
+        {
+            return "S" + stockLevel.ToString(CultureInfo.InvariantCulture) + ">L" + level.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // An upgrade's physics row by FM2's ladder: each column FM2 builds from the stock part takes the converted stock value.
+        private void ApplyLadder(string side, string step, string level, string[] columns, Dictionary<string, object> row, Dictionary<string, object> stock)
+        {
+            foreach (string column in columns)
+            {
+                double factor, s;
+                if (!this.ladder.TryGetValue(side + "|" + column + "|" + step, out factor) || !Numeric(Get(stock, column), out s))
+                {
+                    continue;
+                }
+                row[column] = (factor == 1) ? Get(stock, column) : (object) Math.Round(s * factor, 6);
+                this.Note(side, column, level, (factor == 1) ? "FM2 ladder: the stock part's value" : "FM2 ladder: stock x" + Num(factor) + " (" + step + ")");
+            }
         }
 
         private void LearnCar(long c2, long cs)
@@ -1181,6 +1458,9 @@ namespace ForzaStudio
             long stockLevel = (stockSource != null) ? this.Fm2Level(pair.Table, stockSource) : long.MinValue;
             HashSet<long> ids = new HashSet<long>();
             int sequence = 0, written = 0;
+            // the converted stock physics rows, per column: FM2's ladder builds the upgrades from them
+            Dictionary<string, Dictionary<string, object>> stockPhysics = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
+            long writtenStock = long.MinValue;
             foreach (Dictionary<string, object> src in source)
             {
                 if (pair.Parts && this.ModelParts != null && D(Get(src, "IsStock")) != 1)
@@ -1241,13 +1521,29 @@ namespace ForzaStudio
                 {
                     row["PartsStringId"] = LikeTemplate(Get(src, "PartsStringId"), Get(keep, "PartsStringId"));
                 }
+                bool isStock = D(Get(row, "IsStock")) == 1;
+                string step = (!isStock && writtenStock != long.MinValue) ? LadderStep(writtenStock, fm2Level) : null;
                 foreach (string column in columns)
                 {
                     string physics = PhysicsTable(column);
                     if (physics != null)
                     {
-                        row[column] = this.WritePhysics(pair.Table + "." + column, physics, level, Get(src, column), Get(keep, column));
+                        Dictionary<string, object> stockPart;
+                        stockPhysics.TryGetValue(column, out stockPart);
+                        row[column] = this.WritePhysics(pair.Table + "." + column, physics, level, Get(src, column), Get(keep, column), step, stockPart);
+                        if (isStock && row[column] != null && !(row[column] is DBNull))
+                        {
+                            List<Dictionary<string, object>> part = Rows(this.Target, "SELECT * FROM " + SqliteDatabase.Quote(physics) + " WHERE " + PhysicsKey(physics) + " = ?", row[column]);
+                            if (part.Count > 0)
+                            {
+                                stockPhysics[column] = part[0];
+                            }
+                        }
                     }
+                }
+                if (isStock)
+                {
+                    writtenStock = fm2Level;
                 }
                 Insert(this.Target, pair.Table, columns, row);
                 written++;
@@ -1256,7 +1552,8 @@ namespace ForzaStudio
         }
 
         // A physics row for a converted row: shared FM2 row when FM2 shares one at that level, else a new counter.
-        private object WritePhysics(string side, string table, string level, object sourceId, object templateId)
+        // step / stock: an upgrade row's level step and the car's converted stock physics row (FM2's ladder), or null.
+        private object WritePhysics(string side, string table, string level, object sourceId, object templateId, string step, Dictionary<string, object> stock)
         {
             string key = PhysicsKey(table);
             if (table == "List_AeroPhysics")
@@ -1290,6 +1587,10 @@ namespace ForzaStudio
             }
             string[] columns = Columns(this.Target, table);
             Dictionary<string, object> row = this.ConvertRow(side, level, columns, src[0], (tpl.Count > 0) ? tpl[0] : null, new string[] { key, "Ordinal" });
+            if (step != null && stock != null)
+            {
+                this.ApplyLadder(side, step, level, columns, row, stock);
+            }
             // ranges: each column converted on its own can leave Min above Max; FM2 keeps Min = Def = Max where its cars do
             foreach (string column in columns)
             {
@@ -1344,6 +1645,7 @@ namespace ForzaStudio
                 + "|" + Convert.ToString(this.Source.Scalar("SELECT CarTypeID FROM Data_Car WHERE Id = ?", this.SourceCar), CultureInfo.InvariantCulture);
             this.fm2PortGroup = this.portGroup;     // drive type: FM2's numbering too; car type: the same ids (Data_Car.CarTypeID)
             this.LearnAll();
+            this.LearnLadders();
             this.learningGroup = null;
             this.Log.Add("group of the car (drive type | car type): " + this.portGroup);
             List<string> dropped = new List<string>();
