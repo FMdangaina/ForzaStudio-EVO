@@ -55,6 +55,12 @@ Each UI step is described to the user and gets a yes before it is built (`descri
 
 **B. FM2 import window**:
 1. **Also show cars FM2 already has** + port again over an installed car (same id, upgrade ids kept, as `data2` does).
+   DONE 2026-11-26: `Fm2PortRecord` (port_log.txt in the FM2 car zip, as the FM4 port's: source, template, variants left
+   out, materials, sound, then the install report), `CarPortFm2Chain.Again` (no copy; the model built again on the first
+   port's template, the zips backed up; car / upgrade / engine ids kept), window: "Also show cars FM2 already has", "In FM2"
+   column (ported, car N / FM2 car), "Port Again Over Car N..." with the saved-game warning, the record's template, sound,
+   variants and materials put back on the first trial; FM2's own cars go in beside them as `<name>_FM4` / `_FM3` / `_FH`.
+   Records written into the 17 DEV cars (`recordtest\writerec`). User: Focus 676 ported again with it, OK in game.
 2. **Package...** source.
 3. **Review** tab: the "not ported" lines, the materials and variants left out, the template's left items, with Fix where
    the port has a choice.
@@ -105,7 +111,13 @@ Each UI step is described to the user and gets a yes before it is built (`descri
   OK. R33 (`skip=bumperFb`), Cobalt (its 8 front bumpers out) and RS4 (its 5 material choices) re-run with the original
   choices. Results: H1 Hummer, Yellowbird RUF, 107 3 cylinders (row 11), 787B 4 rotors (FM2's 10), Focus 676 20 spheres
   (fixed automatically), part makers added (Nissan, ABT Sportsline, Audi, H&R Europe, Ford, Chevrolet, Peugeot, URAS, BMW,
-  Mazda, RUF...). In game: user.
+  Mazda, RUF...). In game: user. The RUF Yellowbird 675 crash (user 2026-11-26) was the SAVED GAME (a garage car bought
+  before the rewrite; a new one from the dealer works); on the way H1 (make 85 above FM2's 53), RS4 and 240SX (new part
+  makers 292 / 303) and the RUF with its FH2 ShaderSettings were OK in game. The rest: UNTESTED.md D9.
+- **Choices lost by the rewrite** (user: RUF materials wrong): `report_all.ps1` ran without the material choices of RUF,
+  M5 E39, M6, 107, 787B, 240SX and Focus. Rebuilt from the old zips (agent harness `ruf675mat\matcmp` / `matmap`) and
+  restored (`swayfix\restore_mat.ps1`, model step only): 6 cars mesh for mesh as before, the RUF 212 of 216 paired meshes
+  (the 4 others: names FM2 already uses, never offered in the Materials tab). This is why B1 keeps a port record.
 - **787B 674 brakes** (agent, `brakes674\`): the wheel's spoke face starts 0.146 m deep (FM2's deepest 0.076): test
   `List_Wheels.BrakeDrawOffset` -0.05 / -0.10 / -0.15 in game, then make it a port rule.
 

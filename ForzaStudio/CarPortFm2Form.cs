@@ -27,6 +27,24 @@ namespace ForzaStudio
             public DlcSource Pack;
             public string Dlc;          // the pack's name, or ""
             public bool Traffic;        // FH traffic car (placeholder close-up models): shown yellow, as in the FM3 / FM4 windows
+            // FM2 has the car already ("Also show cars FM2 already has"):
+            public bool Fm2Own;         // the MediaName is one of FM2's own cars: ported beside it under TargetMedia, never over it
+            public string TargetMedia;  // the car's MediaName in FM2 (the source's, or the renamed copy's)
+            public long Fm2Id;          // FM2 has a ported car under TargetMedia: its id (Install ports again over it); else 0
+            public Fm2PortRecord Record;    // that car's port record (template and choices of the first port), or null
+            public bool RecordApplied;  // the record's template / sound were put into the window once
+
+            public bool InFm2 { get { return this.Fm2Own || this.Fm2Id > 0; } }
+
+            public string Fm2Text
+            {
+                get
+                {
+                    string ported = (this.Fm2Id > 0) ? "ported" + (this.Fm2Own ? " as " + this.TargetMedia : "") + ", car " + this.Fm2Id.ToString(CultureInfo.InvariantCulture)
+                        + ((this.Record == null) ? ", choices not recorded" : "") : null;
+                    return this.Fm2Own ? "FM2 car" + ((ported != null) ? "; " + ported : ", a copy goes in as " + this.TargetMedia) : (ported ?? "");
+                }
+            }
         }
 
         // What the last trial run of a car found: its parts against one template.
@@ -100,6 +118,7 @@ namespace ForzaStudio
         private readonly Button load;
         private readonly TextBox search;
         private readonly CheckBox includeDlc;
+        private readonly CheckBox showInFm2;
         private readonly ListView cars;
         private readonly ComboBox templates;
         private readonly RadioButton portSound;
@@ -205,9 +224,17 @@ namespace ForzaStudio
                     this.LoadCars();
                 }
             };
+            // the cars FM2 already has: the ported ones to port again over (choices of the first port read back), FM2's own
+            // ones to port beside them under another name (as the FM3 / FM4 windows)
+            this.showInFm2 = new CheckBox();
+            this.showInFm2.Text = "Also show cars FM2 already has";
+            this.showInFm2.Location = new Point(538, 7);
+            this.showInFm2.AutoSize = true;
+            this.showInFm2.CheckedChanged += delegate { this.Filter(); };
             filter.Controls.Add(find);
             filter.Controls.Add(this.search);
             filter.Controls.Add(this.includeDlc);
+            filter.Controls.Add(this.showInFm2);
 
             this.cars = new ListView();
             this.cars.Dock = DockStyle.Fill;
@@ -220,7 +247,8 @@ namespace ForzaStudio
             this.cars.Columns.Add("Year", 50);
             this.cars.Columns.Add("Media name", 200);
             this.cars.Columns.Add("DLC pack", 220);
-            this.cars.SelectedIndexChanged += delegate { this.ShowTrial(); this.UpdateButtons(); };
+            this.cars.Columns.Add("In FM2", 260);
+            this.cars.SelectedIndexChanged += delegate { this.ApplyRecord(); this.ShowTrial(); this.UpdateButtons(); };
             CarPortFm3Form.StyleList(this.cars);
 
             Panel options = new Panel();
@@ -576,18 +604,18 @@ namespace ForzaStudio
                 StringBuilder notes = new StringBuilder();
                 List<SourceCar> list = new List<SourceCar>();
                 List<string[]> templateCars = new List<string[]>();
-                HashSet<string> inFm2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                Dictionary<string, long> inFm2 = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
                 using (SqliteDatabase to = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target))))
                 {
                     StringTable names2 = StringTableOrNull(target);
-                    foreach (object[] row in to.Query("SELECT MediaName, DisplayName FROM Data_Car ORDER BY MediaName").Rows)
+                    foreach (object[] row in to.Query("SELECT MediaName, DisplayName, Id FROM Data_Car ORDER BY MediaName").Rows)
                     {
                         string media = row[0] as string;
                         if (media == null)
                         {
                             continue;
                         }
-                        inFm2.Add(media);
+                        inFm2[media] = Convert.ToInt64(row[2], CultureInfo.InvariantCulture);
                         if (GamePaths.FindMedia(target, "cars", media) != null)
                         {
                             string name = (names2 != null) ? names2.Lookup("Data_Car", "DisplayName", row[1] as string) : null;
@@ -595,7 +623,7 @@ namespace ForzaStudio
                         }
                     }
                 }
-                ReadCars(source, CarPortFm2Chain.FindDatabase(source), null, null, "", list, inFm2);
+                ReadCars(source, CarPortFm2Chain.FindDatabase(source), null, null, "", list);
                 string content = dlcToo ? InstalledDlc.ContentFolder(game) : null;
                 if (content != null)
                 {
@@ -634,13 +662,29 @@ namespace ForzaStudio
                                 continue;
                             }
                             string root = pack.Stage(notes);
-                            ReadCars(root, CarPortFm2Chain.FindDatabase(root), root, pack, label, list, inFm2);
+                            ReadCars(root, CarPortFm2Chain.FindDatabase(root), root, pack, label, list);
                         }
                         catch (Exception e)
                         {
                             notes.AppendLine(label + ": left out, " + e.Message);
                         }
                     }
+                }
+                // what FM2 has of each car: one of its own (a copy goes beside it under another name) or a port (ported again
+                // over it, with the choices its port record gives back)
+                long fm2Top = GameIdLimits.MaxCar(ForzaGame.Motorsport2);
+                int newCars = 0;
+                foreach (SourceCar car in list)
+                {
+                    long id;
+                    car.Fm2Own = inFm2.TryGetValue(car.MediaName, out id) && id <= fm2Top;
+                    car.TargetMedia = car.Fm2Own ? RenamedPort(car.MediaName, game) : car.MediaName;
+                    if (inFm2.TryGetValue(car.TargetMedia, out id) && id > fm2Top)
+                    {
+                        car.Fm2Id = id;
+                        car.Record = Fm2PortRecord.Read(GamePaths.FindCar(target, car.TargetMedia));
+                    }
+                    newCars += car.InFm2 ? 0 : 1;
                 }
                 return delegate
                 {
@@ -657,7 +701,12 @@ namespace ForzaStudio
                         item.SubItems.Add(car.Year.ToString(CultureInfo.InvariantCulture));
                         item.SubItems.Add(car.MediaName);
                         item.SubItems.Add(car.Dlc);
-                        if (car.Traffic)
+                        item.SubItems.Add(car.Fm2Text);
+                        if (car.InFm2)
+                        {
+                            item.ForeColor = ForzaTheme.TextDim;
+                        }
+                        else if (car.Traffic)
                         {
                             item.ForeColor = ForzaTheme.Yellow;
                         }
@@ -674,7 +723,7 @@ namespace ForzaStudio
                     }
                     this.Filter();
                     this.ShowTrial();
-                    this.status.Text = string.Format(CultureInfo.InvariantCulture, "{0} {1} cars FM2 does not have, {2} FM2 template cars. Choose a car and its template, then Trial Run.", list.Count, GameInfo.Name(game), templateCars.Count);
+                    this.status.Text = string.Format(CultureInfo.InvariantCulture, "{0} {1} cars FM2 does not have ({3} it has: Also show cars FM2 already has), {2} FM2 template cars. Choose a car and its template, then Trial Run.", newCars, GameInfo.Name(game), templateCars.Count, list.Count - newCars);
                     if (notes.Length > 0)
                     {
                         this.report.Text = "DLC packages:\r\n" + notes.ToString();
@@ -683,8 +732,8 @@ namespace ForzaStudio
             });
         }
 
-        // The cars of the source folder or of one staged pack that FM2 does not have under that name.
-        private static void ReadCars(string root, string database, string packRoot, DlcSource pack, string label, List<SourceCar> into, HashSet<string> inFm2)
+        // The cars of the source folder or of one staged pack (FM2's own ones and the ported ones too: LoadCars marks them).
+        private static void ReadCars(string root, string database, string packRoot, DlcSource pack, string label, List<SourceCar> into)
         {
             StringTable names = StringTableOrNull(root);
             HashSet<string> own = (pack != null) ? new HashSet<string>(pack.Cars(), StringComparer.OrdinalIgnoreCase) : null;
@@ -710,7 +759,7 @@ namespace ForzaStudio
                 foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year, " + (hasShort ? "ModelShort" : "NULL") + " FROM Data_Car ORDER BY Id").Rows)
                 {
                     string media = row[1] as string;
-                    if (media == null || inFm2.Contains(media) || (own != null && !own.Contains(media)))
+                    if (media == null || (own != null && !own.Contains(media)))
                     {
                         continue;
                     }
@@ -750,6 +799,10 @@ namespace ForzaStudio
                 {
                     continue;
                 }
+                if (car.InFm2 && !this.showInFm2.Checked)
+                {
+                    continue;
+                }
                 shown.Add(item);
             }
             this.cars.BeginUpdate();
@@ -785,9 +838,54 @@ namespace ForzaStudio
             bool ready = !this.busy && this.SelectedCar != null && this.SelectedTemplate != null;
             Trial current = this.CurrentTrial;
             int seeThrough, opaque;
+            SourceCar car = this.SelectedCar;
+            // a port again never takes the car itself as its template (its model is the port's, not an FM2 car's)
+            ready &= car == null || car.Fm2Id == 0 || !string.Equals(this.SelectedTemplate, car.TargetMedia, StringComparison.OrdinalIgnoreCase);
             this.load.Enabled = !this.busy;
             this.trial.Enabled = ready;
             this.install.Enabled = ready && current != null && CarPortFm2Chain.Fits(current.Plan, current.Skip, out seeThrough, out opaque);
+            this.install.Text = (car != null && car.Fm2Id > 0) ? "Port Again Over Car " + car.Fm2Id.ToString(CultureInfo.InvariantCulture) + "..."
+                : (car != null && car.Fm2Own) ? "Install In FM2 As " + car.TargetMedia + "..." : "Install In FM2...";
+        }
+
+        // The MediaName of a copy of one of FM2's own cars: the source's + _FM4 / _FM3 / _FH (up to 40 characters), as
+        // the FM4 window names a car FM4 already has.
+        private static string RenamedPort(string media, ForzaGame game)
+        {
+            string tag = (game == ForzaGame.Motorsport4) ? "_FM4" : (game == ForzaGame.Motorsport3) ? "_FM3" : "_FH";
+            return ((media.Length + tag.Length > 40) ? media.Substring(0, 40 - tag.Length) : media) + tag;
+        }
+
+        // The first time a car ported before is chosen: the template and the engine sound of its port record go into the
+        // window (the variants and materials follow in the trial run). The user can change them after.
+        private void ApplyRecord()
+        {
+            SourceCar car = this.SelectedCar;
+            if (car == null || car.Record == null || car.RecordApplied)
+            {
+                return;
+            }
+            car.RecordApplied = true;
+            int template = this.templateList.FindIndex(delegate(string[] one) { return string.Equals(one[0], car.Record.Template, StringComparison.OrdinalIgnoreCase); });
+            if (template >= 0)
+            {
+                this.templates.SelectedIndex = template;
+            }
+            if (!string.IsNullOrEmpty(car.Record.UseSoundOf))
+            {
+                int sound = this.templateList.FindIndex(delegate(string[] one) { return string.Equals(one[0], car.Record.UseSoundOf, StringComparison.OrdinalIgnoreCase); });
+                if (sound >= 0)
+                {
+                    this.useSound.Checked = true;
+                    this.soundCars.SelectedIndex = sound;
+                    this.soundPicked = true;
+                }
+            }
+            else
+            {
+                this.portSound.Checked = true;
+            }
+            this.status.Text = car.Name + ": ported before on the template " + car.Record.Template + "; Trial Run gives back the variants and materials you chose then.";
         }
 
         // ----- Variants -----
@@ -952,6 +1050,20 @@ namespace ForzaStudio
                     wheelMaterials[pair.Key] = pair.Value;
                 }
             }
+            // a car ported before, first trial on its port's template: the choices of that port come back
+            // (a re-port keeps the original choices, user 2026-11-26)
+            Fm2PortRecord record = (before == null && car.Record != null && string.Equals(car.Record.Template, template, StringComparison.OrdinalIgnoreCase)) ? car.Record : null;
+            if (record != null)
+            {
+                foreach (KeyValuePair<string, string> pair in record.CarMaterials)
+                {
+                    carMaterials[pair.Key] = pair.Value;
+                }
+                foreach (KeyValuePair<string, string> pair in record.WheelMaterials)
+                {
+                    wheelMaterials[pair.Key] = pair.Value;
+                }
+            }
             this.status.Text = "Trial run of " + car.Name + "...";
             this.Background(delegate
             {
@@ -980,12 +1092,22 @@ namespace ForzaStudio
 
                 // the copy of the template, as Duplicate Car plans it (nothing written)
                 List<string> copyPlan = new List<string>();
+                if (car.Fm2Id > 0)
+                {
+                    copyPlan.Add("none: Install ports again over " + car.TargetMedia + ", car " + car.Fm2Id.ToString(CultureInfo.InvariantCulture)
+                        + " of FM2 (car, upgrade and engine ids kept; the model is built again on " + template + ")");
+                    if (car.Record == null)
+                    {
+                        copyPlan.Add("the car has no port record (ported before records were kept): the variants and materials of its first port are not known, choose them again");
+                    }
+                }
+                else
                 try
                 {
                     CarDuplicate copy = new CarDuplicate();
                     copy.TargetRoot = target;
                     copy.SourceMediaName = template;
-                    copy.NewMediaName = car.MediaName;
+                    copy.NewMediaName = car.TargetMedia;
                     copy.XeniaContent = InstalledDlc.ContentFolder(ForzaGame.Motorsport2);
                     copy.DisplayName = car.Name;
                     copy.ModelShort = car.Short;
@@ -1004,6 +1126,18 @@ namespace ForzaStudio
                 made.Wheel = wheelPlan;
                 made.CarMaterials = carMaterials;
                 made.WheelMaterials = wheelMaterials;
+                if (record != null)
+                {
+                    foreach (Fm2CarbinModel.PlanPart part in plan)
+                    {
+                        if (part.Variant && record.Skip.Contains(part.Name))
+                        {
+                            made.Skip.Add(part.Name);
+                        }
+                    }
+                    log.Add("Choices of the first port (its record): " + ((made.Skip.Count > 0) ? "variants left out " + string.Join(", ", new List<string>(made.Skip).ToArray()) : "no variant left out")
+                        + "; " + (record.CarMaterials.Count + record.WheelMaterials.Count) + " material choice(s).");
+                }
                 List<MaterialRow> unknown = UnknownMaterials(made);
                 int[] stock = new int[2];
                 int stockParts = 0, variantParts = 0;
@@ -1112,8 +1246,14 @@ namespace ForzaStudio
                 useSoundOf = this.templateList[this.soundCars.SelectedIndex][0];
             }
             string soundLine = "\nEngine sound: " + ((useSoundOf == null) ? "ported from the source car" : "the FM2 sound of " + useSoundOf);
-            if (MessageBox.Show(this, "Install " + car.Name + " in Forza Motorsport 2?\n\nFolder: " + target + "\nTemplate car: " + template + soundLine
-                + "\n\nThe game's database, zip list and sound files are changed and the car's files are added." + left, this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            bool again = car.Fm2Id > 0;
+            string question = again
+                ? "Port " + car.Name + " again over FM2's car " + car.Fm2Id.ToString(CultureInfo.InvariantCulture) + " (" + car.TargetMedia + ")?\n\nFolder: " + target + "\nTemplate car: " + template + soundLine
+                    + "\n\nThe car's model, wheel, textures, database rows and sound are written again; its car, upgrade and engine ids stay."
+                    + "\n\nIf you own this car in an FM2 garage, the saved car can crash the game: sell it and buy it again."
+                : "Install " + car.Name + " in Forza Motorsport 2" + (car.Fm2Own ? " as " + car.TargetMedia + " (FM2 has its own " + car.MediaName + ", never written over)" : "") + "?\n\nFolder: " + target + "\nTemplate car: " + template + soundLine
+                    + "\n\nThe game's database, zip list and sound files are changed and the car's files are added.";
+            if (MessageBox.Show(this, question + left, this.Text, MessageBoxButtons.YesNo, again ? MessageBoxIcon.Warning : MessageBoxIcon.Question) != DialogResult.Yes)
             {
                 return;
             }
@@ -1136,7 +1276,10 @@ namespace ForzaStudio
                     chain.SourceMediaName = car.MediaName;
                     chain.TargetRoot = target;
                     chain.TemplateMediaName = template;
-                    chain.NewMediaName = car.MediaName;
+                    chain.NewMediaName = car.TargetMedia;
+                    chain.Again = again;
+                    chain.SourceGameName = GameInfo.Name(this.sourceGame) ?? "";
+                    chain.SourcePack = car.Dlc ?? "";
                     chain.DisplayName = car.Name;
                     chain.ModelShort = car.Short;
                     chain.Year = car.Year;
@@ -1166,6 +1309,7 @@ namespace ForzaStudio
                 {
                     text.AppendLine(line);
                 }
+                Fm2PortRecord written = (failed == null) ? Fm2PortRecord.Read(GamePaths.FindCar(target, car.TargetMedia)) : null;
                 return delegate
                 {
                     this.report.Text = text.ToString();
@@ -1175,12 +1319,16 @@ namespace ForzaStudio
                         this.status.Text = "Install failed: " + failed.Message;
                         return;
                     }
-                    // the car is an FM2 car now: out of the list
-                    foreach (ListViewItem item in this.items.ToArray())
+                    // the car is in FM2 now: a ported car (shown with "Also show cars FM2 already has", ported again from there)
+                    car.Fm2Id = chain.CarId;
+                    car.Record = written;
+                    car.RecordApplied = true;
+                    foreach (ListViewItem item in this.items)
                     {
                         if (item.Tag == car)
                         {
-                            this.items.Remove(item);
+                            item.SubItems[5].Text = car.Fm2Text;
+                            item.ForeColor = ForzaTheme.TextDim;
                         }
                     }
                     this.trials.Remove(car.MediaName);

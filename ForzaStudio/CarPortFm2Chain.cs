@@ -25,6 +25,10 @@ namespace ForzaStudio
         public Dictionary<string, string> CarMaterials = new Dictionary<string, string>(StringComparer.Ordinal);     // the user's choices: source material -> FM2 material
         public Dictionary<string, string> WheelMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
         public string UseSoundOf;           // "Use sound": an FM2 car whose engine sound the car gets; null: "Port sound" (the source's)
+        public bool Again;                  // port again over the installed FM2 car NewMediaName (ported before): no new copy, its
+                                            // car id, upgrade ids and engine id stay; TemplateMediaName = the template of the first port
+        public string SourceGameName = "";  // for the record (port_log.txt in the car zip)
+        public string SourcePack = "";
         public List<string> Log = new List<string>();
         public long CarId;
         public bool SoundDone;
@@ -167,7 +171,24 @@ namespace ForzaStudio
                 }
             }
 
-            // 1. the copy of the template
+            // 1. the copy of the template (a port again keeps the installed car: its rows are converted again in step 3)
+            if (this.Again)
+            {
+                using (SqliteDatabase target = SqliteDatabase.FromBytes(File.ReadAllBytes(dbPath)))
+                {
+                    object id = target.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", this.NewMediaName);
+                    if (id == null || GamePaths.FindCar(this.TargetRoot, this.NewMediaName) == null)
+                    {
+                        throw new InvalidOperationException("Port again: FM2 has no installed car " + this.NewMediaName + " (row and zip). Nothing was written.");
+                    }
+                    if (Convert.ToInt64(id, CultureInfo.InvariantCulture) <= GameIdLimits.MaxCar(ForzaGame.Motorsport2))
+                    {
+                        throw new InvalidOperationException("Port again: " + this.NewMediaName + " is one of FM2's own cars, never written over. Nothing was written.");
+                    }
+                    this.Log.Add("== step 1 of 4 skipped: porting again over " + this.NewMediaName + ", car " + id + " of FM2 (car, upgrade and engine ids kept)");
+                }
+            }
+            else
             {
                 this.Say("Copying the FM2 template car...");
                 CarDuplicate copy = new CarDuplicate();
@@ -196,8 +217,10 @@ namespace ForzaStudio
             port.SourceMediaName = this.SourceMediaName;
             port.TargetRoot = this.TargetRoot;
             port.TargetMediaName = this.NewMediaName;
-            port.TemplateMediaName = null;      // a fresh copy: its own model is the template's
-            port.BackupFolder = null;           // the copy's zips are new files
+            // a fresh copy: its own model is the template's, its zips are new files; a port again: the first port's template,
+            // the car's zips backed up before they are written over
+            port.TemplateMediaName = this.Again ? this.TemplateMediaName : null;
+            port.BackupFolder = (this.Again && backup != null) ? Path.Combine(backup, "model") : null;
             port.SkipParts.AddRange(this.SkipParts);
             port.CarMaterials = this.CarMaterials;
             port.WheelMaterials = this.WheelMaterials;
@@ -348,6 +371,38 @@ namespace ForzaStudio
             {
                 this.Log.AddRange(sound.Log);
                 this.Log.Add("== step 4 of 4 FAILED, the car keeps the FM2 template's engine sound: " + e.Message);
+            }
+            this.WriteRecord();
+        }
+
+        // The port's record into the car zip (Fm2PortRecord): what a port again reads back. A failure here leaves the car
+        // as installed; only the choices are not kept for a later port again.
+        private void WriteRecord()
+        {
+            Fm2PortRecord record = new Fm2PortRecord();
+            record.SourceGame = this.SourceGameName ?? "";
+            record.SourceMediaName = this.SourceMediaName;
+            record.SourcePack = this.SourcePack ?? "";
+            record.Template = this.TemplateMediaName;
+            record.Skip.AddRange(this.SkipParts);
+            foreach (KeyValuePair<string, string> pair in this.CarMaterials)
+            {
+                record.CarMaterials[pair.Key] = pair.Value;
+            }
+            foreach (KeyValuePair<string, string> pair in this.WheelMaterials)
+            {
+                record.WheelMaterials[pair.Key] = pair.Value;
+            }
+            record.UseSoundOf = this.UseSoundOf;
+            record.Log.AddRange(this.Log);
+            try
+            {
+                record.Write(this.TargetRoot, GamePaths.FindCar(this.TargetRoot, this.NewMediaName));
+                this.Log.Add("record: " + Fm2PortRecord.EntryName + " in the car zip (source, template, your choices) for a later port again");
+            }
+            catch (Exception e)
+            {
+                this.Log.Add("record: " + Fm2PortRecord.EntryName + " NOT written (" + e.Message + "): a later port again will not know your choices");
             }
         }
     }

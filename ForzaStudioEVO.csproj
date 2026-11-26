@@ -176,6 +176,7 @@
     <Compile Include="ForzaStudio\Fm2CarbinModelWheelLight.cs" />
     <Compile Include="ForzaStudio\Fm2SoundPort.cs" />
     <Compile Include="ForzaStudio\Fm2LookupPort.cs" />
+    <Compile Include="ForzaStudio\Fm2PortRecord.cs" />
     <Compile Include="ForzaStudio\SourceDatabaseMerge.cs" />
     <Compile Include="ForzaStudio\CarPortToFm2.cs" />
     <Compile Include="ForzaStudio\CarPortFm2Chain.cs" />
