@@ -191,7 +191,7 @@ namespace ForzaStudio
             }
             this.RebuildCloseUpModels(car, donor, prefix, donorPrefix, materials);
             this.ReplacePlaceholderBrakes(car, donor, prefix, donorPrefix);
-            this.ReplacePlaceholderCollision(car, donor, prefix);
+            this.ReplacePlaceholderCollision(car, donor, prefix, from);
             this.CockpitRig(car, donor, prefix, donorPrefix);
             this.DistantDriverPoints(car, prefix);
             this.DriverHandsFromSteeringWheel(car, prefix);
@@ -515,31 +515,46 @@ namespace ForzaStudio
         // has no plate shader, it only stayed red / black and needed outside work (user 2026-10-20: "lo
         // leviamo, non serve"). Decided by the car list's quick test (HasPlaceholderCloseUp), since the
         // models are converted before the close-up rebuild sets this.traffic. A section left empty goes.
-        private const string PlateMaterial = "numberplate";
+        // The same rule in every port route (user 2026-11-26: "le traffic di fh1/2 devono usare la regola (su tutti i port) di
+        // rimuovere la targa"): into FM4 here, into FM3 through this port (CarPortViaFm4 step 1), into FM2 in CarPortToFm2.
+        internal const string PlateMaterial = "numberplate";
         private bool dropPlates;
 
         private byte[] DropMaterial(byte[] data, string file, string material)
         {
             CarbinModel model = new CarbinModel(data);
             List<string> sections = new List<string>();
+            int removed = DropMaterial(model, material, sections);
+            if (removed == 0)
+            {
+                return data;
+            }
+            this.Line("  {0}: traffic car, number plate removed ({1} meshes in {2})", file, removed, string.Join(" ", sections.ToArray()));
+            return model.ToBytes();
+        }
+
+        // Every mesh of the material out of the model (a section left empty goes); 'sections' gets the parts it was in.
+        // Returns the meshes removed.
+        internal static int DropMaterial(CarbinModel model, string material, List<string> sections)
+        {
+            List<string> found = new List<string>();
             foreach (CarbinModel.Section section in model.Sections)
             {
                 if (section.SubSections.Exists(delegate(CarbinModel.SubSection sub) { return string.Equals(sub.Name, material, StringComparison.OrdinalIgnoreCase); }))
                 {
-                    sections.Add(section.Name);
+                    found.Add(section.Name);
                 }
             }
-            if (sections.Count == 0)
-            {
-                return data;
-            }
             int removed = 0;
-            foreach (string section in sections)
+            foreach (string section in found)
             {
                 removed += model.RemoveSubSections(section, material);
             }
-            this.Line("  {0}: traffic car, number plate removed ({1} meshes in {2})", file, removed, string.Join(" ", sections.ToArray()));
-            return model.ToBytes();
+            if (sections != null)
+            {
+                sections.AddRange(found);
+            }
+            return removed;
         }
 
         // Colour textures the car's materials take from the source game's Media\cars\Shared.zip (its shaders and
@@ -646,9 +661,13 @@ namespace ForzaStudio
         // box into this one axis by axis, radii scaled by the smaller of the x and y ratios, so they stick out
         // of the box as much as the donor's do (the source has
         // nothing; decided for traffic cars' brakes by the user 2026-10-17).
-        private const int PlaceholderSpheres = 10;
+        // User rule 2026-11-26: when the source's maxdata.xml is not valid (FhPhysicsDefinition.IsInvalid: a placeholder of
+        // fewer than 10 spheres, or a sphere that is not a number) and the source is a Forza Horizon car, the spheres are
+        // FH's own from its physicsdefinition.bin (44 FH1 placeholder cars have 26-42 there), as they are; the box is still
+        // rebuilt from the model. The donor's fitted spheres stay for a source without a readable .bin.
+        private const int PlaceholderSpheres = FhPhysicsDefinition.PlaceholderSpheres;
 
-        private void ReplacePlaceholderCollision(ForzaZip car, ForzaZip donor, string prefix)
+        private void ReplacePlaceholderCollision(ForzaZip car, ForzaZip donor, string prefix, ForzaZip source)
         {
             ForzaZip.Entry entry = car.Find("physics/maxdata.xml");
             ForzaZip.Entry template = donor.Find("physics/maxdata.xml");
@@ -661,10 +680,12 @@ namespace ForzaStudio
             own.LoadXml(Encoding.UTF8.GetString(car.Read(entry)).Trim('﻿', ' ', '\r', '\n', '\t'));
             XmlElement spheres = (XmlElement) own.SelectSingleNode("/MAXData/Collision/CollSpheres");
             XmlElement box = (XmlElement) own.SelectSingleNode("/MAXData/Collision/BoundingBox");
-            if (spheres == null || box == null || spheres.ChildNodes.Count >= PlaceholderSpheres)
+            if (spheres == null || box == null || !FhPhysicsDefinition.IsInvalid(spheres))
             {
                 return;
             }
+            ForzaZip.Entry physics = (source == null) ? null : source.Find(FhPhysicsDefinition.EntryName);
+            byte[] physicsData = (physics == null) ? null : source.Read(physics);
             // Driveable FH1 cars have it too (AUD_R8GT_11, MER_S65AMG_12, NIS_GTR_12... 26 of the 44): left as they were
             // until 2026-11-26 (user decision 2026-10-18, traffic cars only); then the user rule "collisions found invalid
             // are fixed automatically, FM2 / FM3 / FM4" ("sì a tutto"): every placeholder is rebuilt.
@@ -745,6 +766,22 @@ namespace ForzaStudio
             SetAttribute(box, "BevelRearX", width * 0.744);
             SetAttribute(box, "BevelRearZ", length * 0.805);
             int placeholder = spheres.ChildNodes.Count;
+            int fromBin;
+            if (FhPhysicsDefinition.ApplySpheres(own, spheres, physicsData, out fromBin))
+            {
+                StringBuilder binText = new StringBuilder();
+                using (XmlWriter writer = XmlWriter.Create(binText, new XmlWriterSettings { Indent = true, IndentChars = "  ", OmitXmlDeclaration = true }))
+                {
+                    own.DocumentElement.WriteTo(writer);
+                }
+                car.Replace(entry, Encoding.UTF8.GetBytes("\r\n" + binText.ToString().Replace(" />", "/>") + "\r\n"));
+                this.Line(string.Format(CultureInfo.InvariantCulture, "  collision: COLLISIONS FIXED AUTOMATICALLY: maxdata.xml not valid ({0} spheres), {1} spheres from the car's own physicsdefinition.bin; box from the model x +-{2:0.###}, y {3:0.###}..{4:0.###}, z {5:0.###}..{6:0.###}", placeholder, fromBin, maxX, minY, maxY, minZ, maxZ));
+                return;
+            }
+            if (physics != null)
+            {
+                this.Line("  collision: physicsdefinition.bin not readable or without spheres: the donor's are fitted instead");
+            }
             spheres.RemoveAll();
             foreach (XmlAttribute attribute in donorSpheres.Attributes)
             {

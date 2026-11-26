@@ -427,6 +427,14 @@ listed in yellow, with a "Traffic car" legend at the right of the Cars header, f
 (`CarPortFm3Form.IsTraffic`). Off-screen check (`ui\shottraffic.exe`): FH1 source, 16 yellow rows of 134. Porting a
 traffic car into FM2 has not been tried yet (user: next).
 
+**Number plate removed, as in every port** (2026-11-26, user: "le traffic di fh1/2 devono usare la regola (su tutti i
+port) di rimuovere la targa"): an FH1 / FH2 traffic car loses every `numberplate` mesh (FH1 4-10, FH2 4-8 per car, in
+bumperFrameF / R and, on some FH1 cars, body); a part left empty goes (bumperFrameF / R). Same helper as the FM4 port
+(`CarPort.DropMaterial`, the FM3 port gets it through `CarPortViaFm4` step 1); in `CarPortToFm2` for Horizon models with
+placeholder close-up only (the quick test is true for any car without close-up files), in the plan and in the model step.
+Offline (`E:\DEV\fm4dev\TrafficPlate\fm2route`, model step by reflection, template zip copy, nothing saved): FH1 Focus ZX4
+9 meshes, FH2 Fiesta 8 meshes removed, everything else as before; FH2 RUF Yellowbird and FM3 X5 unchanged. In-game check pending.
+
 ### 7e. Engine sound choice and FM4 expansion packs (2026-11-25)
 
 **Port sound / Use sound** (user: "nel port mi devi consentire di fare port sound -> use sound", for the traffic cars'

@@ -191,6 +191,7 @@
     <Compile Include="ForzaStudio\CarDataToFm2.Specific.cs" />
     <Compile Include="ForzaStudio\PartObjImport.cs" />
     <Compile Include="ForzaStudio\CarPortViaFm4.cs" />
+    <Compile Include="ForzaStudio\FhPhysicsDefinition.cs" />
     <Compile Include="ForzaStudio\Fm2CarbinModelUv.cs" />
     <Compile Include="ForzaStudio\Fm2Perf.cs" />
     <Compile Include="ForzaStudio\Fm3Perf.cs" />

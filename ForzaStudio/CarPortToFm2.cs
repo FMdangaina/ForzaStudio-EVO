@@ -155,6 +155,10 @@ namespace ForzaStudio
             Dictionary<string, byte[]> files = new Dictionary<string, byte[]>();
             files[""] = raw;
             CarbinModel model4 = new CarbinModel(PartSource.ForMotorsport2(files, new List<string>(), new Dictionary<string, List<string>>())[""]);
+            if (car && TrafficPlates(family, sourceZipPath, sourceName))
+            {
+                CarPort.DropMaterial(model4, CarPort.PlateMaterial, null);   // as Run does: the plan counts the car without it
+            }
             Fm2CarbinModel model = new Fm2CarbinModel(template.Read(to));
             model.PortMaterials = car ? this.CarMaterials : this.WheelMaterials;
             return model.PortPlan(model4, family == CarbinFamily.Horizon, car ? new Predicate<string>(LeftOut) : null);
@@ -188,7 +192,8 @@ namespace ForzaStudio
                     ForzaZip.Entry from = FindEntry(source, "physics/maxdata.xml");
                     if (from != null)
                     {
-                        target.Replace(entry, MaxDataToFm2(source.Read(from), this.Log));
+                        ForzaZip.Entry physics = FindEntry(source, FhPhysicsDefinition.EntryName);
+                        target.Replace(entry, MaxDataToFm2(source.Read(from), (physics == null) ? null : source.Read(physics), this.Log));
                     }
                 }
                 else if (name.EndsWith(".xds"))
@@ -403,6 +408,14 @@ namespace ForzaStudio
             return copy;
         }
 
+        // An FH1 / FH2 traffic car (placeholder close-up models, the yellow rows of the port windows) loses its number plate
+        // (CarPort.PlateMaterial) in every port route (user 2026-11-26). Only Horizon models: the quick test is true for
+        // any car without close-up files, which FM3's are not to be treated as.
+        private static bool TrafficPlates(CarbinFamily family, string sourceZipPath, string sourceName)
+        {
+            return family == CarbinFamily.Horizon && sourceZipPath != null && File.Exists(sourceZipPath) && CarPort.HasPlaceholderCloseUp(sourceZipPath, sourceName);
+        }
+
         private static ForzaZip.Entry FindEntry(ForzaZip zip, string name)
         {
             foreach (ForzaZip.Entry entry in zip.Entries)
@@ -438,6 +451,15 @@ namespace ForzaStudio
             Dictionary<string, byte[]> files = new Dictionary<string, byte[]>();
             files[""] = raw;
             CarbinModel model4 = new CarbinModel(PartSource.ForMotorsport2(files, notes, unknown)[""]);
+            if (car && TrafficPlates(family, source.FilePath, sourceName))
+            {
+                List<string> plateParts = new List<string>();
+                int plates = CarPort.DropMaterial(model4, CarPort.PlateMaterial, plateParts);
+                if (plates > 0)
+                {
+                    this.Log.Add(string.Format(CultureInfo.InvariantCulture, "car model: FH traffic car, number plate removed ({0} meshes in {1}), as the FM4 and FM3 ports do", plates, string.Join(" ", plateParts.ToArray())));
+                }
+            }
             byte[] template = target.Read(to);
             if (car && this.TemplateMediaName != null)
             {
@@ -803,12 +825,24 @@ namespace ForzaStudio
             return lowest;
         }
 
-        public static byte[] MaxDataToFm2(byte[] data, List<string> log)
+        // physicsDefinition = the source's physicsdefinition.bin (Forza Horizon cars) or null. User rule 2026-11-26: maxdata.xml
+        // not valid (FhPhysicsDefinition.IsInvalid) -> the spheres come from the .bin, then go through FM2's form below as the
+        // xml's would (Flags 1 left out); FM2's typical layout stays for a source without a readable .bin.
+        public static byte[] MaxDataToFm2(byte[] data, byte[] physicsDefinition, List<string> log)
         {
             System.Xml.XmlDocument doc = new System.Xml.XmlDocument();
             doc.LoadXml(System.Text.Encoding.UTF8.GetString(data).Trim('\uFEFF', ' ', '\r', '\n', '\t', '\0'));
             System.Xml.XmlElement spheres = doc.SelectSingleNode("//CollSpheres") as System.Xml.XmlElement;
             System.Xml.XmlElement box = doc.SelectSingleNode("//BoundingBox") as System.Xml.XmlElement;
+            bool fromBin = false;
+            if (spheres != null && physicsDefinition != null && FhPhysicsDefinition.IsInvalid(spheres))
+            {
+                int before = spheres.ChildNodes.Count, count;
+                fromBin = FhPhysicsDefinition.ApplySpheres(doc, spheres, physicsDefinition, out count);
+                log.Add(fromBin
+                    ? string.Format(CultureInfo.InvariantCulture, "MAXData.xml: COLLISIONS FIXED AUTOMATICALLY: the source's is not valid ({0} spheres), {1} spheres from its physicsdefinition.bin", before, count)
+                    : "MAXData.xml: the source's is not valid and its physicsdefinition.bin is not readable");
+            }
             int kept = 0, dropped = 0;
             double lowest = double.MaxValue;
             if (spheres != null)
@@ -855,7 +889,7 @@ namespace ForzaStudio
             // Invalid: no sphere left, or FH's placeholder (4 spheres of r 0.375 at the wheel corners: fewer than 10, the
             // FM4 port's test, CarPort.PlaceholderSpheres; FM2 cars have 20). User rule 2026-11-26: collisions found invalid
             // are fixed automatically (FM2, FM3, FM4).
-            if (spheres != null && kept < 10 && box != null)
+            if (spheres != null && kept < 10 && box != null && !(fromBin && kept > 0))
             {
                 while (spheres.FirstChild != null)
                 {

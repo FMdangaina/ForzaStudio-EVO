@@ -85,9 +85,9 @@ index; from version 4 a damage position, from 5 two fade angles.
 |---|---|---|
 | FH1 / FH2 | 28 | as FM4 with a 4-byte lighting tail (SNORM8) |
 | FM4 | 32 | position 4 x int16 (unit direction, radius / S), UV0, UV1 (u16), tangent frame quaternion (4 x int16), lighting SH0 (4 x SNORM16) |
-| FM3 | 40 | position 4 halves (unit direction, radius), UV0, UV1 (halves), normal 11:11:10, lighting (8 bytes), **damage word (+28)**, 4 bytes unknown, bitangent 11:11:10 |
+| FM3 | 40 | position 4 halves (unit direction, radius), UV0, UV1 (halves), normal 11:11:10, lighting (8 bytes), **damage word (+28)**, normal change of the deformed vertex (+32, 11:11:10 with range +-2: deformed normal = normal + value; 99 % unit on 39.8 M words), bitangent 11:11:10. Wheels (44 bytes): after the lighting, rim morph direction (+24, radial, length = weight, 3FF = none), its normal change (+28), float 1.0, a second direction + normal change pair (3FF / 0 on 99.9 %) |
 | FM3 | 44 / 16 | wheels / brakes: position, UV0, normal (+ lighting and 20 bytes on wheels) |
-| FM2 | 60 | position 4 halves, UV0 (sign bit + signed 15-bit magnitude / 1310.72, `ForzaVertex.Fm2Uv`), UV1 (always 0), normal 11:11:10, **damage word (+20)**, 4 bytes unknown, lighting 16 x SNORM16 |
+| FM2 | 60 | position 4 halves, UV0 (sign bit + signed 15-bit magnitude / 1310.72, `ForzaVertex.Fm2Uv`), UV1 (always 0), normal 11:11:10, **damage word (+20)**, normal change of the deformed vertex (+24, as FM3 +32; 97 % unit on 8.2 M words), lighting 16 x SNORM16 |
 
 FM2's lighting is 16 values whose mean size falls in steps of 1, 3, 5, 7 values (0.44 / 0.21-0.27 / 0.08-0.13 / 0.03):
 baked spherical harmonics, bands 0 to 3. FM4 keeps only the first four (its SH0: a level and a direction).
