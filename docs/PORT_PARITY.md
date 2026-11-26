@@ -116,7 +116,18 @@ Each UI step is described to the user and gets a yes before it is built (`descri
      `EngineMaker`, its engine rows) under it; the source's make is then not added (no `PrepareMake`, no country check).
    - Offline (`reviewtest\mkt`, `dry2 make=13`, in memory, nothing written): make 108 TST with its strings and logo; bad
      specs refused (code NIS, new country, id 40, logo Acura); R33 under make 13: Data_Car and the engine rows 13.
-6. **Uninstall...**.
+6. **Uninstall...**. DONE 2026-11-27 (built, plan checked offline, app / game test pending):
+   - Window (`CarPortFm2Form.Uninstall.cs`): Uninstall... beside Install, on a ported car only (In FM2 "ported, car N",
+     id above FM2's own). The plan (`CarUninstall.Plan`) goes into the report, then a confirmation with the saved-game
+     warning and XeniaGuard; every file backed up (`bak\`). The row is a car "not in FM2" again afterwards.
+   - `CarUninstall` (its FM2 / FM3 part, CarUninstall.Copy.cs, already used by Delete Car) also takes out, for FM2, what
+     the port added to the lookups (Fm2LookupPort) when no car uses it any more: makes > 53 (the row went with step 2;
+     now its List_CarMake.str strings and its logo), part makers > 289 (the relation map does not link every upgrade
+     table's ManufacturerID to them: their use is counted in every List_Upgrade* table but List_UpgradeEngine; row,
+     logo), cylinders > 10 (List_Cylinders.str string).
+   - Plan offline (`reviewtest\unplan`, nothing written): RUF 675: make 91 + 2 strings + L_MAN_RUF_Logo, part maker 306 +
+     decal402; 107 670: part maker 302 + decal398, cylinders 11 + its string; 240SX 671: URAS 303 + decal399 out, Nissan
+     290 kept (other cars use it).
 7. Source PI column.
 
 **C. FM2 DLC mode** ("Create DLC package for: FM2"), port first, then into the pack (user 2026-11-26):

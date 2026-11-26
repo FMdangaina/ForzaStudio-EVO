@@ -81,6 +81,8 @@ namespace ForzaStudio
                 }
                 Dictionary<long, string> wheelMedia = new Dictionary<long, string>();
                 Dictionary<long, string> engineMedia = new Dictionary<long, string>();
+                // FM2: the lookups the port added (Fm2LookupPort: makes, part makers, cylinders), read before the car goes
+                List<object[]> addedLookups = (game == ForzaGame.Motorsport2) ? Fm2AddedLookups(db) : new List<object[]>();
 
                 // 1. The car's own rows; what they point at becomes a candidate.
                 Dictionary<string, Dictionary<long, bool>> candidates = new Dictionary<string, Dictionary<long, bool>>(StringComparer.OrdinalIgnoreCase);
@@ -159,6 +161,10 @@ namespace ForzaStudio
                 Dictionary<string, ForzaZip> changed = new Dictionary<string, ForzaZip>(StringComparer.OrdinalIgnoreCase);
                 List<string> deleted = new List<string>();
                 this.RemoveStrings("Data_Car.str", UnusedKeys(db, "Data_Car", new string[] { "DisplayName", "ModelShort" }, carStrings), changed, plan);
+                if (game == ForzaGame.Motorsport2)
+                {
+                    this.Fm2RemoveLookups(db, addedLookups, changed, apply, plan);
+                }
                 if (zipExists)
                 {
                     deleted.Add(carZipPath);
@@ -300,6 +306,108 @@ namespace ForzaStudio
                 }
             }
             return null;
+        }
+
+        // ---- FM2: what the port added to the game's lookups for its cars (Fm2LookupPort, B6 of docs/PORT_PARITY.md) ----
+
+        // Each: { table, key column, id, string table, string values (string[]), texture paths (string[]) }. Only rows
+        // above FM2's own (GameIdLimits): makes > 53, part makers > 289, cylinders > 10.
+        private static List<object[]> Fm2AddedLookups(SqliteDatabase db)
+        {
+            List<object[]> found = new List<object[]>();
+            long makes = GameIdLimits.Max(ForzaGame.Motorsport2, "List_CarMake", "ID");
+            foreach (object[] r in db.Query("SELECT ID, DisplayName, Profile, IconPath, IconPathLight FROM List_CarMake WHERE ID > ?", makes).Rows)
+            {
+                found.Add(new object[] { "List_CarMake", "ID", Convert.ToInt64(r[0], CultureInfo.InvariantCulture), "List_CarMake.str",
+                    new string[] { r[1] as string, r[2] as string }, new string[] { r[3] as string, r[4] as string } });
+            }
+            long makers = GameIdLimits.Max(ForzaGame.Motorsport2, "List_PartManufacturer", "Id");
+            foreach (object[] r in db.Query("SELECT Id, LogoPath FROM List_PartManufacturer WHERE Id > ?", makers).Rows)
+            {
+                found.Add(new object[] { "List_PartManufacturer", "Id", Convert.ToInt64(r[0], CultureInfo.InvariantCulture), null, new string[0], new string[] { r[1] as string } });
+            }
+            long cylinders = GameIdLimits.Max(ForzaGame.Motorsport2, "List_Cylinders", "CylinderID");
+            foreach (object[] r in db.Query("SELECT CylinderID, Description FROM List_Cylinders WHERE CylinderID > ?", cylinders).Rows)
+            {
+                found.Add(new object[] { "List_Cylinders", "CylinderID", Convert.ToInt64(r[0], CultureInfo.InvariantCulture), "List_Cylinders.str", new string[] { r[1] as string }, new string[0] });
+            }
+            return found;
+        }
+
+        // An added lookup no car uses any more goes with its strings and logo. Part makers: the relation map has no link from
+        // the upgrade tables' ManufacturerID / ManufacturerId to them, so their use is counted here (every List_Upgrade*
+        // table but List_UpgradeEngine, whose ManufacturerID is the car's make). Makes and cylinders the car's rows went
+        // with (step 2): their strings and logo.
+        private void Fm2RemoveLookups(SqliteDatabase db, List<object[]> added, Dictionary<string, ForzaZip> changed, bool apply, List<string> plan)
+        {
+            List<string[]> makerColumns = new List<string[]>();
+            foreach (KeyValuePair<string, List<string>> table in DbIds.Schema(db))
+            {
+                if (!table.Key.StartsWith("List_Upgrade", StringComparison.Ordinal) || table.Key == "List_UpgradeEngine")
+                {
+                    continue;
+                }
+                foreach (string column in table.Value)
+                {
+                    if (string.Equals(column, "ManufacturerID", StringComparison.OrdinalIgnoreCase))
+                    {
+                        makerColumns.Add(new string[] { table.Key, column });
+                    }
+                }
+            }
+            foreach (object[] lookup in added)
+            {
+                string table = (string) lookup[0];
+                string column = (string) lookup[1];
+                long id = (long) lookup[2];
+                bool gone = db.Scalar("SELECT " + column + " FROM " + table + " WHERE " + column + " = ?", id) == null;
+                if (!gone && table == "List_PartManufacturer")
+                {
+                    long users = 0;
+                    foreach (string[] use in makerColumns)
+                    {
+                        users += Convert.ToInt64(db.Scalar("SELECT count(*) FROM " + SqliteDatabase.Quote(use[0]) + " WHERE " + SqliteDatabase.Quote(use[1]) + " = ?", id), CultureInfo.InvariantCulture);
+                    }
+                    if (users > 0)
+                    {
+                        continue;
+                    }
+                    this.Delete(db, table, "Id = " + id, apply, plan);
+                    gone = true;
+                }
+                if (!gone)
+                {
+                    continue;   // another car still uses it (Data_Car.MakeID, the engines' CylinderID)
+                }
+                string[] strings = (string[]) lookup[4];
+                List<string> values = new List<string>();
+                foreach (string value in strings)
+                {
+                    if (value != null && value.StartsWith("_&", StringComparison.Ordinal))
+                    {
+                        values.Add(value);
+                    }
+                }
+                if (lookup[3] != null && values.Count > 0)
+                {
+                    string[] columns = (table == "List_CarMake") ? new string[] { "DisplayName", "Profile" } : new string[] { "Description" };
+                    this.RemoveStrings((string) lookup[3], UnusedKeys(db, table, columns, values), changed, plan);
+                }
+                List<string> logos = new List<string>();
+                foreach (string path in (string[]) lookup[5])
+                {
+                    if (string.IsNullOrEmpty(path) || logos.Contains(path.ToLowerInvariant()))
+                    {
+                        continue;
+                    }
+                    logos.Add(path.ToLowerInvariant());
+                    GamePaths.GameFile file = GamePaths.Locate(this.TargetRoot, path);
+                    if (file != null && file.InZip)
+                    {
+                        this.RemoveEntry(file.ZipPath, file.EntryName, changed, plan);
+                    }
+                }
+            }
         }
 
         private ForzaGame uninstallGame;

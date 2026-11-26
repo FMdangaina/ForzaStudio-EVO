@@ -393,6 +393,7 @@ namespace ForzaStudio
             options.Controls.Add(this.soundCars);
             options.Controls.Add(this.trial);
             options.Controls.Add(this.install);
+            this.BuildUninstallButton(options);
             Panel selectedCar = new Panel();
             selectedCar.Dock = DockStyle.Bottom;
             selectedCar.Height = 162;
@@ -1010,6 +1011,10 @@ namespace ForzaStudio
             this.load.Enabled = !this.busy;
             this.trial.Enabled = ready;
             this.install.Enabled = ready && current != null && CarPortFm2Chain.Fits(current.Plan, current.Skip, out seeThrough, out opaque);
+            if (this.uninstall != null)
+            {
+                this.uninstall.Enabled = !this.busy && car != null && car.Fm2Id > 0;     // a ported car only, never one of FM2's own
+            }
             this.install.Text = (car != null && car.Fm2Id > 0) ? "Port Again Over Car " + car.Fm2Id.ToString(CultureInfo.InvariantCulture) + "..."
                 : (car != null && car.Fm2Own) ? "Install In FM2 As " + car.TargetMedia + "..." : "Install In FM2...";
         }

@@ -186,6 +186,9 @@
     <Compile Include="ForzaStudio\CarPortFm2Form.Upgrades.cs">
       <DependentUpon>CarPortFm2Form.cs</DependentUpon>
     </Compile>
+    <Compile Include="ForzaStudio\CarPortFm2Form.Uninstall.cs">
+      <DependentUpon>CarPortFm2Form.cs</DependentUpon>
+    </Compile>
     <Compile Include="ForzaStudio\CarPortFm2Form.Makes.cs">
       <DependentUpon>CarPortFm2Form.cs</DependentUpon>
     </Compile>
