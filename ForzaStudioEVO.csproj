@@ -183,6 +183,9 @@
     <Compile Include="ForzaStudio\CarPortFm2Form.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="ForzaStudio\CarPortFm2Form.Upgrades.cs">
+      <DependentUpon>CarPortFm2Form.cs</DependentUpon>
+    </Compile>
     <Compile Include="ForzaStudio\CarDataToFm2.cs" />
     <Compile Include="ForzaStudio\CarDataToFm2.Typical.cs" />
     <Compile Include="ForzaStudio\CarDataToFm2.Specific.cs" />

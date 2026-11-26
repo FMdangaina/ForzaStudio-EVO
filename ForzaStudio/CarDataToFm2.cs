@@ -119,6 +119,23 @@ namespace ForzaStudio
             return new string[] { table, renames };
         }
 
+        // The source rows an FM2 upgrade table is converted from (the FM2 window's Upgrades table): null when the port does
+        // not convert that table. Engine tables: the source car's stock engine.
+        public static List<Dictionary<string, object>> SourceUpgradeRows(SqliteDatabase source, string fm2Table, long sourceCar)
+        {
+            foreach (Pair[] pairs in new[] { CarPairs, EnginePairs })
+            {
+                foreach (Pair pair in pairs)
+                {
+                    if (string.Equals(pair.Table, fm2Table, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return SourceRows(source, pair, sourceCar);
+                    }
+                }
+            }
+            return null;
+        }
+
         private static readonly Pair[] CarPairs = new Pair[]
         {
             new Pair("List_UpgradeFrontBumper", "car", "body", true, S("List_UpgradeCarBodyFrontBumper")),
@@ -705,7 +722,7 @@ namespace ForzaStudio
         }
 
         // The source rows of a pair, merged by level when the pair has front / rear tables; ordered by level (and Sequence).
-        private static List<Dictionary<string, object>> SourceRows(SqliteDatabase db, Pair pair, long car)
+        private static List<Dictionary<string, object>> SourceRows(SqliteDatabase db, Pair pair, long car, long engine = -1)
         {
             object key;
             string column;
@@ -714,7 +731,7 @@ namespace ForzaStudio
                 case "body": column = "CarBodyID"; key = car * 1000; break;
                 case "car": column = "Ordinal"; key = car; break;
                 case "drive": column = "DrivetrainID"; key = StockDrivetrain(db, car); break;
-                default: column = "EngineID"; key = CarEngine.StockEngine(db, car); break;
+                default: column = "EngineID"; key = (engine >= 0) ? engine : CarEngine.StockEngine(db, car); break;     // engine: a swap engine of the source
             }
             List<Dictionary<string, object>> merged = new List<Dictionary<string, object>>();
             List<List<Dictionary<string, object>>> sides = new List<List<Dictionary<string, object>>>();
@@ -1430,7 +1447,7 @@ namespace ForzaStudio
         }
 
         // The rows of one pair rewritten: the copy's rows (the template) out, one converted row per source row in.
-        private int WritePair(Pair pair, long fm2Key, long sourceCar, List<string> dropped)
+        private int WritePair(Pair pair, long fm2Key, long sourceCar, List<string> dropped, long sourceEngine = -1)
         {
             if (!HasTable(this.Target, pair.Table))
             {
@@ -1438,7 +1455,7 @@ namespace ForzaStudio
             }
             string[] columns = Columns(this.Target, pair.Table);
             List<Dictionary<string, object>> template = TargetRows(this.Target, pair, fm2Key);
-            List<Dictionary<string, object>> source = SourceRows(this.Source, pair, sourceCar);
+            List<Dictionary<string, object>> source = SourceRows(this.Source, pair, sourceCar, sourceEngine);
             if (source.Count == 0)
             {
                 if (pair.Key == "car")
@@ -1838,13 +1855,16 @@ namespace ForzaStudio
             this.WriteCurves(engine, sourceEngine, templateCam);
             this.FoldTorqueScales(engine, sourceEngine, dropped);
 
-            // List_UpgradeEngine: the stock row only (engine swaps are not ported)
-            List<Dictionary<string, object>> swaps = Rows(this.Source, "SELECT * FROM List_UpgradeEngine WHERE Ordinal = ? AND IsStock = 0", this.SourceCar);
-            foreach (Dictionary<string, object> swap in swaps)
-            {
-                dropped.Add("engine swap " + Get(swap, "EngineID") + " (level " + Get(swap, "Level") + ")");
-            }
+            // List_UpgradeEngine: the stock row here, the engine swaps after (WriteSwaps); the swap engines of an earlier run
             List<Dictionary<string, object>> mine = Rows(this.Target, "SELECT * FROM List_UpgradeEngine WHERE Ordinal = ? ORDER BY IsStock DESC, Level", this.Car);
+            List<long> oldSwapEngines = new List<long>();
+            foreach (Dictionary<string, object> earlier in mine)
+            {
+                if (D(Get(earlier, "IsStock")) != 1)
+                {
+                    oldSwapEngines.Add(Convert.ToInt64(Get(earlier, "EngineID"), CultureInfo.InvariantCulture));
+                }
+            }
             Dictionary<string, object> stockSource = Rows(this.Source, "SELECT * FROM List_UpgradeEngine WHERE Ordinal = ? AND IsStock = 1", this.SourceCar)[0];
             string[] engineColumns = Columns(this.Target, "List_UpgradeEngine");
             Dictionary<string, object> stock = this.ConvertRow("List_UpgradeEngine", "stock", engineColumns, stockSource, mine[0], RowSkip);
@@ -1872,6 +1892,269 @@ namespace ForzaStudio
                 int moved = RenumberFm2Engine(this.Target, engine, templateEngine);
                 this.Log.Add(string.Format(CultureInfo.InvariantCulture, "engine: the new rows take the car's engine id {0} back ({1} rows; saved games keep pointing at it)", templateEngine, moved));
             }
+            this.WriteSwaps(dropped, oldSwapEngines);
+        }
+
+        // ---- engine swaps (FM2 has them: List_UpgradeEngine IsStock 0, levels 1-3, 210 rows on 130 of its cars; the drive
+        // type is the ENGINE's, Data_Engine.DriveTypeID, so a drive conversion is a swap to an engine of another drive type,
+        // 71 of FM2's swaps; user 2026-11-27) ----
+
+        // One swap of the car in FM2. Kind "source": the source's swap engine (EngineID of the source), ported as an own FM2
+        // engine unless FM2 has an engine of that MediaName; "fm2": an engine FM2 has; "drive": a copy of the car's own engine
+        // with DriveTypeID = DriveType (1 FWD, 2 RWD, 3 AWD).
+        public sealed class Fm2Swap
+        {
+            public string Kind = "source";
+            public long Engine;
+            public long Level;
+            public long DriveType;
+
+            public override string ToString()
+            {
+                return this.Kind + ":" + ((this.Kind == "drive") ? this.DriveType : this.Engine).ToString(CultureInfo.InvariantCulture) + ":" + this.Level.ToString(CultureInfo.InvariantCulture);
+            }
+
+            // "kind:value:level" (ToString); null when it is not one
+            public static Fm2Swap Parse(string text)
+            {
+                string[] parts = (text ?? "").Split(':');
+                long value, level;
+                if (parts.Length != 3 || (parts[0] != "source" && parts[0] != "fm2" && parts[0] != "drive")
+                    || !long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out value) || !long.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out level))
+                {
+                    return null;
+                }
+                Fm2Swap swap = new Fm2Swap();
+                swap.Kind = parts[0];
+                swap.Level = level;
+                if (swap.Kind == "drive")
+                {
+                    swap.DriveType = value;
+                }
+                else
+                {
+                    swap.Engine = value;
+                }
+                return swap;
+            }
+        }
+
+        public List<Fm2Swap> Swaps;     // the user's swaps (Upgrades tab); null: the source's swaps, each at its level
+
+        public static List<Fm2Swap> SourceSwaps(SqliteDatabase source, long sourceCar)
+        {
+            List<Fm2Swap> swaps = new List<Fm2Swap>();
+            foreach (object[] r in source.Query("SELECT EngineID, Level FROM List_UpgradeEngine WHERE Ordinal = ? AND IsStock = 0 ORDER BY Level, Id", sourceCar).Rows)
+            {
+                Fm2Swap swap = new Fm2Swap();
+                swap.Engine = Convert.ToInt64(r[0], CultureInfo.InvariantCulture);
+                swap.Level = Convert.ToInt64(r[1], CultureInfo.InvariantCulture);
+                swaps.Add(swap);
+            }
+            return swaps;
+        }
+
+        private void WriteSwaps(List<string> dropped, List<long> oldSwapEngines)
+        {
+            long stockEngine = CarEngine.StockEngine(this.Target, this.Car);
+            List<Dictionary<string, object>> stockRows = Rows(this.Target, "SELECT * FROM List_UpgradeEngine WHERE Ordinal = ? AND IsStock = 1", this.Car);
+            if (stockEngine < 0 || stockRows.Count == 0)
+            {
+                return;
+            }
+            Dictionary<string, object> stockRow = stockRows[0];
+            string carMedia = Convert.ToString(this.Target.Scalar("SELECT MediaName FROM Data_Car WHERE Id = ?", this.Car), CultureInfo.InvariantCulture);
+            object make = Get(stockRow, "ManufacturerID");     // EngineMaker sets the car's make on every engine row afterwards
+            object stockDrive = this.Target.Scalar("SELECT DriveTypeID FROM Data_Engine WHERE EngineID = ?", stockEngine);
+            long fm2Engines = GameIdLimits.Max(ForzaGame.Motorsport2, "Data_Engine", "EngineID");
+            string[] columns = Columns(this.Target, "List_UpgradeEngine");
+            List<Fm2Swap> wanted = this.Swaps ?? SourceSwaps(this.Source, this.SourceCar);
+            HashSet<long> levels = new HashSet<long>();
+            List<long> made = new List<long>();
+            long suffix = 1;
+            foreach (Fm2Swap swap in wanted)
+            {
+                string name = (swap.Kind == "drive") ? "drive conversion to " + DriveName(swap.DriveType) : "engine swap " + swap.Engine.ToString(CultureInfo.InvariantCulture) + ((swap.Kind == "fm2") ? " (an FM2 engine)" : "");
+                if (swap.Level < 1 || swap.Level > 3)
+                {
+                    dropped.Add(name + " (level " + swap.Level + ": FM2's swaps are on levels 1-3; choose a level in the Upgrades tab)");
+                    continue;
+                }
+                if (!levels.Add(swap.Level))
+                {
+                    dropped.Add(name + " (level " + swap.Level + ": another swap has it; FM2 has one per level)");
+                    continue;
+                }
+                long engine;
+                object price = null, mass = null;
+                string what;
+                if (swap.Kind == "fm2")
+                {
+                    if (this.Target.Scalar("SELECT EngineID FROM Data_Engine WHERE EngineID = ?", swap.Engine) == null)
+                    {
+                        dropped.Add(name + " (FM2 has no engine " + swap.Engine + ")");
+                        continue;
+                    }
+                    engine = swap.Engine;
+                    what = "FM2's engine " + engine + " " + this.Target.Scalar("SELECT MediaName FROM Data_Engine WHERE EngineID = ?", engine);
+                }
+                else if (swap.Kind == "drive")
+                {
+                    if (swap.DriveType < 1 || swap.DriveType > 3 || D(this.Target.Scalar("SELECT DriveTypeID FROM Data_Engine WHERE EngineID = ?", stockEngine)) == swap.DriveType)
+                    {
+                        dropped.Add(name + " (the car is " + DriveName((long) D(this.Target.Scalar("SELECT DriveTypeID FROM Data_Engine WHERE EngineID = ?", stockEngine))) + " already)");
+                        continue;
+                    }
+                    engine = this.CopyStockEngine(stockEngine);
+                    this.Target.Execute("UPDATE Data_Engine SET DriveTypeID = ? WHERE EngineID = ?", swap.DriveType, engine);
+                    made.Add(engine);
+                    what = "a copy of the car's engine as " + DriveName(swap.DriveType) + " (own engine " + engine + ")";
+                }
+                else
+                {
+                    Dictionary<string, object> sourceRow = Rows(this.Source, "SELECT * FROM List_UpgradeEngine WHERE Ordinal = ? AND IsStock = 0 AND EngineID = ? ORDER BY Level LIMIT 1", this.SourceCar, swap.Engine).Find(delegate(Dictionary<string, object> r) { return true; });
+                    if (sourceRow != null)
+                    {
+                        price = Get(sourceRow, "Price");
+                        mass = Get(sourceRow, "MassDiff");
+                    }
+                    string media = Convert.ToString(this.Source.Scalar("SELECT MediaName FROM Data_Engine WHERE EngineID = ?", swap.Engine), CultureInfo.InvariantCulture);
+                    // FM2's engine of that MediaName only with the car's drive type: in FM2 the drive type is the engine's (FM2's
+                    // VW_BoraVR6_03 is AWD, the FM4 Beetle with it stays FWD)
+                    object same = string.IsNullOrEmpty(media) ? null : this.Target.Scalar("SELECT EngineID FROM Data_Engine WHERE MediaName = ? COLLATE NOCASE AND EngineID <= ? AND DriveTypeID = ? ORDER BY EngineID LIMIT 1", media, fm2Engines, stockDrive);
+                    if (same != null)
+                    {
+                        engine = Convert.ToInt64(same, CultureInfo.InvariantCulture);
+                        what = "the source's " + media + " = FM2's engine " + engine + " (same MediaName)";
+                    }
+                    else
+                    {
+                        List<string> mineDropped = new List<string>();
+                        engine = this.ConvertSwapEngine(swap.Engine, stockEngine, carMedia, mineDropped);
+                        foreach (string line in mineDropped)
+                        {
+                            dropped.Add("swap level " + swap.Level + ": " + line);
+                        }
+                        made.Add(engine);
+                        what = "the source's " + media + " (" + swap.Engine + ") converted as own engine " + engine + "; its sound: the car's (FM2 has no sound of that engine)";
+                    }
+                }
+                if (price == null || price is DBNull)
+                {
+                    // FM2's own swaps at this level: the middle price and mass change (no source row to keep)
+                    price = Median(this.Target, "SELECT Price FROM List_UpgradeEngine WHERE IsStock = 0 AND Level = ? AND Ordinal <> ?", swap.Level);
+                    mass = Median(this.Target, "SELECT MassDiff FROM List_UpgradeEngine WHERE IsStock = 0 AND Level = ? AND Ordinal <> ?", swap.Level);
+                }
+                Dictionary<string, object> row = new Dictionary<string, object>(stockRow, StringComparer.OrdinalIgnoreCase);
+                while (this.Target.Scalar("SELECT Id FROM List_UpgradeEngine WHERE Id = ?", (this.Car * 1000) + suffix) != null)
+                {
+                    suffix++;
+                }
+                row["Id"] = (this.Car * 1000) + suffix;
+                row["Level"] = swap.Level;
+                row["EngineID"] = engine;
+                row["IsStock"] = 0L;
+                row["ManufacturerID"] = make;      // 210 of FM2's 210 swap rows: the car's make
+                row["Price"] = price;
+                row["MassDiff"] = mass;
+                row["DragScale"] = 1.0;
+                row["WindInstabilityScale"] = 1.0;
+                Insert(this.Target, "List_UpgradeEngine", columns, row);
+                this.Log.Add(string.Format(CultureInfo.InvariantCulture, "engine swap level {0}: {1}, price {2}, mass {3}", swap.Level, what, price, mass));
+            }
+            // a run again: the earlier run's own swap engines go when no car uses them, the new ones take their ids back
+            List<long> freed = new List<long>();
+            foreach (long old in oldSwapEngines)
+            {
+                if (!freed.Contains(old) && !made.Contains(old) && this.DropOldOwnEngine(old))
+                {
+                    freed.Add(old);
+                }
+            }
+            freed.Sort();
+            made.Sort();
+            for (int i = 0; i < freed.Count && i < made.Count; i++)
+            {
+                if (made[i] != freed[i])
+                {
+                    RenumberFm2Engine(this.Target, made[i], freed[i]);
+                    this.Log.Add(string.Format(CultureInfo.InvariantCulture, "engine swap: own engine {0} takes the earlier run's id {1} back", made[i], freed[i]));
+                }
+            }
+        }
+
+        private static string DriveName(long drive)
+        {
+            return (drive == 1) ? "FWD" : (drive == 2) ? "RWD" : (drive == 3) ? "AWD" : "drive " + drive;
+        }
+
+        private object Median(SqliteDatabase db, string query, long level)
+        {
+            List<double> values = new List<double>();
+            foreach (object[] r in db.Query(query, level, this.Car).Rows)
+            {
+                if (r[0] != null && !(r[0] is DBNull))
+                {
+                    values.Add(D(r[0]));
+                }
+            }
+            if (values.Count == 0)
+            {
+                return 0L;
+            }
+            values.Sort();
+            return Math.Round(values[values.Count / 2]);
+        }
+
+        // A new own engine with every row of the car's stock engine (CarEngine.CloneFm2), the car's stock row left on its engine.
+        private long CopyStockEngine(long stockEngine)
+        {
+            long engine = CarEngine.CloneFm2(this.Target, this.Car, new EngineSpec(), new List<string>());
+            // CloneFm2 moves the car onto the copy: the car keeps its stock engine, the copy is the swap's
+            this.Target.Execute("UPDATE List_UpgradeEngine SET EngineID = ? WHERE Ordinal = ? AND EngineID = ?", stockEngine, this.Car, engine);
+            if (HasTable(this.Target, "Combo_Engines"))
+            {
+                this.Target.Execute("UPDATE Combo_Engines SET EngineID = ? WHERE Ordinal = ? AND EngineID = ?", stockEngine, this.Car, engine);
+            }
+            return engine;
+        }
+
+        // The source's swap engine as an own FM2 engine, converted as the stock one (WriteEngine): Data_Engine, the engine
+        // part tables, the torque curves; MediaName = the car's (its sound: FM2 has none of the source engine).
+        private long ConvertSwapEngine(long sourceEngine, long stockEngine, string carMedia, List<string> dropped)
+        {
+            long engine = this.CopyStockEngine(stockEngine);
+            Dictionary<string, object> src = this.SourceEngine(sourceEngine, this.SourceCar);
+            if (src == null)
+            {
+                dropped.Add("the source has no Data_Engine row " + sourceEngine + ": the swap is a copy of the car's engine");
+                return engine;
+            }
+            Dictionary<string, object> old = this.Fm2Engine(engine);
+            string[] columns = Columns(this.Target, "Data_Engine");
+            Dictionary<string, object> row = this.ConvertRow("Data_Engine", "stock", columns, src, old, new string[] { "EngineID", "MediaName" });
+            this.BoreAndStroke(row);
+            row["EngineName"] = "";
+            row["MediaName"] = carMedia;
+            this.Target.Execute("DELETE FROM Data_Engine WHERE EngineID = ?", engine);
+            Insert(this.Target, "Data_Engine", columns, row);
+            Dictionary<string, object> stockCam = Rows(this.Target, "SELECT * FROM List_UpgradeEngineCamValves WHERE EngineID = ? AND IsStock = 1 ORDER BY Level LIMIT 1", stockEngine)[0];
+            foreach (object[] r in this.Target.Query("SELECT TorqueCurveFullThrottleID, TorqueCurveZeroThrottleID FROM List_UpgradeEngineCamValves WHERE EngineID = ?", engine).Rows)
+            {
+                this.Target.Execute("DELETE FROM List_TorqueCurve WHERE TorqueCurveID IN (?, ?)", r[0], r[1]);
+            }
+            foreach (Pair pair in EnginePairs)
+            {
+                int n = this.WritePair(pair, engine, this.SourceCar, dropped, sourceEngine);
+                if (n == 0 && HasTable(this.Target, pair.Table) && SourceRows(this.Source, pair, this.SourceCar, sourceEngine).Count == 0)
+                {
+                    this.Target.Execute("DELETE FROM " + SqliteDatabase.Quote(pair.Table) + " WHERE EngineID = ?", engine);
+                }
+            }
+            this.WriteCurves(engine, sourceEngine, stockCam);
+            this.FoldTorqueScales(engine, sourceEngine, dropped);
+            this.Carburetion(engine, sourceEngine);
+            return engine;
         }
 
         // Every converted CamValves row gets its full-throttle curve from the source level's curve (resampled to FM2's 151

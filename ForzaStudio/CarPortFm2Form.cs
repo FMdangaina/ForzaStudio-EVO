@@ -14,7 +14,7 @@ namespace ForzaStudio
     // game folders, the cars, the selected car's template, the report. Its own part is the Variants tab: FM2 holds 65536
     // vertices in each of a car's two shared buffers, and when a car does not fit the user ticks the upgrade variants to
     // port (user 2026-11-22); Install stays off while a buffer is over.
-    internal sealed class CarPortFm2Form : Form
+    internal sealed partial class CarPortFm2Form : Form
     {
         private sealed class SourceCar
         {
@@ -57,6 +57,63 @@ namespace ForzaStudio
             // the user's choices in the Materials grid: source material -> FM2 material (no entry: left as it is)
             public Dictionary<string, string> CarMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
             public Dictionary<string, string> WheelMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
+            public List<ReviewRow> Review = new List<ReviewRow>();     // the database dry run's lines worth a look
+            // Upgrades tab: the engine swaps (the source's, FM2 engines added, a drive conversion) and the dry run's table
+            public List<SwapItem> Swaps = new List<SwapItem>();
+            public long StockDrive;                 // the source car's drive type (1 FWD, 2 RWD, 3 AWD)
+            public List<string[]> Upgrades = new List<string[]>();
+            public bool SwapsChanged;               // changed after the dry run: Trial Run again to see the database with them
+        }
+
+        // One engine swap of the Upgrades tab. A source swap left out stays listed, unticked; FM2 engines and the drive
+        // conversion are removed with Remove.
+        private sealed class SwapItem
+        {
+            public CarDataToFm2.Fm2Swap Swap;
+            public bool Included = true;
+            public string Engine;       // shown name
+
+            public SwapItem Copy()
+            {
+                SwapItem copy = new SwapItem();
+                copy.Swap = CarDataToFm2.Fm2Swap.Parse(this.Swap.ToString());
+                copy.Included = this.Included;
+                copy.Engine = this.Engine;
+                return copy;
+            }
+        }
+
+        // The swaps the trial, the install and the record use.
+        private static List<CarDataToFm2.Fm2Swap> ChosenSwaps(Trial trial)
+        {
+            List<CarDataToFm2.Fm2Swap> swaps = new List<CarDataToFm2.Fm2Swap>();
+            foreach (SwapItem item in trial.Swaps)
+            {
+                if (item.Included)
+                {
+                    swaps.Add(item.Swap);
+                }
+            }
+            return swaps;
+        }
+
+        // One row of the Review tab: what the port could not do, did by itself, adds to FM2, or what the user chose.
+        private enum ReviewKind { Info, Fixed, Added, Warning, Error }
+
+        private sealed class ReviewRow
+        {
+            public string Where;
+            public string What;
+            public ReviewKind Kind;
+            public MaterialRow Material;    // a material FM2 does not use: Fix = the same choice as the Materials tab
+            public bool Variant;            // a variant left out: double-click opens the Variants tab
+
+            public ReviewRow(string where, string what, ReviewKind kind)
+            {
+                this.Where = where;
+                this.What = what;
+                this.Kind = kind;
+            }
         }
 
         // One row of the Materials grid: a source material FM2's own cars (or wheels) do not use.
@@ -136,10 +193,30 @@ namespace ForzaStudio
         private readonly Label variantsTitle;
         private readonly DataGridView variants;
         private readonly TabPage materialsPage;
+        private TabPage upgradesPage;
+        private Label upgradesTitle;
+        private ListView swapList;
+        private ComboBox swapLevel;
+        private ComboBox fm2Engines;
+        private ComboBox addLevel;
+        private Button addEngine;
+        private Button removeSwap;
+        private Label driveStock;
+        private ComboBox driveChoice;
+        private ComboBox driveLevel;
+        private ListView upgradeTable;
+        private bool upgradesFilling;
+        private List<object[]> fm2EngineList = new List<object[]>();     // FM2's own engines: EngineID, MediaName, DriveTypeID
+        private readonly TabPage reviewPage;
+        private readonly Label reviewTitle;
+        private readonly DataGridView review;
+        private readonly Dictionary<string, List<ReviewRow>> installReviews = new Dictionary<string, List<ReviewRow>>(StringComparer.OrdinalIgnoreCase);
+        private bool reviewFilling;
         private readonly Label materialsTitle;
         private readonly DataGridView materials;
         private readonly List<ListViewItem> items = new List<ListViewItem>();
         private readonly Dictionary<string, Trial> trials = new Dictionary<string, Trial>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<string> packFiles = new List<string>();     // DLC package files chosen with Package... (this window only)
         private List<string[]> templateList = new List<string[]>();
         private ForzaGame sourceGame = ForzaGame.Unknown;
         private string loadedSource;
@@ -190,8 +267,8 @@ namespace ForzaStudio
             folders.Dock = DockStyle.Top;
             folders.Height = 74;
             folders.Width = this.ClientSize.Width;
-            this.sourceBox = this.FolderRow(folders, "Source game (FM4/FM3/FH1/FH2):", 10, DefaultSource());
-            this.targetBox = this.FolderRow(folders, "Forza Motorsport 2:", 42, DefaultTarget());
+            this.sourceBox = this.FolderRow(folders, "Source game (FM4/FM3/FH1/FH2):", 10, DefaultSource(), true);
+            this.targetBox = this.FolderRow(folders, "Forza Motorsport 2:", 42, DefaultTarget(), false);
             this.load = new Button();
             this.load.Text = "Load Cars";
             this.load.Size = new Size(110, 56);
@@ -459,9 +536,12 @@ namespace ForzaStudio
             this.materialsPage.Controls.Add(this.materialsTitle);
             // a grid first shown after its rows were set lays its Fill columns out late (as the FM3 window's fix grid)
             this.materialsPage.VisibleChanged += delegate { this.materials.PerformLayout(); this.materials.Invalidate(true); };
+            this.reviewPage = this.BuildReviewPage(out this.reviewTitle, out this.review);
             this.tabs.TabPages.Add(reportPage);
+            this.tabs.TabPages.Add(this.reviewPage);
             this.tabs.TabPages.Add(this.variantsPage);
             this.tabs.TabPages.Add(this.materialsPage);
+            this.tabs.TabPages.Add(this.BuildUpgradesPage());
 
             SplitContainer body = new SplitContainer();
             body.Dock = DockStyle.Fill;
@@ -530,7 +610,8 @@ namespace ForzaStudio
             base.OnFormClosing(e);
         }
 
-        private TextBox FolderRow(Panel parent, string caption, int y, string value)
+        // A folder row as in the FM3 / FM4 windows: caption, box, Folder... (and Package... for the source).
+        private TextBox FolderRow(Panel parent, string caption, int y, string value, bool packages)
         {
             Label label = new Label();
             label.Text = caption;
@@ -538,14 +619,25 @@ namespace ForzaStudio
             label.AutoSize = true;
             TextBox box = new TextBox();
             box.Location = new Point(215, y);
-            box.Width = parent.Width - 215 - 214;
+            box.Width = parent.Width - 215 - 290;
             box.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             box.Text = value;
             Button browse = new Button();
             browse.Text = "Folder...";
             browse.Size = new Size(72, 26);
             browse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            browse.Location = new Point(parent.Width - 206, y - 2);
+            browse.Location = new Point(parent.Width - 282, y - 2);
+            if (packages)
+            {
+                Button package = new Button();
+                package.Text = "Package...";
+                package.Size = new Size(72, 26);
+                package.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                package.Location = new Point(parent.Width - 206, y - 2);
+                new ToolTip().SetToolTip(package, "DLC package files of the source game (Xbox 360), installed in Xenia or not: their cars are listed with the game's. Press again to add more.");
+                package.Click += delegate { this.ChoosePackages(); };
+                parent.Controls.Add(package);
+            }
             browse.Click += delegate
             {
                 using (FolderBrowserDialog dialog = new FolderBrowserDialog())
@@ -561,6 +653,33 @@ namespace ForzaStudio
             parent.Controls.Add(box);
             parent.Controls.Add(browse);
             return box;
+        }
+
+        // Package... (as the FM3 / FM4 windows): single package files of the source game, kept while the window is open.
+        private void ChoosePackages()
+        {
+            using (OpenFileDialog dialog = new OpenFileDialog())
+            {
+                dialog.Title = "DLC packages of the source game (Xbox 360 package files)";
+                dialog.Multiselect = true;
+                dialog.CheckFileExists = true;
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+                foreach (string file in dialog.FileNames)
+                {
+                    if (!this.packFiles.Contains(file))
+                    {
+                        this.packFiles.Add(file);
+                    }
+                }
+            }
+            this.status.Text = this.packFiles.Count + " DLC package(s) added: Load Cars lists their cars with the source game's.";
+            if (Directory.Exists(this.sourceBox.Text.Trim()) && Directory.Exists(this.targetBox.Text.Trim()) && !this.busy)
+            {
+                this.LoadCars();
+            }
         }
 
         private static bool IsSource(ForzaGame game)
@@ -598,6 +717,7 @@ namespace ForzaStudio
             // listed), as the FM4 port window does
             GameInfo.UseSourceFolder(game, source);
             bool dlcToo = this.includeDlc.Checked;
+            List<string> files = new List<string>(this.packFiles);
             this.status.Text = "Reading the databases...";
             this.Background(delegate
             {
@@ -605,6 +725,7 @@ namespace ForzaStudio
                 List<SourceCar> list = new List<SourceCar>();
                 List<string[]> templateCars = new List<string[]>();
                 Dictionary<string, long> inFm2 = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                List<object[]> engines = new List<object[]>();
                 using (SqliteDatabase to = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target))))
                 {
                     StringTable names2 = StringTableOrNull(target);
@@ -622,18 +743,37 @@ namespace ForzaStudio
                             templateCars.Add(new[] { media, string.IsNullOrEmpty(name) ? media : name });
                         }
                     }
+                    // the engines the Upgrades tab can add as swaps: FM2's own (not the ports' own engines)
+                    foreach (object[] row in to.Query("SELECT EngineID, MediaName, DriveTypeID FROM Data_Engine WHERE EngineID <= ? ORDER BY MediaName", GameIdLimits.Max(ForzaGame.Motorsport2, "Data_Engine", "EngineID")).Rows)
+                    {
+                        engines.Add(row);
+                    }
                 }
                 ReadCars(source, CarPortFm2Chain.FindDatabase(source), null, null, "", list);
+                // the packages chosen with Package..., then the game's DLC installed in Xenia (Include the game's DLC)
+                List<DlcSource> packs = new List<DlcSource>();
+                HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string file in files)
+                {
+                    try
+                    {
+                        seen.Add(Path.GetFullPath(file));
+                        packs.Add(DlcSource.OpenPackage(file, true));
+                    }
+                    catch (Exception e)
+                    {
+                        notes.AppendLine(Path.GetFileName(file) + ": left out, " + e.Message);
+                    }
+                }
                 string content = dlcToo ? InstalledDlc.ContentFolder(game) : null;
                 if (content != null)
                 {
-                    List<DlcSource> packs = new List<DlcSource>();
                     uint title = InstalledDlc.TitleId(game);
                     foreach (string file in Directory.GetFiles(content))
                     {
                         try
                         {
-                            if (StfsReader.IsPackage(file))
+                            if (seen.Add(Path.GetFullPath(file)) && StfsReader.IsPackage(file))
                             {
                                 DlcSource installed = DlcSource.OpenPackage(file, true);
                                 if (installed.TitleId == title)
@@ -651,28 +791,28 @@ namespace ForzaStudio
                     {
                         packs.AddRange(DlcSource.Find(folder));
                     }
-                    foreach (DlcSource pack in packs)
+                }
+                foreach (DlcSource pack in packs)
+                {
+                    string label = !string.IsNullOrEmpty(pack.Title) ? pack.Title : Path.GetFileName(pack.Folder);
+                    try
                     {
-                        string label = !string.IsNullOrEmpty(pack.Title) ? pack.Title : Path.GetFileName(pack.Folder);
-                        try
+                        if (pack.Problem != null || pack.Game != game)
                         {
-                            if (pack.Problem != null || pack.Game != game)
-                            {
-                                notes.AppendLine(label + ": left out, " + (pack.Problem ?? "not a " + GameInfo.Name(game) + " package"));
-                                continue;
-                            }
-                            string root = pack.Stage(notes);
-                            ReadCars(root, CarPortFm2Chain.FindDatabase(root), root, pack, label, list);
+                            notes.AppendLine(label + ": left out, " + (pack.Problem ?? "not a " + GameInfo.Name(game) + " package"));
+                            continue;
                         }
-                        catch (Exception e)
-                        {
-                            notes.AppendLine(label + ": left out, " + e.Message);
-                        }
+                        string root = pack.Stage(notes);
+                        ReadCars(root, CarPortFm2Chain.FindDatabase(root), root, pack, label, list);
+                    }
+                    catch (Exception e)
+                    {
+                        notes.AppendLine(label + ": left out, " + e.Message);
                     }
                 }
                 // what FM2 has of each car: one of its own (a copy goes beside it under another name) or a port (ported again
                 // over it, with the choices its port record gives back)
-                long fm2Top = GameIdLimits.MaxCar(ForzaGame.Motorsport2);
+                long fm2Top = GameIdLimits.MaxCarBase(ForzaGame.Motorsport2);    // FM2's own cars (617); its official DLC ids reach 1024 but are no rows of the game's database, ports take 659-1000
                 int newCars = 0;
                 foreach (SourceCar car in list)
                 {
@@ -713,6 +853,7 @@ namespace ForzaStudio
                         this.items.Add(item);
                     }
                     this.templateList = templateCars;
+                    this.FillFm2Engines(engines);
                     this.templates.Items.Clear();
                     this.soundCars.Items.Clear();
                     this.soundPicked = false;
@@ -888,6 +1029,489 @@ namespace ForzaStudio
             this.status.Text = car.Name + ": ported before on the template " + car.Record.Template + "; Trial Run gives back the variants and materials you chose then.";
         }
 
+        // ----- Review: what the trial run (with the database dry run) or the install found worth a look -----
+
+        private TabPage BuildReviewPage(out Label title, out DataGridView grid)
+        {
+            TabPage page = new TabPage("Review");
+            title = new Label();
+            title.Dock = DockStyle.Top;
+            title.Height = 26;
+            title.Font = ForzaTheme.Bold;
+            title.Padding = new Padding(6, 6, 0, 0);
+            title.Text = "Run a trial on a car: what the port into FM2 cannot do, does by itself or adds to FM2 is listed here.";
+            DataGridView view = new DataGridView();
+            grid = view;
+            view.Dock = DockStyle.Fill;
+            view.AllowUserToAddRows = false;
+            view.AllowUserToDeleteRows = false;
+            view.AllowUserToResizeRows = false;
+            view.RowHeadersVisible = false;
+            view.SelectionMode = DataGridViewSelectionMode.CellSelect;
+            view.EditMode = DataGridViewEditMode.EditOnEnter;
+            view.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            DataGridViewTextBoxColumn car = new DataGridViewTextBoxColumn();
+            car.HeaderText = "Car";
+            car.ReadOnly = true;
+            car.FillWeight = 14;
+            DataGridViewTextBoxColumn where = new DataGridViewTextBoxColumn();
+            where.HeaderText = "Where";
+            where.ReadOnly = true;
+            where.FillWeight = 12;
+            DataGridViewTextBoxColumn what = new DataGridViewTextBoxColumn();
+            what.HeaderText = "What";
+            what.ReadOnly = true;
+            what.FillWeight = 56;
+            DataGridViewComboBoxColumn fix = new DataGridViewComboBoxColumn();
+            fix.HeaderText = "Fix (your choice)";
+            fix.FillWeight = 18;
+            fix.FlatStyle = FlatStyle.Flat;
+            view.Columns.Add(car);
+            view.Columns.Add(where);
+            view.Columns.Add(what);
+            view.Columns.Add(fix);
+            view.CurrentCellDirtyStateChanged += delegate
+            {
+                if (view.IsCurrentCellDirty)
+                {
+                    view.CommitEdit(DataGridViewDataErrorContexts.Commit);
+                }
+            };
+            view.CellValueChanged += delegate(object sender, DataGridViewCellEventArgs e) { this.ReviewFixChanged(e.RowIndex); };
+            view.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
+            // the material choices FM2's own cars give the same parts are green, as in the FM3 / FM4 windows
+            view.CellFormatting += delegate(object sender, DataGridViewCellFormattingEventArgs e)
+            {
+                if (e.ColumnIndex == 3 && e.RowIndex >= 0 && Recommended(view.Rows[e.RowIndex], e.Value as string))
+                {
+                    e.CellStyle.ForeColor = ForzaTheme.Green;
+                    e.CellStyle.SelectionForeColor = ForzaTheme.Green;
+                }
+            };
+            view.EditingControlShowing += delegate(object sender, DataGridViewEditingControlShowingEventArgs e)
+            {
+                ComboBox combo = e.Control as ComboBox;
+                if (combo != null && combo.Tag as string != "green")
+                {
+                    combo.Tag = "green";   // the grid reuses its editing control
+                    ForzaTheme.GreenItems(combo, delegate(object item) { return view.CurrentRow != null && Recommended(view.CurrentRow, item as string); });
+                }
+            };
+            view.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
+            {
+                ReviewRow row = (e.RowIndex >= 0) ? view.Rows[e.RowIndex].Tag as ReviewRow : null;
+                if (row != null && row.Variant)
+                {
+                    this.tabs.SelectedTab = this.variantsPage;
+                }
+                else if (row != null && row.Material != null && e.ColumnIndex != 3)
+                {
+                    this.tabs.SelectedTab = this.materialsPage;
+                }
+            };
+            page.Controls.Add(view);
+            page.Controls.Add(title);
+            page.VisibleChanged += delegate { view.PerformLayout(); view.Invalidate(true); };
+            return page;
+        }
+
+        // The materials FM2's own cars give the parts a material sits on (MaterialSuggestions.ForGame, green).
+        private static List<string> RecommendedMaterials(MaterialRow row)
+        {
+            List<string> names = new List<string>();
+            string list = Fm4MaterialUse.ListName(row.Wheel, row.Wheel ? "wheel.carbin" : "car.carbin", 1);
+            foreach (MaterialSuggestions.Entry entry in MaterialSuggestions.ForGame(ShaderProfile.Fm2, row.Material, "car.carbin", list, row.Parts))
+            {
+                if (entry.Group == MaterialSuggestions.Group.Recommended)
+                {
+                    names.Add(entry.Name);
+                }
+            }
+            return names;
+        }
+
+        private static bool Recommended(DataGridViewRow gridRow, string choice)
+        {
+            List<string> green = gridRow.Cells[3].Tag as List<string>;
+            return green != null && choice != null && green.Contains(choice);
+        }
+
+        // The port's log lines worth a look, sorted out by what they say (CarPortToFm2, CarDataToFm2, Fm2LookupPort, the chain).
+        private static List<ReviewRow> ReviewFromLog(IEnumerable<string> lines)
+        {
+            List<ReviewRow> rows = new List<ReviewRow>();
+            foreach (string raw in lines)
+            {
+                string line = (raw ?? "").Trim();
+                if (line.Length == 0)
+                {
+                    continue;
+                }
+                string where = line.StartsWith("car model:", StringComparison.Ordinal) ? "car model"
+                    : line.StartsWith("wheel model:", StringComparison.Ordinal) ? "wheel model"
+                    : line.StartsWith("MAXData.xml:", StringComparison.Ordinal) ? "collision"
+                    : line.StartsWith("shader settings:", StringComparison.Ordinal) ? "shader settings"
+                    : line.StartsWith("car texture", StringComparison.Ordinal) || line.StartsWith("wheel texture", StringComparison.Ordinal) ? "textures"
+                    : line.StartsWith("LOOKUP", StringComparison.Ordinal) || line.IndexOf("FM2 lacked it", StringComparison.Ordinal) >= 0 ? "added to FM2"
+                    : line.StartsWith("not ported:", StringComparison.Ordinal) ? "database"
+                    : line.StartsWith("record:", StringComparison.Ordinal) ? "port record"
+                    : line.StartsWith("== step", StringComparison.Ordinal) ? "install" : "";
+                string what = line;
+                foreach (string prefix in new[] { "car model: ", "wheel model: ", "MAXData.xml: ", "LOOKUP ", "not ported: ", "record: " })
+                {
+                    if (what.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        what = what.Substring(prefix.Length);
+                        break;
+                    }
+                }
+                if (line.IndexOf("FAILED", StringComparison.Ordinal) >= 0 || line.IndexOf("REFUSED", StringComparison.Ordinal) >= 0 || line.StartsWith("ERROR", StringComparison.Ordinal))
+                {
+                    rows.Add(new ReviewRow(where, what, ReviewKind.Error));
+                }
+                else if (line.StartsWith("not ported:", StringComparison.Ordinal) || line.IndexOf("the FM2 car's stays", StringComparison.Ordinal) >= 0 || line.IndexOf("NOT written", StringComparison.Ordinal) >= 0)
+                {
+                    rows.Add(new ReviewRow(where, what, ReviewKind.Warning));
+                }
+                else if (line.IndexOf("FM2 lacked it", StringComparison.Ordinal) >= 0)
+                {
+                    rows.Add(new ReviewRow(where, what, ReviewKind.Added));
+                }
+                else if (line.IndexOf("FIXED AUTOMATICALLY", StringComparison.Ordinal) >= 0 || line.IndexOf("number plate removed", StringComparison.Ordinal) >= 0
+                    || line.IndexOf("UVs moved", StringComparison.Ordinal) >= 0)
+                {
+                    rows.Add(new ReviewRow(where, what, ReviewKind.Fixed));
+                }
+                else if (line.IndexOf("left out", StringComparison.Ordinal) >= 0 && where != "" || line.IndexOf("removed:", StringComparison.Ordinal) >= 0)
+                {
+                    rows.Add(new ReviewRow(where, what, ReviewKind.Info));
+                }
+            }
+            return rows;
+        }
+
+        // The selected car's review: its trial's (materials and variants to choose, the database dry run) or its install's.
+        private void ShowReview()
+        {
+            SourceCar car = this.SelectedCar;
+            Trial current = this.CurrentTrial;
+            this.reviewFilling = true;
+            this.review.Rows.Clear();
+            List<ReviewRow> rows = new List<ReviewRow>();
+            List<ReviewRow> installed;
+            if (current != null)
+            {
+                foreach (MaterialRow material in UnknownMaterials(current))
+                {
+                    string chosen;
+                    bool has = (material.Wheel ? current.WheelMaterials : current.CarMaterials).TryGetValue(material.Material, out chosen);
+                    ReviewRow row = new ReviewRow(material.Wheel ? "wheel material" : "car material", material.Material + " (no FM2 car uses it; on " + string.Join(", ", material.Parts.ToArray()) + ")"
+                        + (has ? "" : ": left as it is, it may draw black in game"), has ? ReviewKind.Info : ReviewKind.Warning);
+                    row.Material = material;
+                    rows.Add(row);
+                }
+                foreach (Fm2CarbinModel.PlanPart part in current.Plan)
+                {
+                    if (part.Variant && current.Skip.Contains(part.Name))
+                    {
+                        ReviewRow row = new ReviewRow("variant", part.Name + " left out (your choice, " + part.Vertices.ToString("N0", CultureInfo.InvariantCulture) + " vertices); double-click: Variants", ReviewKind.Info);
+                        row.Variant = true;
+                        rows.Add(row);
+                    }
+                }
+                rows.AddRange(current.Review);
+                if (car != null && this.installReviews.TryGetValue(car.MediaName, out installed))
+                {
+                    // a failed install after this trial: its errors stay on top until the next trial
+                    rows.AddRange(installed.FindAll(delegate(ReviewRow r) { return r.Kind == ReviewKind.Error; }));
+                }
+            }
+            else if (car != null && this.installReviews.TryGetValue(car.MediaName, out installed))
+            {
+                rows.AddRange(installed);
+            }
+            rows.Sort(delegate(ReviewRow a, ReviewRow b) { return ((int) b.Kind).CompareTo((int) a.Kind); });
+            int warnings = 0;
+            foreach (ReviewRow row in rows)
+            {
+                int index = this.review.Rows.Add(car.Name, row.Where, row.What);
+                DataGridViewRow gridRow = this.review.Rows[index];
+                gridRow.Tag = row;
+                DataGridViewComboBoxCell cell = (DataGridViewComboBoxCell) gridRow.Cells[3];
+                if (row.Material != null)
+                {
+                    cell.Items.Add(LeaveAsIs);
+                    foreach (string choice in CarPortToFm2.Fm2Materials(row.Material.Wheel))
+                    {
+                        cell.Items.Add(choice);
+                    }
+                    string chosen;
+                    cell.Value = ((row.Material.Wheel ? current.WheelMaterials : current.CarMaterials).TryGetValue(row.Material.Material, out chosen) && cell.Items.Contains(chosen)) ? chosen : LeaveAsIs;
+                    cell.Tag = RecommendedMaterials(row.Material);
+                }
+                else
+                {
+                    cell.ReadOnly = true;
+                    cell.DisplayStyle = DataGridViewComboBoxDisplayStyle.Nothing;
+                }
+                Color color = (row.Kind == ReviewKind.Error) ? ForzaTheme.Red : (row.Kind == ReviewKind.Warning) ? ForzaTheme.Yellow
+                    : (row.Kind == ReviewKind.Added) ? ForzaTheme.Blue : (row.Kind == ReviewKind.Fixed) ? ForzaTheme.Green : ForzaTheme.Text;
+                for (int c = 0; c < 3; c++)
+                {
+                    gridRow.Cells[c].Style.ForeColor = color;
+                }
+                warnings += (row.Kind == ReviewKind.Error || row.Kind == ReviewKind.Warning) ? 1 : 0;
+            }
+            this.reviewTitle.Text = (car == null) ? "Run a trial on a car: what the port into FM2 cannot do, does by itself or adds to FM2 is listed here."
+                : (rows.Count == 0) ? car.Name + ": " + ((current != null || this.installReviews.ContainsKey(car.MediaName)) ? "nothing to look at." : "run a trial with the template chosen.")
+                : car.Name + ": " + rows.Count + " line(s), " + warnings + " to look at (yellow / red). Blue: added to FM2; green: fixed by the port. Fix: the same choice as the Materials tab.";
+            this.reviewPage.Text = (warnings > 0) ? "Review (" + warnings + ")" : "Review";
+            this.reviewFilling = false;
+        }
+
+        // A Fix chosen in the Review: the same choice in the Materials grid (which keeps it with the trial and the counters).
+        private void ReviewFixChanged(int index)
+        {
+            if (this.reviewFilling || index < 0 || index >= this.review.Rows.Count)
+            {
+                return;
+            }
+            ReviewRow row = this.review.Rows[index].Tag as ReviewRow;
+            string chosen = this.review.Rows[index].Cells[3].Value as string;
+            if (row == null || row.Material == null || chosen == null)
+            {
+                return;
+            }
+            foreach (DataGridViewRow gridRow in this.materials.Rows)
+            {
+                MaterialRow material = gridRow.Tag as MaterialRow;
+                if (material != null && material.Wheel == row.Material.Wheel && material.Material == row.Material.Material)
+                {
+                    gridRow.Cells[3].Value = chosen;     // CellValueChanged: MaterialsChanged, then the review again
+                }
+            }
+        }
+
+        // The database step on a copy of FM2's database in memory (nothing written): the rows FM2 cannot take, the makes,
+        // part makers and cylinders it would get, before Install (user 2026-11-26). A new car is converted over its
+        // template's rows, a port again over its own.
+        private static List<string> DryRunData(string sourceRoot, string sourceBase, string sourceMedia, string target, string onCar, List<Fm2CarbinModel.PlanPart> plan, ICollection<string> skip, List<CarDataToFm2.Fm2Swap> swaps, List<string[]> upgrades)
+        {
+            List<string> lines = new List<string>();
+            using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target))))
+            using (SqliteDatabase source = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(sourceRoot))))
+            {
+                object id = db.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", onCar);
+                object sourceId = source.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", sourceMedia);
+                string zip = GamePaths.FindCar(target, onCar);
+                if (id == null || sourceId == null || zip == null)
+                {
+                    lines.Add("database dry run: not done (" + ((id == null || zip == null) ? "FM2 has no car " + onCar : "the source has no row of " + sourceMedia) + ")");
+                    return lines;
+                }
+                ForzaZip carZip = new ForzaZip(zip);
+                Fm2CarbinModel model = null;
+                foreach (ForzaZip.Entry entry in carZip.Entries)
+                {
+                    if (entry.Name.EndsWith(".carbin", StringComparison.OrdinalIgnoreCase))
+                    {
+                        model = new Fm2CarbinModel(carZip.Read(entry));
+                        break;
+                    }
+                }
+                HashSet<string> parts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (Fm2CarbinModel.PlanPart part in plan)
+                {
+                    if (!part.Variant || skip == null || !skip.Contains(part.Name))
+                    {
+                        parts.Add(part.Name);
+                    }
+                }
+                Fm2LookupPort lookups = new Fm2LookupPort();
+                lookups.SourceRoot = sourceRoot;
+                lookups.SourceFallbackRoot = sourceBase;
+                lookups.TargetRoot = target;
+                lookups.BackupFolder = null;
+                lookups.Begin(source, db);
+                CarDataToFm2 data = new CarDataToFm2();
+                try
+                {
+                    lookups.PrepareMake(Fm2LookupPort.SourceMake(source, sourceMedia));
+                    data.IdResolver = lookups.Resolve;
+                    data.Target = db;
+                    data.Source = source;
+                    data.Car = Convert.ToInt64(id, CultureInfo.InvariantCulture);
+                    data.SourceCar = Convert.ToInt64(sourceId, CultureInfo.InvariantCulture);
+                    data.ModelParts = parts;
+                    data.Model = model;
+                    data.Swaps = swaps;
+                    data.Run();
+                }
+                catch (Exception e)
+                {
+                    lines.Add("database dry run FAILED: " + e.Message);
+                }
+                lines.AddRange(data.Log);
+                lines.AddRange(lookups.Log);
+                if (upgrades != null)
+                {
+                    UpgradeTable(db, source, data.Car, data.SourceCar, upgrades);
+                }
+            }
+            return lines;
+        }
+
+        // The Upgrades tab's table: per upgrade table and level, the source's row and FM2's (after the dry run), with a note.
+        // The car's tables by Ordinal, the engine part tables by the stock engine of each game.
+        private static void UpgradeTable(SqliteDatabase db, SqliteDatabase source, long car, long sourceCar, List<string[]> into)
+        {
+            long engine = CarEngine.StockEngine(db, car);
+            long sourceEngine = CarEngine.StockEngine(source, sourceCar);
+            List<string> tables = new List<string>();
+            foreach (object[] r in db.Query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'List_Upgrade%' ORDER BY name").Rows)
+            {
+                tables.Add(Convert.ToString(r[0], CultureInfo.InvariantCulture));
+            }
+            foreach (string table in tables)
+            {
+                List<string> columns = new List<string>(db.Query("SELECT * FROM " + SqliteDatabase.Quote(table) + " LIMIT 0").Columns);
+                string key = columns.Contains("Ordinal") ? "Ordinal" : columns.Contains("EngineID") ? "EngineID" : null;
+                if (key == null || !columns.Contains("Level"))
+                {
+                    continue;
+                }
+                long fm2Key = (key == "Ordinal") ? car : engine;
+                long sourceKey = (key == "Ordinal") ? sourceCar : sourceEngine;
+                // the source's rows: the tables the port converts this one from (FM4's front / rear anti-roll bars, drivetrain
+                // parts, camshaft...), else the source's table of the same name (List_UpgradeEngine: the swaps)
+                List<Dictionary<string, object>> sourceRows = CarDataToFm2.SourceUpgradeRows(source, table, sourceCar);
+                bool hasSource = sourceRows != null || DbIds.HasTable(source, table);
+                SortedDictionary<long, string> fm2 = UpgradeLevels(db, table, key, fm2Key, columns, true);
+                SortedDictionary<long, string> src;
+                if (sourceRows != null)
+                {
+                    src = LevelsOf(source, sourceRows);
+                }
+                else
+                {
+                    List<string> sourceColumns = hasSource ? new List<string>(source.Query("SELECT * FROM " + SqliteDatabase.Quote(table) + " LIMIT 0").Columns) : new List<string>();
+                    src = (hasSource && sourceColumns.Contains(key) && sourceColumns.Contains("Level")) ? UpgradeLevels(source, table, key, sourceKey, sourceColumns, false) : new SortedDictionary<long, string>();
+                }
+                // the games number some parts differently (FM2's rim size and tyre width start at level 1): the source's levels
+                // are lined up on FM2's by the two stock levels
+                long fm2Stock = columns.Contains("IsStock") ? StockLevel(db.Scalar("SELECT Level FROM " + SqliteDatabase.Quote(table) + " WHERE " + key + " = ? AND IsStock = 1 ORDER BY Level LIMIT 1", fm2Key)) : long.MinValue;
+                long sourceStock = long.MinValue;
+                if (sourceRows != null)
+                {
+                    Dictionary<string, object> stockRow = sourceRows.Find(delegate(Dictionary<string, object> r) { object s; return r.TryGetValue("IsStock", out s) && Convert.ToString(s, CultureInfo.InvariantCulture) == "1"; });
+                    sourceStock = (stockRow != null) ? StockLevel(stockRow["Level"]) : long.MinValue;
+                }
+                else if (hasSource && table == "List_UpgradeEngine")
+                {
+                    sourceStock = StockLevel(source.Scalar("SELECT Level FROM List_UpgradeEngine WHERE Ordinal = ? AND IsStock = 1 LIMIT 1", sourceCar));
+                }
+                long offset = (fm2Stock != long.MinValue && sourceStock != long.MinValue) ? fm2Stock - sourceStock : 0;
+                SortedDictionary<long, string> lined = new SortedDictionary<long, string>();
+                foreach (KeyValuePair<long, string> level in src)
+                {
+                    lined[level.Key + offset] = level.Value;
+                }
+                SortedSet<long> levels = new SortedSet<long>(fm2.Keys);
+                levels.UnionWith(lined.Keys);
+                string part = table.Substring("List_Upgrade".Length);
+                foreach (long level in levels)
+                {
+                    string a, b;
+                    bool inSource = lined.TryGetValue(level, out a);
+                    bool inFm2 = fm2.TryGetValue(level, out b);
+                    string note = !inFm2 ? "not ported (FM2 has no such level / part)" : !inSource ? (hasSource ? "FM2's (the source has none)" : "FM2 only table") : "";
+                    if (table == "List_UpgradeEngine" && level != fm2Stock)
+                    {
+                        note = inFm2 ? "engine swap" + (inSource ? "" : " (yours)") : note;
+                    }
+                    string name = (level == fm2Stock) ? "stock" : "L" + level.ToString(CultureInfo.InvariantCulture);
+                    if (offset != 0 && inSource)
+                    {
+                        name += " (source L" + (level - offset).ToString(CultureInfo.InvariantCulture) + ")";
+                    }
+                    into.Add(new[] { part, name, inSource ? a : "-", inFm2 ? b : "-", note });
+                }
+            }
+        }
+
+        private static long StockLevel(object level)
+        {
+            return (level == null || level is DBNull) ? long.MinValue : Convert.ToInt64(level, CultureInfo.InvariantCulture);
+        }
+
+        // level -> "maker N, price P, mass M" of source rows already read (front / rear sides: both, " / ")
+        private static SortedDictionary<long, string> LevelsOf(SqliteDatabase db, List<Dictionary<string, object>> rows)
+        {
+            SortedDictionary<long, string> levels = new SortedDictionary<long, string>();
+            foreach (Dictionary<string, object> row in rows)
+            {
+                object level;
+                if (!row.TryGetValue("Level", out level) || level == null || level is DBNull)
+                {
+                    continue;
+                }
+                List<string> parts = new List<string>();
+                object value;
+                if ((row.TryGetValue("ManufacturerID", out value) || row.TryGetValue("ManufacturerId", out value)) && value != null && !(value is DBNull) && Convert.ToString(value, CultureInfo.InvariantCulture) != "0")
+                {
+                    parts.Add("maker " + value);
+                }
+                if (row.TryGetValue("Price", out value) && value != null && !(value is DBNull))
+                {
+                    parts.Add("price " + Convert.ToString(value, CultureInfo.InvariantCulture));
+                }
+                if (row.TryGetValue("MassDiff", out value) && value != null && !(value is DBNull) && Convert.ToDouble(value, CultureInfo.InvariantCulture) != 0)
+                {
+                    parts.Add("mass " + Convert.ToDouble(value, CultureInfo.InvariantCulture).ToString("0.#", CultureInfo.InvariantCulture));
+                }
+                long key = Convert.ToInt64(level, CultureInfo.InvariantCulture);
+                string text = (parts.Count > 0) ? string.Join(", ", parts.ToArray()) : "yes";
+                string had;
+                levels[key] = levels.TryGetValue(key, out had) ? (had == text ? had : had + " / " + text) : text;
+            }
+            return levels;
+        }
+
+        // level -> "maker N, price P, mass M" (FM2: the maker's name) for one car / engine of an upgrade table
+        private static SortedDictionary<long, string> UpgradeLevels(SqliteDatabase db, string table, string key, long value, List<string> columns, bool fm2)
+        {
+            SortedDictionary<long, string> levels = new SortedDictionary<long, string>();
+            string maker = columns.Contains("ManufacturerID") ? "ManufacturerID" : columns.Contains("ManufacturerId") ? "ManufacturerId" : null;
+            string sql = "SELECT Level, " + (maker ?? "NULL") + ", " + (columns.Contains("Price") ? "Price" : "NULL") + ", " + (columns.Contains("MassDiff") ? "MassDiff" : "NULL")
+                + (columns.Contains("EngineID") && key != "EngineID" ? ", EngineID" : ", NULL") + " FROM " + SqliteDatabase.Quote(table) + " WHERE " + key + " = ? ORDER BY Level";
+            foreach (object[] r in db.Query(sql, value).Rows)
+            {
+                long level = Convert.ToInt64(r[0], CultureInfo.InvariantCulture);
+                List<string> parts = new List<string>();
+                if (r[4] != null && !(r[4] is DBNull))
+                {
+                    parts.Add("engine " + r[4] + " " + db.Scalar("SELECT MediaName FROM Data_Engine WHERE EngineID = ?", r[4]));
+                }
+                if (r[1] != null && !(r[1] is DBNull) && Convert.ToString(r[1], CultureInfo.InvariantCulture) != "0")
+                {
+                    object name = (fm2 && table != "List_UpgradeEngine") ? db.Scalar("SELECT PartManufacturer FROM List_PartManufacturer WHERE Id = ?", r[1]) : null;
+                    parts.Add("maker " + r[1] + ((name != null) ? " " + name : ""));
+                }
+                if (r[2] != null && !(r[2] is DBNull))
+                {
+                    parts.Add("price " + Convert.ToString(r[2], CultureInfo.InvariantCulture));
+                }
+                if (r[3] != null && !(r[3] is DBNull) && Convert.ToDouble(r[3], CultureInfo.InvariantCulture) != 0)
+                {
+                    parts.Add("mass " + Convert.ToDouble(r[3], CultureInfo.InvariantCulture).ToString("0.#", CultureInfo.InvariantCulture));
+                }
+                string text = (parts.Count > 0) ? string.Join(", ", parts.ToArray()) : "yes";
+                string had;
+                levels[level] = levels.TryGetValue(level, out had) ? had + " / " + text : text;
+            }
+            return levels;
+        }
+
         // ----- Variants -----
 
         // The grid and the counters of the selected car's trial (empty without one).
@@ -934,6 +1558,8 @@ namespace ForzaStudio
                 : car.Name + ": " + rows + " material" + ((rows == 1) ? "" : "s") + " no FM2 car uses (they may draw black in game). Choose an FM2 material, or leave it: your choice.";
             this.filling = false;
             this.ShowCounters();
+            this.ShowReview();
+            this.ShowUpgrades();
         }
 
         // A choice in the Materials grid: kept with the car's trial. A see-through material moves its parts to the other
@@ -972,6 +1598,8 @@ namespace ForzaStudio
             this.filling = false;
             this.ShowCounters();
             this.UpdateButtons();
+            // after the grid event that got here (a Review fix lands in this grid from the Review's own event)
+            this.BeginInvoke((MethodInvoker) this.ShowReview);
         }
 
         private void VariantsChanged()
@@ -1138,6 +1766,33 @@ namespace ForzaStudio
                     log.Add("Choices of the first port (its record): " + ((made.Skip.Count > 0) ? "variants left out " + string.Join(", ", new List<string>(made.Skip).ToArray()) : "no variant left out")
                         + "; " + (record.CarMaterials.Count + record.WheelMaterials.Count) + " material choice(s).");
                 }
+                // the database step in memory, nothing written: what FM2 cannot take and what it gets, shown before Install
+                // the engine swaps (Upgrades tab): the trial before's, the record's or the source's
+                try
+                {
+                    using (SqliteDatabase sourceDb = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(port.SourceRoot))))
+                    {
+                        object sourceId = sourceDb.Scalar("SELECT Id FROM Data_Car WHERE MediaName = ? COLLATE NOCASE", car.MediaName);
+                        if (sourceId != null)
+                        {
+                            made.Swaps = StartSwaps(sourceDb, Convert.ToInt64(sourceId, CultureInfo.InvariantCulture), before, (before == null) ? car.Record : null, template, out made.StockDrive);
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    log.Add("Engine swaps: not read, " + e.Message);
+                }
+                List<string> dryRun;
+                try
+                {
+                    dryRun = DryRunData(port.SourceRoot, (car.Pack != null) ? source : null, car.MediaName, target, (car.Fm2Id > 0) ? car.TargetMedia : template, plan, made.Skip, ChosenSwaps(made), made.Upgrades);
+                }
+                catch (Exception e)
+                {
+                    dryRun = new List<string>(new[] { "database dry run FAILED: " + e.Message });
+                }
+                made.Review = ReviewFromLog(dryRun);
                 List<MaterialRow> unknown = UnknownMaterials(made);
                 int[] stock = new int[2];
                 int stockParts = 0, variantParts = 0;
@@ -1201,10 +1856,17 @@ namespace ForzaStudio
                     text.AppendLine("  " + line);
                 }
                 text.AppendLine();
-                text.AppendLine("Install then converts the database rows and builds the engine sound from the source game's.");
+                text.AppendLine("Database, dry run on a copy in memory (nothing written; Install does it again for real):");
+                foreach (string line in dryRun)
+                {
+                    text.AppendLine("  " + line);
+                }
+                text.AppendLine();
+                text.AppendLine("Install then converts the database rows and builds the engine sound from the source game's. See the Review tab.");
                 return delegate
                 {
                     this.trials[car.MediaName] = made;
+                    this.installReviews.Remove(car.MediaName);
                     this.report.Text = text.ToString();
                     this.ShowTrial();
                     string materialNote = (unknown.Count > 0) ? " " + unknown.Count + " material" + ((unknown.Count == 1) ? "" : "s") + " no FM2 car uses: see the Materials tab." : "";
@@ -1264,6 +1926,7 @@ namespace ForzaStudio
             List<string> skip = new List<string>(current.Skip);
             Dictionary<string, string> carMaterials = new Dictionary<string, string>(current.CarMaterials, StringComparer.Ordinal);
             Dictionary<string, string> wheelMaterials = new Dictionary<string, string>(current.WheelMaterials, StringComparer.Ordinal);
+            List<CarDataToFm2.Fm2Swap> swaps = ChosenSwaps(current);
             this.status.Text = "Installing " + car.Name + "...";
             this.Background(delegate
             {
@@ -1287,6 +1950,7 @@ namespace ForzaStudio
                     chain.CarMaterials = carMaterials;
                     chain.WheelMaterials = wheelMaterials;
                     chain.UseSoundOf = useSoundOf;
+                    chain.Swaps = swaps;
                     chain.Progress = delegate(string step)
                     {
                         this.BeginInvoke((MethodInvoker) delegate { this.status.Text = car.Name + ": " + step; });
@@ -1310,10 +1974,20 @@ namespace ForzaStudio
                     text.AppendLine(line);
                 }
                 Fm2PortRecord written = (failed == null) ? Fm2PortRecord.Read(GamePaths.FindCar(target, car.TargetMedia)) : null;
+                List<ReviewRow> installReview = ReviewFromLog(chain.Log);
+                if (failed != null)
+                {
+                    installReview.Insert(0, new ReviewRow("install", "FAILED: " + failed.Message, ReviewKind.Error));
+                }
                 return delegate
                 {
                     this.report.Text = text.ToString();
                     this.tabs.SelectedIndex = 0;
+                    this.installReviews[car.MediaName] = installReview;
+                    if (failed != null)
+                    {
+                        this.ShowReview();
+                    }
                     if (failed != null)
                     {
                         this.status.Text = "Install failed: " + failed.Message;

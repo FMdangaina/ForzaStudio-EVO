@@ -24,6 +24,7 @@ namespace ForzaStudio
         public Dictionary<string, string> CarMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
         public Dictionary<string, string> WheelMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
         public string UseSoundOf;               // null: the source's sound was ported
+        public List<CarDataToFm2.Fm2Swap> Swaps;  // engine swaps / drive conversion chosen in the Upgrades tab; null: the source's
         public List<string> Log = new List<string>();
 
         public string ToText()
@@ -45,6 +46,14 @@ namespace ForzaStudio
                 text.AppendLine("wheel material=" + pair.Key + ":" + pair.Value);
             }
             text.AppendLine("sound=" + (string.IsNullOrEmpty(this.UseSoundOf) ? "port" : "use:" + this.UseSoundOf));
+            text.AppendLine("swaps=" + ((this.Swaps == null) ? "source" : "chosen"));
+            if (this.Swaps != null)
+            {
+                foreach (CarDataToFm2.Fm2Swap swap in this.Swaps)
+                {
+                    text.AppendLine("swap=" + swap);
+                }
+            }
             text.AppendLine(LogMark);
             foreach (string line in this.Log)
             {
@@ -105,6 +114,16 @@ namespace ForzaStudio
                         break;
                     case "sound":
                         record.UseSoundOf = value.StartsWith("use:", StringComparison.Ordinal) ? value.Substring(4) : null;
+                        break;
+                    case "swaps":
+                        record.Swaps = (value == "chosen") ? new List<CarDataToFm2.Fm2Swap>() : null;
+                        break;
+                    case "swap":
+                        CarDataToFm2.Fm2Swap swap = CarDataToFm2.Fm2Swap.Parse(value);
+                        if (swap != null && record.Swaps != null)
+                        {
+                            record.Swaps.Add(swap);
+                        }
                         break;
                 }
             }

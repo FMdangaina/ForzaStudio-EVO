@@ -527,12 +527,28 @@ namespace ForzaStudio
             return family;
         }
 
+        // The car textures every FM2 car zip has (310 / 310 Lights, Damagelights; 309 Damage, Nodamage): kept from the
+        // template when the source has none, any other template texture goes.
+        private static readonly string[] CarTexturesEveryCarHas = { "damage.xds", "damagelights.xds", "lights.xds", "nodamage.xds" };
+
         // A texture the FM2 zip has, from the source's texture of the same name.
         private void Texture(ForzaZip source, ForzaZip target, ForzaZip.Entry entry, CarbinFamily family, string what)
         {
             ForzaZip.Entry from = FindEntry(source, entry.Name.Replace('\\', '/'));
             if (from == null)
             {
+                if (what == "car" && entry.Name.IndexOf('/') < 0 && IsVariant(entry.Name))
+                {
+                    return;     // a paint variant: VariantTextures keeps the source's set
+                }
+                if (what == "car" && entry.Name.IndexOf('/') < 0 && Array.IndexOf(CarTexturesEveryCarHas, entry.Name.ToLowerInvariant()) < 0)
+                {
+                    // nothing of the template stays (user rule): a texture only some FM2 cars have (Layer_1.xds: 2 of 310,
+                    // glass_texture.xds: 3; the Focus 676 kept the Focus SVT's, 2026-11-26) goes when the source has none
+                    target.Remove(entry);
+                    this.Log.Add(string.Format("{0} texture {1}: the template's, removed (the source has none; FM2 needs only {2})", what, entry.Name, string.Join(", ", CarTexturesEveryCarHas)));
+                    return;
+                }
                 this.Log.Add(string.Format("{0} texture {1}: the source has none, the FM2 car's stays", what, entry.Name));
                 return;
             }

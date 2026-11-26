@@ -81,12 +81,12 @@ namespace ForzaStudio
             this.Note("List_UpgradeEngineFuelSystem", "Carbureted", "all", "source engine's Carbureted " + carb + (carb != 0 ? " (FM2: level 3 injection)" : ""));
         }
 
-        // FM2's stock engine row names the car's make as its maker (List_UpgradeEngine.ManufacturerID = Data_Car.MakeID on
-        // 310 of 310 cars). After WriteCar, so the make is the converted one.
+        // FM2's engine rows name the car's make as their maker (List_UpgradeEngine.ManufacturerID = Data_Car.MakeID on the
+        // stock row of 310 of 310 cars and on 210 of its 210 swap rows). After WriteCar, so the make is the converted one.
         private void EngineMaker()
         {
-            int n = this.Target.Execute("UPDATE List_UpgradeEngine SET ManufacturerID = (SELECT MakeID FROM Data_Car WHERE Id = ?) WHERE Ordinal = ? AND IsStock = 1", this.Car, this.Car);
-            this.Note("List_UpgradeEngine", "ManufacturerID", "stock", "the car's MakeID (FM2: 310 of 310 cars)" + (n == 0 ? " - no stock row" : ""));
+            int n = this.Target.Execute("UPDATE List_UpgradeEngine SET ManufacturerID = (SELECT MakeID FROM Data_Car WHERE Id = ?) WHERE Ordinal = ?", this.Car, this.Car);
+            this.Note("List_UpgradeEngine", "ManufacturerID", "all", "the car's MakeID (FM2: 310 of 310 stock rows, 210 of 210 swap rows)" + (n == 0 ? " - no row" : ""));
         }
 
         // Hood camera (Data_Car.CamHoodHeightOffset / CamHoodZOffset) from the FM2 model just written (Model), fitted on 228

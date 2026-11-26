@@ -25,6 +25,7 @@ namespace ForzaStudio
         public Dictionary<string, string> CarMaterials = new Dictionary<string, string>(StringComparer.Ordinal);     // the user's choices: source material -> FM2 material
         public Dictionary<string, string> WheelMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
         public string UseSoundOf;           // "Use sound": an FM2 car whose engine sound the car gets; null: "Port sound" (the source's)
+        public List<CarDataToFm2.Fm2Swap> Swaps;      // the Upgrades tab's engine swaps / drive conversion; null: the source's swaps
         public bool Again;                  // port again over the installed FM2 car NewMediaName (ported before): no new copy, its
                                             // car id, upgrade ids and engine id stay; TemplateMediaName = the template of the first port
         public string SourceGameName = "";  // for the record (port_log.txt in the car zip)
@@ -181,7 +182,7 @@ namespace ForzaStudio
                     {
                         throw new InvalidOperationException("Port again: FM2 has no installed car " + this.NewMediaName + " (row and zip). Nothing was written.");
                     }
-                    if (Convert.ToInt64(id, CultureInfo.InvariantCulture) <= GameIdLimits.MaxCar(ForzaGame.Motorsport2))
+                    if (Convert.ToInt64(id, CultureInfo.InvariantCulture) <= GameIdLimits.MaxCarBase(ForzaGame.Motorsport2))   // MaxCar (1024) counts the official DLC ids, which ports reuse (659-1000)
                     {
                         throw new InvalidOperationException("Port again: " + this.NewMediaName + " is one of FM2's own cars, never written over. Nothing was written.");
                     }
@@ -285,6 +286,7 @@ namespace ForzaStudio
                 data.SourceCar = sourceCar;
                 data.ModelParts = parts;
                 data.Model = model;
+                data.Swaps = this.Swaps;
                 try
                 {
                     data.Run();
@@ -394,6 +396,7 @@ namespace ForzaStudio
                 record.WheelMaterials[pair.Key] = pair.Value;
             }
             record.UseSoundOf = this.UseSoundOf;
+            record.Swaps = (this.Swaps != null) ? new List<CarDataToFm2.Fm2Swap>(this.Swaps) : null;
             record.Log.AddRange(this.Log);
             try
             {

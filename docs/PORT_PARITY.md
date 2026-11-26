@@ -60,11 +60,49 @@ Each UI step is described to the user and gets a yes before it is built (`descri
    port's template, the zips backed up; car / upgrade / engine ids kept), window: "Also show cars FM2 already has", "In FM2"
    column (ported, car N / FM2 car), "Port Again Over Car N..." with the saved-game warning, the record's template, sound,
    variants and materials put back on the first trial; FM2's own cars go in beside them as `<name>_FM4` / `_FM3` / `_FH`.
-   Records written into the 17 DEV cars (`recordtest\writerec`). User: Focus 676 ported again with it, OK in game.
-2. **Package...** source.
+   Records written into the 17 DEV cars (`recordtest\writerec`). User: Focus 676 OK in game, BUT its record (2026-11-26
+   23:34) shows a FRESH install (template copy, id 676 again, no material choice), not a port again: B1 told ported cars
+   from FM2's own by `GameIdLimits.MaxCar` (1024 for FM2: it counts the official DLC ids, which ports reuse, 659-1000), so
+   every ported car looked like an FM2 car. Fixed 2026-11-27: `MaxCarBase` (617, the game's own rows) in the window and
+   in `CarPortFm2Chain.Again`. Port Again still to be tried in the app (the Focus: it also drops the template's Layer_1.xds).
+   **Template textures** (2026-11-27, Review found it): a car texture the source lacks, other than the four every FM2 car
+   has (Damage, Damagelights, Lights, Nodamage) and the paint variants, is removed (`CarPortToFm2.Texture`; Layer_1.xds
+   is on 2 of FM2's 310 cars, the Focus SVT template's had stayed on the Focus ZX4; no other DEV car has one).
+2. **Package...** source. DONE 2026-11-26 (built, app test pending): a Package... button beside the source's Folder...
+   (as FM3 / FM4): single package files of the source game, installed in Xenia or not, kept while the window is open; Load
+   Cars stages them as the installed DLC (same `DlcSource.Stage` + `ReadCars`), their cars listed with the pack's name in
+   "DLC pack"; a file also installed is read once. Packs of another game are left out with a note in the report.
 3. **Review** tab: the "not ported" lines, the materials and variants left out, the template's left items, with Fix where
-   the port has a choice.
+   the port has a choice. DONE 2026-11-26 (built, app test pending): a Review tab (Car / Where / What / Fix), filled by
+   the trial run and by the install. The trial run now also runs the database step on an in-memory copy of FM2's database
+   (`CarPortFm2Form.DryRunData`: lookups + `CarDataToFm2` over the template's rows for a new car, over the car's own for a
+   port again; nothing written, checked: no DEV file changed). Rows from the logs (`ReviewFromLog`): yellow = not ported
+   (engine parts FM2 lacks, tyre level 4...) / a template texture that stays; red = failed; blue = added to FM2 (make, part
+   maker, cylinders); green = fixed by the port (collisions, plate, UVs); white = info (parts left out / removed, shader
+   settings). Materials no FM2 car uses carry a Fix combo, the same choice as the Materials tab (green = what FM2's cars
+   give those parts, `MaterialSuggestions.ForGame`); variants left out: double-click opens Variants. Offline (harness
+   `PortToFM2\reviewtest\dry`, `rl`): RUF port again 3 yellow rows; FM4 Veyron on the F430: + Bugatti make 58 and part maker
+   307 in blue; the Focus install log: Layer_1.xds of the template stays (yellow).
 4. **Upgrades** tab: each part and level, the source item and what FM2 got (read only, as FM3's).
+   DONE 2026-11-27 (built, offline checks, app / game test pending), EDITABLE as FM4's after the user's correction: FM2
+   HAS engine swaps (List_UpgradeEngine IsStock 0, levels 1-3: 130 / 59 / 21 rows on 130 cars; engines shared: 41 on
+   several cars, 54 also a stock engine) and keeps the drive type on the ENGINE (`Data_Engine.DriveTypeID`): a drive
+   conversion is a swap to an engine of another drive type (71 of FM2's swaps, e.g. 206 RC -> 207 RC Cup AWD). Until now
+   the port dropped the source's swaps ("not ported: engine swap").
+   - `CarDataToFm2.WriteSwaps` (`Fm2Swap` kind source / fm2 / drive, `Swaps` null = the source's): a source swap uses
+     FM2's engine of the same MediaName AND the car's drive type (FM2's VW_BoraVR6_03 is AWD, the FM4 Beetle with it
+     FWD), else it is converted as an own engine like the stock one (`ConvertSwapEngine`: Data_Engine, part tables,
+     curves; MediaName = the car's, FM2 has no sound of the source engine); "fm2" = an FM2 engine as it is; "drive" = a
+     copy of the car's engine (`CopyStockEngine`) with the other DriveTypeID. One swap per level 1-3, other levels "not
+     ported". Row: the car's make (`EngineMaker` now sets every engine row: 210 / 210 FM2 swap rows), the source's price
+     and mass (FM2's median at that level for fm2 / drive). A run again drops the earlier run's own swap engines and the
+     new ones take their ids back. Offline (`reviewtest\swapdry`, `dry2`, in memory): Beetle 2 source swaps, + AWD + 959,
+     level 5 refused; R33 over its own car keeps engine 2152, swap GT-R Spec V; `DbIds.CheckCar` 0 errors.
+   - Window (`CarPortFm2Form.Upgrades.cs`): swap list with ticks (ported / left out), Level of the selected, Add FM2 engine
+     (FM2's own engines, with drive) + level, Remove; Drive conversion none / FWD / RWD / AWD + level; below the read-only
+     table Part / Level / Source / FM2 / Note from the dry run (`UpgradeTable`: the source tables the port converts from,
+     `CarDataToFm2.SourceUpgradeRows`; levels lined up on the stock levels). Choices: the trial's, the install's
+     (`CarPortFm2Chain.Swaps`) and the record's (`swaps=` / `swap=kind:value:level`).
 5. **Make** + New make for FM2.
 6. **Uninstall...**.
 7. Source PI column.
