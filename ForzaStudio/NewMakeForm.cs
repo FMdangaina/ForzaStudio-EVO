@@ -40,6 +40,7 @@ namespace ForzaStudio
         private const long NewCountryId = -1;   // the combo's "New country..." item
 
         private readonly string target;
+        private readonly SqliteDatabase fm2Db;     // FM2 (the FM2 port window): its rules (Fm2LookupPort), no new country
         private readonly long firstId;
         private readonly long firstCountryId;
         private readonly List<Region> regions = new List<Region>();
@@ -63,8 +64,20 @@ namespace ForzaStudio
 
         // existingIds: makes already pending in the port window; xeniaContent: for the Id of a DLC make.
         public NewMakeForm(string target, string xeniaContent, List<long> pendingIds, bool canCreateInGame, bool canAddToPack)
+            : this(target, xeniaContent, pendingIds, canCreateInGame, canAddToPack, false)
+        {
+        }
+
+        // fm2: a make for Forza Motorsport 2 (Fm2LookupPort): the id above every Forza's makes, FM2's countries only (its
+        // country rows carry a flag symbol of its font, none can be added), FM2's checks, one logo folder.
+        public NewMakeForm(string target, string xeniaContent, List<long> pendingIds, bool canCreateInGame, bool canAddToPack, bool fm2)
         {
             this.target = target;
+            if (fm2)
+            {
+                this.fm2Db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target)));
+                this.FormClosed += delegate { this.fm2Db.Dispose(); };
+            }
             this.AutoScaleMode = AutoScaleMode.None;
             this.Text = "New Car Make";
             gameTag = GameInfo.Tag(GameInfo.Detect(target));   // the wording names the target game (FM4 or FM3)
@@ -80,7 +93,7 @@ namespace ForzaStudio
             long freeCountry;
             using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarMake.DatabasePath(target))))
             {
-                free = CarMake.FreeId(db, xeniaContent);
+                free = fm2 ? Fm2LookupPort.FreeMakeId(db) : CarMake.FreeId(db, xeniaContent);
                 StringTable names = null;
                 try
                 {
@@ -134,7 +147,8 @@ namespace ForzaStudio
             this.Controls.Add(idLabel);
             this.Controls.Add(this.id);
             y += 32;
-            this.logoName = this.AddRow("Logo name:", y, 160, "The logo files are L_MAN_<name>_Logo in the " + ((gameTag == "FM3") ? "three" : "six") + " logo folders of UI\\Textures.zip");
+            this.logoName = this.AddRow("Logo name:", y, 160, fm2 ? "The logo file is L_MAN_<name>_Logo in FM2's one logo folder of UI\\Textures.zip (L_Map/Manufacturer_Logos)"
+                : "The logo files are L_MAN_<name>_Logo in the " + ((gameTag == "FM3") ? "three" : "six") + " logo folders of UI\\Textures.zip");
             this.logoName.TextChanged += delegate { this.logoNameEdited = this.logoName.Focused || this.logoNameEdited; this.Recheck(); };
             y += 32;
             Label countryLabel = new Label();
@@ -145,10 +159,13 @@ namespace ForzaStudio
             this.country.SetBounds(96, y, 200, 24);
             this.country.MaxDropDownItems = 20;
             this.country.Items.AddRange(countries.ToArray());
-            Country newItem = new Country();
-            newItem.Id = NewCountryId;
-            newItem.Name = "New country...";
-            this.country.Items.Add(newItem);
+            if (!fm2)
+            {
+                Country newItem = new Country();
+                newItem.Id = NewCountryId;
+                newItem.Name = "New country...";
+                this.country.Items.Add(newItem);
+            }
             if (this.country.Items.Count > 0)
             {
                 this.country.SelectedIndex = 0;
@@ -556,7 +573,7 @@ namespace ForzaStudio
             {
                 try
                 {
-                    text = CarMake.Check(spec, this.target, null);
+                    text = (this.fm2Db != null) ? Fm2LookupPort.MakeSpecProblem(spec, this.fm2Db, this.target) : CarMake.Check(spec, this.target, null);
                 }
                 catch (Exception ex)
                 {

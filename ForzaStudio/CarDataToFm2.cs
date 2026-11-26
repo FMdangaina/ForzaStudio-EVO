@@ -1716,6 +1716,12 @@ namespace ForzaStudio
             this.WriteEngine(dropped);
             this.WriteCar();
             this.SpeedInGears();
+            if (this.MakeOverride > 0)
+            {
+                // the Make chosen in the port window (an FM2 make, or one made with New make): the car goes under it
+                this.Target.Execute("UPDATE Data_Car SET MakeID = ? WHERE Id = ?", this.MakeOverride, this.Car);
+                this.Log.Add("make: " + this.MakeOverride + ", your choice in the port window (not the source's)");
+            }
             this.EngineMaker();
             this.EngineMedia();
             this.HoodCamera();
@@ -1940,6 +1946,7 @@ namespace ForzaStudio
         }
 
         public List<Fm2Swap> Swaps;     // the user's swaps (Upgrades tab); null: the source's swaps, each at its level
+        public long MakeOverride = -1;  // the Make chosen in the port window (List_CarMake.ID of FM2); -1: the source's make (lookups)
 
         public static List<Fm2Swap> SourceSwaps(SqliteDatabase source, long sourceCar)
         {

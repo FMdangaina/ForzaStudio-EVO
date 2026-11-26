@@ -7,6 +7,7 @@ namespace ForzaStudio
     using System.Globalization;
     using System.IO;
     using System.Text;
+    using System.Text.RegularExpressions;
 
     // The lookup rows a car ported into FM2 needs and FM2 lacks, added as the FM3 port adds a make (CarPortToFm3.PortMake).
     // User 2026-11-26: "sì, aggiungi le marche come FM3" and "sì a entrambi" (cylinders by meaning, part makers by name).
@@ -410,6 +411,26 @@ namespace ForzaStudio
                     sourceGame = GameInfo.Detect(root);
                 }
             }
+            if (from == null)
+            {
+                this.Log.Add(what + ": the source's logo " + sourceIcon + " was not found, no logo (shown without it)");
+                return;
+            }
+            byte[] data = GamePaths.Read(from);
+            if (sourceGame != ForzaGame.Motorsport3)
+            {
+                data = Fm3Textures.FromMotorsport4(data, logoName);
+            }
+            using (Bitmap whole = new XdsTexture(data).GetLevelBitmap(0))
+            {
+                this.PutLogo(whole, folder, logoName, what, "the source's " + Path.GetFileName(from.InZip ? from.EntryName : from.FilePath));
+            }
+        }
+
+        // A logo picture into FM2's folder, laid out as the folder's first logo (size, format, levels), margins cut.
+        private void PutLogo(Bitmap whole, string folder, string logoName, string what, string fromText)
+        {
+            ForzaZip zip = this.Textures();
             ForzaZip.Entry like = null;
             foreach (ForzaZip.Entry entry in zip.Entries)
             {
@@ -419,15 +440,10 @@ namespace ForzaStudio
                     break;
                 }
             }
-            if (from == null || like == null)
+            if (like == null)
             {
-                this.Log.Add(what + ": " + (from == null ? "the source's logo " + sourceIcon + " was not found" : "FM2 has no logo in " + folder + " to copy the layout of") + ", no logo (shown without it)");
+                this.Log.Add(what + ": FM2 has no logo in " + folder + " to copy the layout of, no logo (shown without it)");
                 return;
-            }
-            byte[] data = GamePaths.Read(from);
-            if (sourceGame != ForzaGame.Motorsport3)
-            {
-                data = Fm3Textures.FromMotorsport4(data, logoName);
             }
             XdsTexture layout = new XdsTexture(zip.Read(like));
             XdsTexture logo = XdsTexture.Create(layout.Width, layout.Height, layout.Codec, layout.IsGamma, layout.LevelCount);
@@ -435,7 +451,6 @@ namespace ForzaStudio
             try
             {
                 // FM2's logos fill their frame; the source's have wide transparent margins: cut them off first
-                using (Bitmap whole = new XdsTexture(data).GetLevelBitmap(0))
                 using (Bitmap picture = Trim(whole))
                 using (Bitmap fitted = CarMake.Fit(picture, layout.Width, layout.Height))
                 {
@@ -461,8 +476,103 @@ namespace ForzaStudio
                 zip.Add(name, logo.ToBytes());
             }
             this.texturesChanged = true;
-            this.Log.Add(string.Format(CultureInfo.InvariantCulture, "{0}: logo {1} {2}x{3} {4}, {5} levels, laid out as FM2's {6}, from the source's {7}",
-                what, name, layout.Width, layout.Height, layout.FormatName, layout.LevelCount, Path.GetFileName(like.Name), Path.GetFileName(from.InZip ? from.EntryName : from.FilePath)));
+            this.Log.Add(string.Format(CultureInfo.InvariantCulture, "{0}: logo {1} {2}x{3} {4}, {5} levels, laid out as FM2's {6}, from {7}",
+                what, name, layout.Width, layout.Height, layout.FormatName, layout.LevelCount, Path.GetFileName(like.Name), fromText));
+        }
+
+        // ---- a make made by the user (New make in the FM2 port window) ----
+
+        // The id a new make gets: above every make id of every Forza (GameIdLimits) and of FM2's database, so the rule
+        // "same make, same id in every Forza" (the port's lookups) never meets another make under that id.
+        public static long FreeMakeId(SqliteDatabase fm2)
+        {
+            long id = 53;
+            foreach (ForzaGame game in new[] { ForzaGame.Motorsport2, ForzaGame.Motorsport3, ForzaGame.Motorsport4, ForzaGame.Horizon1, ForzaGame.Horizon2 })
+            {
+                id = Math.Max(id, GameIdLimits.Max(game, "List_CarMake", "ID"));
+            }
+            object max = fm2.Scalar("SELECT max(ID) FROM List_CarMake");
+            if (max != null && !(max is DBNull))
+            {
+                id = Math.Max(id, Convert.ToInt64(max, CultureInfo.InvariantCulture));
+            }
+            return id + 1;
+        }
+
+        // Why a make made in the window cannot go into FM2, or null.
+        public static string MakeSpecProblem(CarMakeSpec spec, SqliteDatabase fm2, string fm2Root)
+        {
+            if (spec.Id <= 53)
+            {
+                return "The Id must be above FM2's makes (1-53).";
+            }
+            if (Count(fm2, "SELECT COUNT(*) FROM List_CarMake WHERE ID = ?", spec.Id) > 0)
+            {
+                return "FM2 has a make with Id " + spec.Id + ".";
+            }
+            if (string.IsNullOrEmpty(spec.Name))
+            {
+                return "Give the make a name.";
+            }
+            if (!Regex.IsMatch(spec.Code ?? "", "^[A-Z0-9]{2,4}$"))
+            {
+                return "The code is 2-4 capital letters or digits.";
+            }
+            if (Count(fm2, "SELECT COUNT(*) FROM List_CarMake WHERE ManufacturerCode = ? COLLATE NOCASE", spec.Code) > 0)
+            {
+                return "FM2 has a make with the code " + spec.Code + ".";
+            }
+            if (spec.NewCountry != null)
+            {
+                return "FM2 takes no new country: its country rows carry a flag symbol of its font.";
+            }
+            if (Count(fm2, "SELECT COUNT(*) FROM List_Country WHERE CountryID = ?", spec.CountryId) == 0)
+            {
+                return "Choose one of FM2's countries.";
+            }
+            if (!Regex.IsMatch(spec.Base ?? "", "^[A-Za-z0-9]+$"))
+            {
+                return "The logo name is letters and digits.";
+            }
+            string textures = Path.Combine(Path.Combine(Path.Combine(fm2Root, "Media"), "UI"), "Textures.zip");
+            if (File.Exists(textures) && new ForzaZip(textures).Find(MakeLogos + "L_MAN_" + spec.Base + "_Logo.xds") != null)
+            {
+                return "FM2 has a logo L_MAN_" + spec.Base + "_Logo already: choose another logo name.";
+            }
+            if (string.IsNullOrEmpty(spec.Logo) || !File.Exists(spec.Logo))
+            {
+                return "Choose the logo image.";
+            }
+            return null;
+        }
+
+        // The make's row, its name and profile in every language (the same text in each) and its logo, as a ported make
+        // gets them (PrepareMake). Begin first; Commit writes the string tables and Textures.zip, the caller the database.
+        public void AddMake(CarMakeSpec spec)
+        {
+            string problem = MakeSpecProblem(spec, this.target, this.TargetRoot);
+            if (problem != null)
+            {
+                throw new InvalidOperationException(problem);
+            }
+            uint high = High(this.target, "SELECT DisplayName FROM List_CarMake WHERE DisplayName LIKE '\\_&%' ESCAPE '\\' LIMIT 1");
+            string name = this.AddString("List_CarMake.str", "", spec.Name, high, "IDS_DisplayName_", null);
+            string profile = this.AddString("List_CarMake.str", "", spec.Profile ?? "", high, "IDS_Profile_", name);
+            string logoName = "L_MAN_" + spec.Base + "_Logo";
+            string icon = @"GAME:\Media\UI\Textures\L_Map\Manufacturer_Logos\" + logoName + ".tga";
+            this.target.Execute("INSERT INTO List_CarMake (ID, DisplayName, ManufacturerCode, CountryID, IconPath, IconPathLight, Profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                spec.Id, name, spec.Code, spec.CountryId, icon, icon, profile);
+            this.Log.Add(string.Format(CultureInfo.InvariantCulture, "make {0}: new make {1}, List_CarMake row {2} (country {3}), name / profile keys {4} / {5}", spec.Code, spec.Name, spec.Id, spec.CountryId, name, profile));
+            if (this.Textures() == null)
+            {
+                this.Log.Add("make " + spec.Code + ": FM2 has no UI\\Textures.zip, no logo");
+                return;
+            }
+            using (Image image = Image.FromFile(spec.Logo))
+            using (Bitmap whole = new Bitmap(image))
+            {
+                this.PutLogo(whole, MakeLogos, logoName, "make " + spec.Code, Path.GetFileName(spec.Logo));
+            }
         }
 
         // The picture cut to its visible pixels (alpha above 8); the whole picture when nothing is visible.

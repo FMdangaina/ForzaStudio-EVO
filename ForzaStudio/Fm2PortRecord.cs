@@ -25,6 +25,7 @@ namespace ForzaStudio
         public Dictionary<string, string> WheelMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
         public string UseSoundOf;               // null: the source's sound was ported
         public List<CarDataToFm2.Fm2Swap> Swaps;  // engine swaps / drive conversion chosen in the Upgrades tab; null: the source's
+        public long MakeId = -1;                // the Make chosen in the window (FM2 List_CarMake.ID); -1: the source's
         public List<string> Log = new List<string>();
 
         public string ToText()
@@ -46,6 +47,7 @@ namespace ForzaStudio
                 text.AppendLine("wheel material=" + pair.Key + ":" + pair.Value);
             }
             text.AppendLine("sound=" + (string.IsNullOrEmpty(this.UseSoundOf) ? "port" : "use:" + this.UseSoundOf));
+            text.AppendLine("make=" + ((this.MakeId > 0) ? this.MakeId.ToString(CultureInfo.InvariantCulture) : "source"));
             text.AppendLine("swaps=" + ((this.Swaps == null) ? "source" : "chosen"));
             if (this.Swaps != null)
             {
@@ -114,6 +116,10 @@ namespace ForzaStudio
                         break;
                     case "sound":
                         record.UseSoundOf = value.StartsWith("use:", StringComparison.Ordinal) ? value.Substring(4) : null;
+                        break;
+                    case "make":
+                        long make;
+                        record.MakeId = long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out make) ? make : -1;
                         break;
                     case "swaps":
                         record.Swaps = (value == "chosen") ? new List<CarDataToFm2.Fm2Swap>() : null;

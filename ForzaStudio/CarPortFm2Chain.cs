@@ -25,6 +25,7 @@ namespace ForzaStudio
         public Dictionary<string, string> CarMaterials = new Dictionary<string, string>(StringComparer.Ordinal);     // the user's choices: source material -> FM2 material
         public Dictionary<string, string> WheelMaterials = new Dictionary<string, string>(StringComparer.Ordinal);
         public string UseSoundOf;           // "Use sound": an FM2 car whose engine sound the car gets; null: "Port sound" (the source's)
+        public long MakeId = -1;            // the Make chosen in the window (FM2 List_CarMake.ID); -1: the source's (added when FM2 lacks it)
         public List<CarDataToFm2.Fm2Swap> Swaps;      // the Upgrades tab's engine swaps / drive conversion; null: the source's swaps
         public bool Again;                  // port again over the installed FM2 car NewMediaName (ported before): no new copy, its
                                             // car id, upgrade ids and engine id stay; TemplateMediaName = the template of the first port
@@ -165,7 +166,7 @@ namespace ForzaStudio
             using (SqliteDatabase source = SqliteDatabase.FromBytes(File.ReadAllBytes(FindDatabase(this.SourceRoot))))
             using (SqliteDatabase target = SqliteDatabase.FromBytes(File.ReadAllBytes(dbPath)))
             {
-                string makeProblem = Fm2LookupPort.MakeProblem(source, target, Fm2LookupPort.SourceMake(source, this.SourceMediaName));
+                string makeProblem = (this.MakeId > 0) ? null : Fm2LookupPort.MakeProblem(source, target, Fm2LookupPort.SourceMake(source, this.SourceMediaName));
                 if (makeProblem != null)
                 {
                     throw new InvalidOperationException("The car's make cannot go into FM2: " + makeProblem + ". Nothing was written.");
@@ -271,7 +272,10 @@ namespace ForzaStudio
                 lookups.Begin(source, db);
                 try
                 {
-                    lookups.PrepareMake(Fm2LookupPort.SourceMake(source, this.SourceMediaName));
+                    if (this.MakeId <= 0)
+                    {
+                        lookups.PrepareMake(Fm2LookupPort.SourceMake(source, this.SourceMediaName));   // a chosen Make: the source's is not added
+                    }
                 }
                 finally
                 {
@@ -287,6 +291,7 @@ namespace ForzaStudio
                 data.ModelParts = parts;
                 data.Model = model;
                 data.Swaps = this.Swaps;
+                data.MakeOverride = this.MakeId;
                 try
                 {
                     data.Run();
@@ -397,6 +402,7 @@ namespace ForzaStudio
             }
             record.UseSoundOf = this.UseSoundOf;
             record.Swaps = (this.Swaps != null) ? new List<CarDataToFm2.Fm2Swap>(this.Swaps) : null;
+            record.MakeId = this.MakeId;
             record.Log.AddRange(this.Log);
             try
             {

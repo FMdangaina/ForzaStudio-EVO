@@ -33,6 +33,8 @@ namespace ForzaStudio
             public long Fm2Id;          // FM2 has a ported car under TargetMedia: its id (Install ports again over it); else 0
             public Fm2PortRecord Record;    // that car's port record (template and choices of the first port), or null
             public bool RecordApplied;  // the record's template / sound were put into the window once
+            public long SourceMake = -1;    // the source's Data_Car.MakeID
+            public long MakeId = -1;        // the Make chosen (FM2 List_CarMake.ID); -1: the source's (added to FM2 when it lacks it)
 
             public bool InFm2 { get { return this.Fm2Own || this.Fm2Id > 0; } }
 
@@ -325,7 +327,7 @@ namespace ForzaStudio
             this.cars.Columns.Add("Media name", 200);
             this.cars.Columns.Add("DLC pack", 220);
             this.cars.Columns.Add("In FM2", 260);
-            this.cars.SelectedIndexChanged += delegate { this.ApplyRecord(); this.ShowTrial(); this.UpdateButtons(); };
+            this.cars.SelectedIndexChanged += delegate { this.ApplyRecord(); this.ShowMake(); this.ShowTrial(); this.UpdateButtons(); };
             CarPortFm3Form.StyleList(this.cars);
 
             Panel options = new Panel();
@@ -384,6 +386,7 @@ namespace ForzaStudio
             this.install.Click += delegate { this.Install(); };
             options.Controls.Add(templateLabel);
             options.Controls.Add(this.templates);
+            this.BuildMakeRow(options);
             options.Controls.Add(soundLabel);
             options.Controls.Add(this.portSound);
             options.Controls.Add(this.useSound);
@@ -726,6 +729,8 @@ namespace ForzaStudio
                 List<string[]> templateCars = new List<string[]>();
                 Dictionary<string, long> inFm2 = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
                 List<object[]> engines = new List<object[]>();
+                List<object[]> fm2Makes = new List<object[]>();
+                Dictionary<long, string> sourceMakes = new Dictionary<long, string>();
                 using (SqliteDatabase to = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target))))
                 {
                     StringTable names2 = StringTableOrNull(target);
@@ -747,6 +752,22 @@ namespace ForzaStudio
                     foreach (object[] row in to.Query("SELECT EngineID, MediaName, DriveTypeID FROM Data_Engine WHERE EngineID <= ? ORDER BY MediaName", GameIdLimits.Max(ForzaGame.Motorsport2, "Data_Engine", "EngineID")).Rows)
                     {
                         engines.Add(row);
+                    }
+                    // the makes the Make choice offers: FM2's (with their names)
+                    foreach (object[] row in to.Query("SELECT ID, DisplayName, ManufacturerCode FROM List_CarMake ORDER BY ID").Rows)
+                    {
+                        string name = (names2 != null) ? names2.Lookup("List_CarMake", "DisplayName", row[1] as string) : null;
+                        fm2Makes.Add(new object[] { Convert.ToInt64(row[0], CultureInfo.InvariantCulture), string.IsNullOrEmpty(name) ? Convert.ToString(row[2], CultureInfo.InvariantCulture) : name });
+                    }
+                }
+                // the source's makes, for the default of the Make choice ("the source's: RUF, added to FM2")
+                using (SqliteDatabase from = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(source))))
+                {
+                    StringTable names1 = StringTableOrNull(source);
+                    foreach (object[] row in from.Query("SELECT ID, DisplayName, ManufacturerCode FROM List_CarMake").Rows)
+                    {
+                        string name = (names1 != null) ? names1.Lookup("List_CarMake", "DisplayName", row[1] as string) : null;
+                        sourceMakes[Convert.ToInt64(row[0], CultureInfo.InvariantCulture)] = string.IsNullOrEmpty(name) ? Convert.ToString(row[2], CultureInfo.InvariantCulture) : name;
                     }
                 }
                 ReadCars(source, CarPortFm2Chain.FindDatabase(source), null, null, "", list);
@@ -854,6 +875,9 @@ namespace ForzaStudio
                     }
                     this.templateList = templateCars;
                     this.FillFm2Engines(engines);
+                    this.fm2MakeList = fm2Makes;
+                    this.sourceMakeNames = sourceMakes;
+                    this.ShowMake();
                     this.templates.Items.Clear();
                     this.soundCars.Items.Clear();
                     this.soundPicked = false;
@@ -897,7 +921,7 @@ namespace ForzaStudio
                 {
                     hasShort |= string.Equals(column, "ModelShort", StringComparison.OrdinalIgnoreCase);
                 }
-                foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year, " + (hasShort ? "ModelShort" : "NULL") + " FROM Data_Car ORDER BY Id").Rows)
+                foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year, " + (hasShort ? "ModelShort" : "NULL") + ", MakeID FROM Data_Car ORDER BY Id").Rows)
                 {
                     string media = row[1] as string;
                     if (media == null || (own != null && !own.Contains(media)))
@@ -924,6 +948,7 @@ namespace ForzaStudio
                     car.Pack = pack;
                     car.Dlc = label;
                     car.Traffic = horizon && CarPortFm3Form.IsTraffic(root, media, lazy);
+                    car.SourceMake = (row[5] == null || row[5] is DBNull) ? -1 : Convert.ToInt64(row[5], CultureInfo.InvariantCulture);
                     into.Add(car);
                 }
             }
@@ -1007,6 +1032,11 @@ namespace ForzaStudio
                 return;
             }
             car.RecordApplied = true;
+            if (car.Record.MakeId > 0)
+            {
+                car.MakeId = car.Record.MakeId;      // the Make chosen in the first port
+                this.ShowMake();
+            }
             int template = this.templateList.FindIndex(delegate(string[] one) { return string.Equals(one[0], car.Record.Template, StringComparison.OrdinalIgnoreCase); });
             if (template >= 0)
             {
@@ -1295,7 +1325,7 @@ namespace ForzaStudio
         // The database step on a copy of FM2's database in memory (nothing written): the rows FM2 cannot take, the makes,
         // part makers and cylinders it would get, before Install (user 2026-11-26). A new car is converted over its
         // template's rows, a port again over its own.
-        private static List<string> DryRunData(string sourceRoot, string sourceBase, string sourceMedia, string target, string onCar, List<Fm2CarbinModel.PlanPart> plan, ICollection<string> skip, List<CarDataToFm2.Fm2Swap> swaps, List<string[]> upgrades)
+        private static List<string> DryRunData(string sourceRoot, string sourceBase, string sourceMedia, string target, string onCar, List<Fm2CarbinModel.PlanPart> plan, ICollection<string> skip, List<CarDataToFm2.Fm2Swap> swaps, List<string[]> upgrades, long makeOverride)
         {
             List<string> lines = new List<string>();
             using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target))))
@@ -1336,7 +1366,10 @@ namespace ForzaStudio
                 CarDataToFm2 data = new CarDataToFm2();
                 try
                 {
-                    lookups.PrepareMake(Fm2LookupPort.SourceMake(source, sourceMedia));
+                    if (makeOverride <= 0)
+                    {
+                        lookups.PrepareMake(Fm2LookupPort.SourceMake(source, sourceMedia));   // a chosen Make: the source's is not added
+                    }
                     data.IdResolver = lookups.Resolve;
                     data.Target = db;
                     data.Source = source;
@@ -1345,6 +1378,7 @@ namespace ForzaStudio
                     data.ModelParts = parts;
                     data.Model = model;
                     data.Swaps = swaps;
+                    data.MakeOverride = makeOverride;
                     data.Run();
                 }
                 catch (Exception e)
@@ -1786,7 +1820,7 @@ namespace ForzaStudio
                 List<string> dryRun;
                 try
                 {
-                    dryRun = DryRunData(port.SourceRoot, (car.Pack != null) ? source : null, car.MediaName, target, (car.Fm2Id > 0) ? car.TargetMedia : template, plan, made.Skip, ChosenSwaps(made), made.Upgrades);
+                    dryRun = DryRunData(port.SourceRoot, (car.Pack != null) ? source : null, car.MediaName, target, (car.Fm2Id > 0) ? car.TargetMedia : template, plan, made.Skip, ChosenSwaps(made), made.Upgrades, car.MakeId);
                 }
                 catch (Exception e)
                 {
@@ -1908,6 +1942,7 @@ namespace ForzaStudio
                 useSoundOf = this.templateList[this.soundCars.SelectedIndex][0];
             }
             string soundLine = "\nEngine sound: " + ((useSoundOf == null) ? "ported from the source car" : "the FM2 sound of " + useSoundOf);
+            soundLine += "\nMake: " + this.makes.Text;
             bool again = car.Fm2Id > 0;
             string question = again
                 ? "Port " + car.Name + " again over FM2's car " + car.Fm2Id.ToString(CultureInfo.InvariantCulture) + " (" + car.TargetMedia + ")?\n\nFolder: " + target + "\nTemplate car: " + template + soundLine
@@ -1927,6 +1962,7 @@ namespace ForzaStudio
             Dictionary<string, string> carMaterials = new Dictionary<string, string>(current.CarMaterials, StringComparer.Ordinal);
             Dictionary<string, string> wheelMaterials = new Dictionary<string, string>(current.WheelMaterials, StringComparer.Ordinal);
             List<CarDataToFm2.Fm2Swap> swaps = ChosenSwaps(current);
+            long makeId = car.MakeId;
             this.status.Text = "Installing " + car.Name + "...";
             this.Background(delegate
             {
@@ -1951,6 +1987,7 @@ namespace ForzaStudio
                     chain.WheelMaterials = wheelMaterials;
                     chain.UseSoundOf = useSoundOf;
                     chain.Swaps = swaps;
+                    chain.MakeId = makeId;
                     chain.Progress = delegate(string step)
                     {
                         this.BeginInvoke((MethodInvoker) delegate { this.status.Text = car.Name + ": " + step; });

@@ -103,7 +103,19 @@ Each UI step is described to the user and gets a yes before it is built (`descri
      table Part / Level / Source / FM2 / Note from the dry run (`UpgradeTable`: the source tables the port converts from,
      `CarDataToFm2.SourceUpgradeRows`; levels lined up on the stock levels). Choices: the trial's, the install's
      (`CarPortFm2Chain.Swaps`) and the record's (`swaps=` / `swap=kind:value:level`).
-5. **Make** + New make for FM2.
+5. **Make** + New make for FM2. DONE 2026-11-27 (built, offline checks, app / game test pending):
+   - Window (`CarPortFm2Form.Makes.cs`): a Make choice beside the template: "the source's: <name> (id[, added to
+     FM2])" or any FM2 make; "+" opens `NewMakeForm` in its FM2 mode (name, code, country, profile, logo image; FM2's
+     countries only, no New country: FM2's country rows carry a flag symbol of its font; only "Create in the game", the
+     pack button comes with part C).
+   - `Fm2LookupPort`: `FreeMakeId` (above every make id of every Forza, GameIdLimits, and FM2's: 108 today),
+     `MakeSpecProblem` (id above 53 and free, name, code 2-4 [A-Z0-9] not used by FM2, an FM2 country, logo name not in
+     FM2's logos, logo image), `AddMake` (row, name / profile in every language, logo laid out as FM2's Acura logo via
+     the shared `PutLogo`); the window backs up gamedb.slt and the lookups' zips, then commits.
+   - `CarDataToFm2.MakeOverride` / `CarPortFm2Chain.MakeId` / record `make=`: a chosen make puts the car (and, through
+     `EngineMaker`, its engine rows) under it; the source's make is then not added (no `PrepareMake`, no country check).
+   - Offline (`reviewtest\mkt`, `dry2 make=13`, in memory, nothing written): make 108 TST with its strings and logo; bad
+     specs refused (code NIS, new country, id 40, logo Acura); R33 under make 13: Data_Car and the engine rows 13.
 6. **Uninstall...**.
 7. Source PI column.
 
