@@ -45,6 +45,8 @@ namespace ForzaStudio
         public List<string> RuleLog = new List<string>();     // every rule used, once
         public string LearnExclude;             // a MediaName left out of the learning (checks: the car converted is not its own teacher)
         public ICollection<string> ModelParts;  // the FM2 model's part names: a body kit upgrade whose part the model lacks is not ported (null: no check)
+        // (table, column, level, source value) -> the FM2 id of a lookup matched by meaning / name (Fm2LookupPort.Resolve), or null: the rules
+        public Func<string, string, string, object, object> IdResolver;
 
         // Body kit tables: the model part group, the stock row's PartsStringId (letter a) and the race part's id
         // (E:\DEV\fm4dev\PortToFM2\aeromap.cs on every FM2 and FM4 car: id = stock id + letter - 'a', the same in both games).
@@ -533,6 +535,16 @@ namespace ForzaStudio
 
         private object Convert2Core(string table, string column, string level, object source, object keep)
         {
+            // lookups matched by meaning / name and added when FM2 lacks them (Fm2LookupPort: cylinders, part makers)
+            if (this.IdResolver != null)
+            {
+                object resolved = this.IdResolver(table, column, level, source);
+                if (resolved != null)
+                {
+                    this.Note(table, column, level, "lookup: source " + Convert.ToString(source, CultureInfo.InvariantCulture) + " -> FM2 " + Convert.ToString(resolved, CultureInfo.InvariantCulture) + " (Fm2LookupPort)");
+                    return resolved;
+                }
+            }
             Rule rule = null;
             string used = null;
             foreach (string cls in (level == "stock") ? new string[] { level, "all" } : new string[] { level, "upg", "all" })

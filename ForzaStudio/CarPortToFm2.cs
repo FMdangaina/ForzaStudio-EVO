@@ -198,6 +198,7 @@ namespace ForzaStudio
             }
             this.MaskSet(source, target);
             this.VariantTextures(source, target, family);
+            this.PortShaderSettings(source, target);
             this.Save(target, targetZipPath);
 
             if (this.Wheel)
@@ -248,6 +249,158 @@ namespace ForzaStudio
                 }
             }
             this.Save(target, targetPath);
+        }
+
+        // ---- ShaderSettings.xml / ColorShaderSettings<n>.xml ----
+        // Per-car shader values by material: <ShaderSettings><material><Parameter value=".."/ or r g b a>. FM2 has the file on
+        // 116 of its 310 cars, FM4 / FM3 / FH on most; same layout in every game, and where FM2 and FM3 (FM4) give the same
+        // material the same parameter, the value is the same (E:\DEV\fm4dev\PortToFM2\shaderset, shaderparams, shadercmp:
+        // dirt 53 / 53, specular 50 / 51). User rule: nothing of the template car stays (2026-11-26, plan A1).
+        // So: the template's files are removed; the source's are kept with the materials the ported model uses (a material
+        // renamed by the user's choice keeps its settings under the new name) and the parameters FM2's own cars use; a file
+        // left empty is not written (as FM2's 194 cars without one).
+        private readonly HashSet<string> modelMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // The parameters FM2's own cars use in their ShaderSettings.xml (shaderparams.exe on FM2's 116 files, 2026-11-26). A
+        // fixed list, not read from the target folder: a DLC pack's stage holds a few cars only.
+        private static readonly HashSet<string> Fm2ShaderParameterNames = new HashSet<string>(new string[]
+        {
+            "DirtCylinderHeight", "DirtOffsetU", "DirtOffsetV", "DirtSpecularKillAmount", "DamageSpecularKillAmount",
+            "SpecularAmount", "SpecularPower", "SpecularColor", "SpecularAmount2", "SpecularPower2", "Specular2Scale", "Specular2Clamp",
+            "FresnelMin", "FresnelMax", "FresnelScale", "FresnelPower", "GlassMaxOpacity", "GlassColor",
+            "CubeMultiplier", "CubePower", "CubeScale", "TrackLightmapWVPS", "BrakeColor", "ReverseLightColor",
+            "GhostMinDistance", "GhostMaxDistance", "GrilleScale",
+            "CarbonFiberScale", "CarbonFiberEnvDampner", "CarbonFiberDiffuseColor", "CarbonFiberSpecularColor", "CarbonFiberSpecularColor2",
+            "CarbonFiberSpecularPower", "CarbonFiberSpecularPower2",
+            "PaintColor", "PaintScale", "ColorScale", "ColorClamp", "LiveryScale", "LiveryClamp", "FinalAlpha", "FinalScale",
+            "SHLowerScale", "SHUpperScale", "SHTransition", "SHTransitionWidth",
+            "TwoToneColor", "TwoTonePower", "TwoToneBias", "TwoToneScale", "MetalColor", "MetalPower", "MetalBias", "MetalScale",
+        }, StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsShaderSettings(string name)
+        {
+            string file = Path.GetFileName(name.Replace('/', '\\'));
+            return string.Equals(file, "ShaderSettings.xml", StringComparison.OrdinalIgnoreCase)
+                || (file.StartsWith("ColorShaderSettings", StringComparison.OrdinalIgnoreCase) && file.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static System.Xml.Linq.XElement ParseShader(byte[] data)
+        {
+            string text = Encoding.UTF8.GetString(data);
+            int start = text.IndexOf('<');
+            try
+            {
+                return (start < 0) ? null : System.Xml.Linq.XElement.Parse(text.Substring(start));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private void PortShaderSettings(ForzaZip source, ForzaZip target)
+        {
+            int removed = 0;
+            foreach (ForzaZip.Entry entry in target.Entries.ToArray())
+            {
+                if (!entry.IsDirectory && IsShaderSettings(entry.Name))
+                {
+                    target.Remove(entry);
+                    removed++;
+                }
+            }
+            HashSet<string> known = Fm2ShaderParameterNames;
+            List<string> written = new List<string>();
+            List<string> droppedNames = new List<string>();
+            int droppedParameters = 0, droppedMaterials = 0;
+            foreach (ForzaZip.Entry entry in source.Entries)
+            {
+                if (entry.IsDirectory || !IsShaderSettings(entry.Name))
+                {
+                    continue;
+                }
+                System.Xml.Linq.XElement root = ParseShader(source.Read(entry));
+                if (root == null)
+                {
+                    this.Log.Add("shader settings: " + entry.Name + " of the source could not be read, left out");
+                    continue;
+                }
+                System.Xml.Linq.XElement result = new System.Xml.Linq.XElement("ShaderSettings");
+                foreach (System.Xml.Linq.XElement material in root.Elements())
+                {
+                    string name = material.Name.LocalName, renamed;
+                    if (this.CarMaterials != null && this.CarMaterials.TryGetValue(name, out renamed) && !string.IsNullOrEmpty(renamed))
+                    {
+                        name = renamed;
+                    }
+                    if (!this.modelMaterials.Contains(name))
+                    {
+                        droppedMaterials++;
+                        if (!droppedNames.Contains(name))
+                        {
+                            droppedNames.Add(name);
+                        }
+                        continue;
+                    }
+                    System.Xml.Linq.XElement into = result.Element(name);
+                    if (into == null)
+                    {
+                        into = new System.Xml.Linq.XElement(name);
+                        result.Add(into);
+                    }
+                    foreach (System.Xml.Linq.XElement parameter in material.Elements())
+                    {
+                        if (!known.Contains(parameter.Name.LocalName) || into.Element(parameter.Name.LocalName) != null)
+                        {
+                            droppedParameters++;
+                            continue;
+                        }
+                        into.Add(Fm2Parameter(parameter));
+                    }
+                    if (!into.HasElements)
+                    {
+                        into.Remove();
+                    }
+                }
+                if (!result.HasElements)
+                {
+                    continue;
+                }
+                string file = Path.GetFileName(entry.Name.Replace('/', '\\'));
+                file = file.StartsWith("Color", StringComparison.OrdinalIgnoreCase) ? "ColorShaderSettings" + file.Substring("ColorShaderSettings".Length) : "ShaderSettings.xml";
+                target.Add(file, Encoding.ASCII.GetBytes(result.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n") + "\r\n"));
+                int materials = 0;
+                foreach (System.Xml.Linq.XElement one in result.Elements())
+                {
+                    materials++;
+                }
+                written.Add(file + " (" + materials + " materials)");
+            }
+            this.Log.Add(string.Format(CultureInfo.InvariantCulture, "shader settings: the template's {0} file(s) removed; from the source: {1}; left out {2} material(s) the model does not use{3} and {4} parameter(s) FM2's cars do not use",
+                removed, written.Count == 0 ? "none (no file, as 194 of FM2's 310 cars)" : string.Join(", ", written.ToArray()), droppedMaterials,
+                droppedNames.Count == 0 ? "" : " (" + string.Join(", ", droppedNames.ToArray()) + ")", droppedParameters));
+        }
+
+        // A parameter in FM2's layout: colours as r g b a (some source files give a b g r), values as written.
+        private static System.Xml.Linq.XElement Fm2Parameter(System.Xml.Linq.XElement parameter)
+        {
+            System.Xml.Linq.XElement copy = new System.Xml.Linq.XElement(parameter.Name.LocalName);
+            if (parameter.Attribute("r") != null && parameter.Attribute("g") != null && parameter.Attribute("b") != null)
+            {
+                foreach (string channel in new string[] { "r", "g", "b", "a" })
+                {
+                    if (parameter.Attribute(channel) != null)
+                    {
+                        copy.SetAttributeValue(channel, parameter.Attribute(channel).Value);
+                    }
+                }
+                return copy;
+            }
+            foreach (System.Xml.Linq.XAttribute attribute in parameter.Attributes())
+            {
+                copy.SetAttributeValue(attribute.Name.LocalName, attribute.Value);
+            }
+            return copy;
         }
 
         private static ForzaZip.Entry FindEntry(ForzaZip zip, string name)
@@ -338,9 +491,14 @@ namespace ForzaStudio
             if (car)
             {
                 this.ModelParts.Clear();
+                this.modelMaterials.Clear();
                 foreach (Fm2CarbinModel.Part part in model.Parts)
                 {
                     this.ModelParts.Add(part.Name);
+                    foreach (Fm2CarbinModel.Mesh mesh in part.Meshes)
+                    {
+                        this.modelMaterials.Add(mesh.MaterialName);
+                    }
                 }
             }
             List<string> problems = new Fm2CarbinModel(bytes).Check();
@@ -591,6 +749,44 @@ namespace ForzaStudio
         // the same Misc and box values, PosScale / RadiusScale and spheres; FM4 / FH add small corner spheres (Flags="1": 12
         // to 16 of them) that FM2 has not, and FM2 writes no Flags. FM2's BoundingBox MinY is the body's bottom, not the
         // tires' (FM4: about - ride height): the lowest sphere (PosY - Radius) on 26 of 40 cars, used here.
+        // FM2's collision spheres as its cars have them: 308 of its 310 cars have 20, laid out the same way in their bounding box
+        // (shtest\sph.cs, 2026-11-26). Medians of x / half width, (y - MinY) / height, (z - MinZ) / length, radius / height of the
+        // right side (the steadier one), mirrored for the left, and the two centre spheres; in FM2's order (left low chain front
+        // to rear, left roof, front and rear centre, right roof, right low chain rear to front).
+        private static readonly double[][] Fm2SphereLayout = new double[][]
+        {
+            new double[] { -0.62, 0.30, 0.92, 0.24 }, new double[] { -0.64, 0.41, 0.79, 0.34 }, new double[] { -0.63, 0.41, 0.61, 0.40 },
+            new double[] { -0.64, 0.43, 0.40, 0.41 }, new double[] { -0.64, 0.43, 0.21, 0.37 }, new double[] { -0.61, 0.38, 0.08, 0.27 },
+            new double[] { -0.51, 0.85, 0.32, 0.15 }, new double[] { -0.54, 0.86, 0.53, 0.13 }, new double[] { -0.61, 0.72, 0.07, 0.15 },
+            new double[] { 0.00, 0.35, 0.91, 0.31 }, new double[] { 0.00, 0.43, 0.09, 0.31 },
+            new double[] { 0.61, 0.72, 0.07, 0.15 }, new double[] { 0.54, 0.86, 0.53, 0.13 }, new double[] { 0.51, 0.85, 0.32, 0.15 },
+            new double[] { 0.61, 0.38, 0.08, 0.27 }, new double[] { 0.64, 0.43, 0.21, 0.37 }, new double[] { 0.64, 0.43, 0.40, 0.41 },
+            new double[] { 0.63, 0.41, 0.61, 0.40 }, new double[] { 0.64, 0.41, 0.79, 0.34 }, new double[] { 0.62, 0.30, 0.92, 0.24 },
+        };
+
+        // The 20 spheres of FM2's layout in the car's bounding box; returns the lowest sphere bottom.
+        private static double Fm2TypicalSpheres(System.Xml.XmlDocument doc, System.Xml.XmlElement spheres, System.Xml.XmlElement box, List<string> log)
+        {
+            double minX = double.Parse(box.GetAttribute("MinX"), CultureInfo.InvariantCulture), maxX = double.Parse(box.GetAttribute("MaxX"), CultureInfo.InvariantCulture);
+            double minY = double.Parse(box.GetAttribute("MinY"), CultureInfo.InvariantCulture), maxY = double.Parse(box.GetAttribute("MaxY"), CultureInfo.InvariantCulture);
+            double minZ = double.Parse(box.GetAttribute("MinZ"), CultureInfo.InvariantCulture), maxZ = double.Parse(box.GetAttribute("MaxZ"), CultureInfo.InvariantCulture);
+            double half = (maxX - minX) / 2, centre = (maxX + minX) / 2, height = maxY - minY, length = maxZ - minZ, lowest = double.MaxValue;
+            for (int i = 0; i < Fm2SphereLayout.Length; i++)
+            {
+                double[] s = Fm2SphereLayout[i];
+                double radius = s[3] * height, y = minY + s[1] * height;
+                System.Xml.XmlElement sphere = doc.CreateElement("Sphere" + i);
+                sphere.SetAttribute("Radius", radius.ToString("0.000000", CultureInfo.InvariantCulture));
+                sphere.SetAttribute("PosX", (centre + s[0] * half).ToString("0.000000", CultureInfo.InvariantCulture));
+                sphere.SetAttribute("PosY", y.ToString("0.000000", CultureInfo.InvariantCulture));
+                sphere.SetAttribute("PosZ", (minZ + s[2] * length).ToString("0.000000", CultureInfo.InvariantCulture));
+                spheres.AppendChild(sphere);
+                lowest = Math.Min(lowest, y - radius);
+            }
+            log.Add("MAXData.xml: COLLISIONS FIXED AUTOMATICALLY: no valid sphere was left, FM2's typical 20 spheres (its 308 cars' layout) laid out in the car's bounding box");
+            return lowest;
+        }
+
         public static byte[] MaxDataToFm2(byte[] data, List<string> log)
         {
             System.Xml.XmlDocument doc = new System.Xml.XmlDocument();
@@ -609,11 +805,18 @@ namespace ForzaStudio
                         all.Add((System.Xml.XmlElement) node);
                     }
                 }
+                // Flags 1 = FM4 / FH's small corner spheres (left out); 2 and 3 are kept. An FH1 traffic car (Focus ZX4,
+                // FM2 car 676, crashed the game on selection 2026-11-26) has only 4 spheres, all Flags 3: dropping all but 2
+                // left an empty CollSpheres (44 FH1 cars, 2 FH2 cars; focus676\spheres harness).
                 foreach (System.Xml.XmlElement sphere in all)
                 {
                     string flags = sphere.GetAttribute("Flags");
+                    int value;
                     spheres.RemoveChild(sphere);
-                    if (flags.Length > 0 && flags != "2")
+                    double radiusValue, y;
+                    if ((flags.Length > 0 && !(int.TryParse(flags, NumberStyles.Integer, CultureInfo.InvariantCulture, out value) && (value & 2) != 0))
+                        || !double.TryParse(sphere.GetAttribute("Radius"), NumberStyles.Float, CultureInfo.InvariantCulture, out radiusValue) || !(radiusValue > 0) || double.IsInfinity(radiusValue)
+                        || !double.TryParse(sphere.GetAttribute("PosY"), NumberStyles.Float, CultureInfo.InvariantCulture, out y) || double.IsNaN(y))
                     {
                         dropped++;
                         continue;
@@ -632,6 +835,30 @@ namespace ForzaStudio
             {
                 log.Add(string.Format(CultureInfo.InvariantCulture, "MAXData.xml: BoundingBox MinY {0} -> {1:0.000000} (the lowest sphere: FM2's box has the body's bottom)", box.GetAttribute("MinY"), lowest));
                 box.SetAttribute("MinY", lowest.ToString("0.000000", CultureInfo.InvariantCulture));
+            }
+            // Invalid: no sphere left, or FH's placeholder (4 spheres of r 0.375 at the wheel corners: fewer than 10, the
+            // FM4 port's test, CarPort.PlaceholderSpheres; FM2 cars have 20). User rule 2026-11-26: collisions found invalid
+            // are fixed automatically (FM2, FM3, FM4).
+            if (spheres != null && kept < 10 && box != null)
+            {
+                while (spheres.FirstChild != null)
+                {
+                    spheres.RemoveChild(spheres.FirstChild);
+                }
+                if (kept > 0)
+                {
+                    log.Add(string.Format(CultureInfo.InvariantCulture, "MAXData.xml: the source has a placeholder collision ({0} spheres)", kept));
+                }
+                lowest = Fm2TypicalSpheres(doc, spheres, box, log);
+                kept = spheres.ChildNodes.Count;
+                if (lowest < double.MaxValue)
+                {
+                    box.SetAttribute("MinY", lowest.ToString("0.000000", CultureInfo.InvariantCulture));
+                }
+            }
+            if (spheres != null && kept == 0)
+            {
+                throw new InvalidOperationException("MAXData.xml: no collision sphere left for FM2 (" + dropped + " left out) and no bounding box to build them in: an FM2 car without spheres crashes the game.");
             }
             log.Add(string.Format("MAXData.xml: from the source, {0} spheres kept, {1} small spheres (Flags 1) left out", kept, dropped));
             StringBuilder text = new StringBuilder();

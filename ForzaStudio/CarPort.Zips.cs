@@ -665,13 +665,10 @@ namespace ForzaStudio
             {
                 return;
             }
-            if (!this.traffic)
-            {
-                // Driveable FH1 cars have it too (AUD_R8GT_11, MER_S65AMG_12, NIS_GTR_12... 26 of the 44),
-                // ported and working: left as it is (decided by the user 2026-10-18, traffic cars only).
-                this.Line("  collision: a placeholder of {0} spheres in the source; kept (only traffic cars get it rebuilt)", spheres.ChildNodes.Count);
-                return;
-            }
+            // Driveable FH1 cars have it too (AUD_R8GT_11, MER_S65AMG_12, NIS_GTR_12... 26 of the 44): left as they were
+            // until 2026-11-26 (user decision 2026-10-18, traffic cars only); then the user rule "collisions found invalid
+            // are fixed automatically, FM2 / FM3 / FM4" ("sì a tutto"): every placeholder is rebuilt.
+            this.Line("  collision: a placeholder of {0} spheres in the source{1}: rebuilt automatically", spheres.ChildNodes.Count, this.traffic ? " (traffic car)" : "");
             CarbinModel.Section body = new CarbinModel(car.Read(main)).Find("body");
             if (body == null)
             {

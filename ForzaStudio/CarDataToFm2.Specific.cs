@@ -279,10 +279,24 @@ namespace ForzaStudio
         }
 
         // The stock wheel row (List_Wheels) Duplicate Car copied from the template: its Mass is the source wheel's. Only a
-        // wheel no other FM2 car uses as its stock wheel (the wheel port gives the car its own). IconPath stays (FM2 has no
-        // picture of the source rim).
+        // wheel no other FM2 car uses as its stock wheel (the wheel port gives the car its own).
+        // IconPath: FM2's is ...\Licensed_Rims\<the wheel's own MediaName>.tga on 373 of 373 wheels, and a picture exists for 1
+        // of its 282 stock wheels (E:\DEV\fm4dev\PortToFM2\shtest\wh2.cs, 2026-11-26): the path is made from the wheel's own
+        // name, so the template rim's picture path does not stay (user rule: nothing of the template).
         private void WheelMass()
         {
+            object ownWheel = this.Target.Scalar("SELECT StockWheelID FROM Data_Car WHERE Id = ?", this.Car);
+            if (ownWheel != null && Convert.ToInt64(this.Target.Scalar("SELECT COUNT(*) FROM Data_Car WHERE StockWheelID = ?", ownWheel), CultureInfo.InvariantCulture) == 1)
+            {
+                object media = this.Target.Scalar("SELECT MediaName FROM List_Wheels WHERE ID = ?", ownWheel);
+                object icon = this.Target.Scalar("SELECT IconPath FROM List_Wheels WHERE ID = ?", ownWheel);
+                if (media is string && icon is string && ((string) icon).IndexOf('\\') >= 0)
+                {
+                    string path = ((string) icon).Substring(0, ((string) icon).LastIndexOf('\\') + 1) + (string) media + ".tga";
+                    this.Target.Execute("UPDATE List_Wheels SET IconPath = ? WHERE ID = ?", path, ownWheel);
+                    this.Note("List_Wheels", "IconPath", "stock", "the wheel's own name, as FM2's 373 wheels: " + path);
+                }
+            }
             object fm2Wheel = this.Target.Scalar("SELECT StockWheelID FROM Data_Car WHERE Id = ?", this.Car);
             object mass = this.Source.Scalar("SELECT w.Mass FROM Data_Car c JOIN List_Wheels w ON w.ID = c.StockWheelID WHERE c.Id = ?", this.SourceCar);
             if (fm2Wheel == null || mass == null || mass is DBNull

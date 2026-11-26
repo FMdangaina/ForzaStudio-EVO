@@ -71,5 +71,43 @@ Each UI step is described to the user and gets a yes before it is built (`descri
 3. `BuildFolderFm2` extended with HarmonicTuning and `Soundbanks\LOD1/LOD2` (DLCBeta's layout) for "Port sound".
 4. Later: Add to existing package, Xbox 360.
 
+### A done in code (2026-11-26, built, trial-folder / dry-run checks; DEV rewrite of the ported cars pending)
+
+- **A1 ShaderSettings** (`CarPortToFm2.PortShaderSettings`): FM2 has the file on 116 of 310 cars; same layout in every
+  game; where FM2 and FM3 give the same material the same parameter the value is the same (53 / 53, 50 / 51). The
+  template's ShaderSettings / ColorShaderSettings<n> are removed; the source's kept with the materials the ported model
+  uses (renamed ones under the new name) and the 54 parameters FM2's cars use; nothing left = no file.
+  ColorShaderSettings<n> follows the colour's Sequence, which the port keeps.
+- **A2 makes** (`Fm2LookupPort.PrepareMake`, user "come FM3"): make ids are the same in every Forza; FM2 has 1-53. A
+  make FM2 lacks gets its row on the source's id, name / profile in every language, and the logo in FM2's one folder
+  (`L_Map/Manufacturer_Logos`, laid out as FM2's, margins cut). Holden / Joss (Australia, FM2 has no such country: its
+  rows carry a flag font Symbol) are refused before anything is written. H1 663 was Nissan, Yellowbird 675 Porsche.
+- **A3**:
+  - `List_Wheels.IconPath` = `...\Licensed_Rims\<own wheel>.tga` (FM2: 373 of 373; a picture exists for 1 of 282
+    stock wheels).
+  - **Cylinders** by Number + Rotors (FM4 10 electric / 11 inline 3 / 12 four rotors vs FM2 10 four rotors): 787B was
+    a V8, 107 a four. FM2 lacks the inline 3: row 11 added with its description.
+  - **Part makers** by name (224 ids same name, 55 another name, FM2 lacks 290): a trailing "(Japan)" is left aside,
+    a source "Forza ..." is FM2's "Forza" (35), a maker FM2 lacks (URAS, RUF, Peugeot, Nissan...) gets a row and its
+    logo as the next `decal<n>`.
+  - `CarDataToFm2.IdResolver` hands CylinderID, upgrade ManufacturerID and Data_Car.MakeID to `Fm2LookupPort.Resolve`.
+- **Collisions** (user rule 2026-11-26: invalid collisions are fixed automatically, FM2 / FM3 / FM4):
+  - FM2: spheres with Flags 2 or 3 are kept, only Flags 1 is dropped. The FH1 Focus ZX4 676 crashed FM2 on selection
+    with an empty CollSpheres; 44 FH1 and 2 FH2 cars had only Flags 3.
+  - FM2: no valid sphere, or FH's placeholder (fewer than 10), gives FM2's typical 20 spheres in the car's box: the
+    medians of its 308 cars with 20 (`shtest\sph.cs`).
+  - FM4 / FM3: the FM4 port already rebuilds the placeholder, but on traffic cars only (user decision 2026-10-18).
+    Whether driveable cars too is asked to the user.
+- **FM4 / FM3 placeholder collisions**: user "sì a tutto": `CarPort.ReplacePlaceholderCollision` now rebuilds every
+  placeholder, driveable cars too (the 2026-10-18 traffic-only decision is replaced).
+- **DEV rewrite 2026-11-26** (`swayfix\report_all.ps1`: `port2` with the original template found by `tplfind` from
+  the install backups, then `data3` = the chain's database step with the lookups): all 17 ported cars 660-676, integrity
+  OK. R33 (`skip=bumperFb`), Cobalt (its 8 front bumpers out) and RS4 (its 5 material choices) re-run with the original
+  choices. Results: H1 Hummer, Yellowbird RUF, 107 3 cylinders (row 11), 787B 4 rotors (FM2's 10), Focus 676 20 spheres
+  (fixed automatically), part makers added (Nissan, ABT Sportsline, Audi, H&R Europe, Ford, Chevrolet, Peugeot, URAS, BMW,
+  Mazda, RUF...). In game: user.
+- **787B 674 brakes** (agent, `brakes674\`): the wheel's spoke face starts 0.146 m deep (FM2's deepest 0.076): test
+  `List_Wheels.BrakeDrawOffset` -0.05 / -0.10 / -0.15 in game, then make it a port rule.
+
 **D. FM3 window** (what FM4 has and FM3 lacks): Uninstall, First car id, the pack remembered, Add to existing package,
 Upgrades editable (swaps, drive type), source PI column.

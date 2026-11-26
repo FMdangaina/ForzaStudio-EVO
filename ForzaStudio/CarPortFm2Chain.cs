@@ -156,6 +156,16 @@ namespace ForzaStudio
                 throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture,
                     "The car does not fit FM2's 65536 vertices per buffer ({0} see-through, {1} opaque): leave more variants out.", seeThrough, opaque));
             }
+            // the car's make: FM2 must have it or be able to take it (Fm2LookupPort), before anything is written
+            using (SqliteDatabase source = SqliteDatabase.FromBytes(File.ReadAllBytes(FindDatabase(this.SourceRoot))))
+            using (SqliteDatabase target = SqliteDatabase.FromBytes(File.ReadAllBytes(dbPath)))
+            {
+                string makeProblem = Fm2LookupPort.MakeProblem(source, target, Fm2LookupPort.SourceMake(source, this.SourceMediaName));
+                if (makeProblem != null)
+                {
+                    throw new InvalidOperationException("The car's make cannot go into FM2: " + makeProblem + ". Nothing was written.");
+                }
+            }
 
             // 1. the copy of the template
             {
@@ -227,7 +237,25 @@ namespace ForzaStudio
                 {
                     parts.Add(part.Name);
                 }
+                // lookups FM2 lacks (make, cylinders, part makers): rows into the database being converted, so the car keeps
+                // the source's meaning; strings and logos are written after the check
+                Fm2LookupPort lookups = new Fm2LookupPort();
+                lookups.SourceRoot = this.SourceRoot;
+                lookups.SourceFallbackRoot = this.SourceBaseRoot;
+                lookups.TargetRoot = this.TargetRoot;
+                lookups.BackupFolder = backup;
+                lookups.Begin(source, db);
+                try
+                {
+                    lookups.PrepareMake(Fm2LookupPort.SourceMake(source, this.SourceMediaName));
+                }
+                finally
+                {
+                    this.Log.AddRange(lookups.Log);
+                    lookups.Log.Clear();
+                }
                 CarDataToFm2 data = new CarDataToFm2();
+                data.IdResolver = lookups.Resolve;
                 data.Target = db;
                 data.Source = source;
                 data.Car = car;
@@ -280,6 +308,8 @@ namespace ForzaStudio
                     Directory.CreateDirectory(backup);
                     File.WriteAllBytes(Path.Combine(backup, "gamedb_before_data.slt"), bytes);
                 }
+                lookups.Commit();
+                this.Log.AddRange(lookups.Log);
                 File.WriteAllBytes(dbPath, db.ToBytes());
             }
             this.Log.Add("== step 3 of 4 done: database");
