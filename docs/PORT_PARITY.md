@@ -281,3 +281,15 @@ Upgrades editable (swaps, drive type), source PI column.
   1416: merge check OK, 47 files added, strings pri_252, mask `(1413,1416)`, one MultiDiscContentPacks row. The check
   refused (nothing written) the trials made without the first pack installed: their ids clashed, as they should.
 
+
+**Real runs + CarUninstall FM3 fix (2026-11-27)** (harness `E:\DEV\fm4dev\PortToFM2\realrun`, user "fai tutti e 4 i passi"):
+- FM2 DEV Focus 676 Port Again: Layer_1.xds gone, car 676 kept (no material choices in its record: 12 materials to choose).
+- Xenia FM2 `DLC9` "ForzaStudio EVO test FM2": Sesto Elemento 678 + BMW 1M 679 (Add To Package); Xbox file in
+  `realrun\xbox`. Xenia FM3 `4D53084D0CCF006F` (offer 111): Skyline 1321 (swap 195 out, FM3 engine 300 in) + Corvette 1323
+  (RWD -> AWD, Add To Package). In game: user.
+- FM3 DEV install + Uninstall of MAZ_2_11_FM4 found that `CarUninstall` (FM2 / FM3 path, `CarUninstall.Copy.cs`) left behind:
+  the drivetrain the port copied with its 16 part rows ("used" by its own clutch), `<car>_ET.xml`, the harmonic tunings the
+  port added, the dash zip and its UI4/Dashboards images. Fixed: drivetrain parts hang off their drivetrain (`IsDependent`),
+  `Fm3SoundAndDash` (car ET, HTs no remaining ET names, banks no remaining HT names, dash zip + images). Run again: the
+  database and every file as before the install, but the two banks, which FM3's own harmonic tunings name (kept by the
+  rule; the test copies were taken out by hand, copies in `realrun\bak\after_uninstall`).

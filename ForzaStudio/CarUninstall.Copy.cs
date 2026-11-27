@@ -61,6 +61,7 @@ namespace ForzaStudio
                 Dictionary<string, List<string>> schema = DbIds.Schema(db);
                 this.uninstallGame = game;
                 this.uninstallSchema = schema;
+                this.uninstallDashes.Clear();
                 List<GameDbSchema.Relation> relations = GameDbSchema.For(game).FindAll(delegate(GameDbSchema.Relation r)
                 {
                     return !r.IsComposite && schema.ContainsKey(r.Table) && schema.ContainsKey(r.Target)
@@ -208,6 +209,10 @@ namespace ForzaStudio
                         this.RemoveEntryAnyCase(Path.Combine(Path.Combine(audio, "Engines"), "EngineTuning.zip"), engine.Value + "_ET.xml", changed, plan);
                     }
                 }
+                if (game != ForzaGame.Motorsport2)
+                {
+                    this.Fm3SoundAndDash(db, changed, deleted, plan);
+                }
 
                 if (!apply)
                 {
@@ -277,6 +282,16 @@ namespace ForzaStudio
                 foreach (object[] row in db.Query("SELECT EngineID, MediaName FROM Data_Engine WHERE " + where).Rows)
                 {
                     engineMedia[Convert.ToInt64(row[0], CultureInfo.InvariantCulture)] = row[1] as string;
+                }
+            }
+            if (string.Equals(table, "List_DigitalGauges", StringComparison.OrdinalIgnoreCase) && Has(this.uninstallSchema[table], "MediaName"))
+            {
+                foreach (object[] row in db.Query("SELECT MediaName FROM List_DigitalGauges WHERE " + where).Rows)
+                {
+                    if (row[0] is string)
+                    {
+                        this.uninstallDashes.Add((string) row[0]);   // FM3: Media\DigitalGauges\<MediaName>.zip (CarPortToFm3.PortDash)
+                    }
                 }
             }
             return this.Delete(db, table, where, apply, plan);
@@ -412,6 +427,131 @@ namespace ForzaStudio
 
         private ForzaGame uninstallGame;
         private Dictionary<string, List<string>> uninstallSchema;
+        private readonly List<string> uninstallDashes = new List<string>();     // List_DigitalGauges.MediaName of the rows that went
+
+        // FM3 (docs/PORT_PARITY.md, real run 2026-11-27: a ported car's uninstall left these behind): what CarPortToFm3 wrote for
+        // the car besides its own engine's <engine>_ET.xml:
+        //   - <car>_ET.xml (the FM3 name's engine tuning) when no engine has that MediaName;
+        //   - the harmonic tunings (Engines\HarmonicTuning.zip) the removed ETs named and no remaining ET names, then the sound
+        //     banks (Engines\Soundbanks\...\<bank>.fsb) those named and no remaining harmonic tuning names: the port added them
+        //     from FM4 when FM3 lacked them; one FM3 or another car still uses stays;
+        //   - the dash: Media\DigitalGauges\<gauge MediaName>.zip of a List_DigitalGauges row that went, and its images
+        //     UI4/Dashboards/<car>/ in UI\Textures.zip.
+        private void Fm3SoundAndDash(SqliteDatabase db, Dictionary<string, ForzaZip> changed, List<string> deleted, List<string> plan)
+        {
+            string engines = Path.Combine(Path.Combine(Path.Combine(this.Media, "Audio"), "Cars"), "Engines");
+            string etPath = FindFile(engines, "EngineTuning.zip");
+            if (etPath != null && Convert.ToInt64(db.Scalar("SELECT count(*) FROM Data_Engine WHERE MediaName = ? COLLATE NOCASE", this.MediaName), CultureInfo.InvariantCulture) == 0)
+            {
+                this.RemoveEntry(etPath, this.MediaName + "_ET.xml", changed, plan);
+            }
+            System.Text.RegularExpressions.Regex htName = new System.Text.RegularExpressions.Regex("\"([^\"<>]+_HT\\.xml)\"", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            System.Text.RegularExpressions.Regex bankName = new System.Text.RegularExpressions.Regex("Soundbank\\s+name=\"([^\"]+)\"", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            HashSet<string> hts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (etPath != null)
+            {
+                ForzaZip before = new ForzaZip(etPath);
+                ForzaZip now = Open(etPath, changed, false);
+                HashSet<string> left = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (ForzaZip.Entry entry in now.Entries)
+                {
+                    left.Add(entry.Name);
+                }
+                foreach (ForzaZip.Entry entry in before.Entries)
+                {
+                    if (!left.Contains(entry.Name) && !entry.IsDirectory)
+                    {
+                        foreach (System.Text.RegularExpressions.Match m in htName.Matches(System.Text.Encoding.UTF8.GetString(before.Read(entry))))
+                        {
+                            hts.Add(m.Groups[1].Value);
+                        }
+                    }
+                }
+                if (hts.Count > 0)
+                {
+                    foreach (ForzaZip.Entry entry in now.Entries)
+                    {
+                        if (!entry.IsDirectory)
+                        {
+                            foreach (System.Text.RegularExpressions.Match m in htName.Matches(System.Text.Encoding.UTF8.GetString(now.Read(entry))))
+                            {
+                                hts.Remove(m.Groups[1].Value);   // another engine's tuning still uses it
+                            }
+                        }
+                    }
+                }
+            }
+            string htPath = FindFile(engines, "HarmonicTuning.zip");
+            HashSet<string> banks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (htPath != null && hts.Count > 0)
+            {
+                ForzaZip htZip = Open(htPath, changed, false);
+                foreach (string ht in hts)
+                {
+                    ForzaZip.Entry entry = htZip.Find(ht);
+                    if (entry != null)
+                    {
+                        foreach (System.Text.RegularExpressions.Match m in bankName.Matches(System.Text.Encoding.UTF8.GetString(htZip.Read(entry))))
+                        {
+                            banks.Add(m.Groups[1].Value);
+                        }
+                        this.RemoveEntry(htPath, ht, changed, plan);
+                        htZip = Open(htPath, changed, false);
+                    }
+                }
+                if (banks.Count > 0)
+                {
+                    foreach (ForzaZip.Entry entry in htZip.Entries)
+                    {
+                        if (!entry.IsDirectory)
+                        {
+                            foreach (System.Text.RegularExpressions.Match m in bankName.Matches(System.Text.Encoding.UTF8.GetString(htZip.Read(entry))))
+                            {
+                                banks.Remove(m.Groups[1].Value);   // a remaining harmonic tuning still plays it
+                            }
+                        }
+                    }
+                }
+            }
+            string soundbanks = Path.Combine(engines, "Soundbanks");
+            if (banks.Count > 0 && Directory.Exists(soundbanks))
+            {
+                foreach (string file in Directory.GetFiles(soundbanks, "*.fsb", SearchOption.AllDirectories))
+                {
+                    if (banks.Contains(Path.GetFileName(file)) && !deleted.Contains(file))
+                    {
+                        deleted.Add(file);
+                        plan.Add("file " + this.Relative(file));
+                    }
+                }
+            }
+            foreach (string dash in this.uninstallDashes)
+            {
+                string path = FindFile(Path.Combine(this.Media, "DigitalGauges"), dash + ".zip");
+                if (path != null && Convert.ToInt64(db.Scalar("SELECT count(*) FROM List_DigitalGauges WHERE MediaName = ? COLLATE NOCASE", dash), CultureInfo.InvariantCulture) == 0 && !deleted.Contains(path))
+                {
+                    deleted.Add(path);
+                    plan.Add("file " + this.Relative(path));
+                }
+            }
+            string textures = FindFile(Path.Combine(this.Media, "UI"), "Textures.zip");
+            if (textures != null)
+            {
+                string folder = "UI4/Dashboards/" + this.MediaName + "/";
+                List<string> images = new List<string>();
+                foreach (ForzaZip.Entry entry in Open(textures, changed, false).Entries)
+                {
+                    if (entry.Name.Replace('\\', '/').StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+                    {
+                        images.Add(entry.Name);
+                    }
+                }
+                foreach (string image in images)
+                {
+                    this.RemoveEntry(textures, image, changed, plan);
+                }
+            }
+        }
 
         // A row that hangs off what it points at and goes with it: an extension of the target (the pointing column is the
         // row's own key: WheelNormOffsets.Id -> List_Wheels.ID), or an engine part of an engine (List_UpgradeEngine* without a
@@ -426,6 +566,13 @@ namespace ForzaStudio
             // an engine's parts (List_UpgradeEngine* without a car column) and its torque curves (FM2 / FM3 List_TorqueCurve.EngineID)
             if (string.Equals(relation.Target, "Data_Engine", StringComparison.OrdinalIgnoreCase) && string.Equals(relation.Column, "EngineID", StringComparison.OrdinalIgnoreCase)
                 && !Has(columns, "Ordinal") && (relation.Table.StartsWith("List_UpgradeEngine", StringComparison.OrdinalIgnoreCase) || string.Equals(relation.Table, "List_TorqueCurve", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+            // a drivetrain's parts (FM3 / FM4 List_UpgradeDrivetrainClutch / Differential / Driveline / Transmission, no car column):
+            // without this the drivetrain a port copied stayed with its 16 part rows, "used" by its own clutch (2026-11-27)
+            if (string.Equals(relation.Target, "Data_Drivetrain", StringComparison.OrdinalIgnoreCase) && string.Equals(relation.Column, "DrivetrainID", StringComparison.OrdinalIgnoreCase)
+                && !Has(columns, "Ordinal") && relation.Table.StartsWith("List_UpgradeDrivetrain", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
