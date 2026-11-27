@@ -378,6 +378,13 @@ namespace ForzaStudio
         // string tables and the zip manifest are the pack's own files.
         private static void CopyPortedFilesFm3(string targetRoot, string trialRoot, string loose, StringBuilder report)
         {
+            CopyPortedFilesFm3(targetRoot, trialRoot, loose, report, false);
+        }
+
+        // changedToo: a loose file the game has too goes in when its bytes differ (FM2 port stage: an engine's sound banks
+        // Soundbanks\LOD1 / LOD2 written again under a name the game folder already has).
+        private static void CopyPortedFilesFm3(string targetRoot, string trialRoot, string loose, StringBuilder report, bool changedToo)
+        {
             string trialMedia = Path.Combine(trialRoot, "Media");
             string targetMedia = Path.Combine(targetRoot, "Media");
             int files = 0;
@@ -416,7 +423,7 @@ namespace ForzaStudio
                         files += count;
                     }
                 }
-                else if (!File.Exists(targetFile))
+                else if (!File.Exists(targetFile) || (changedToo && !SameBytes(file, targetFile)))
                 {
                     string path = Path.Combine(loose, relative);
                     Directory.CreateDirectory(Path.GetDirectoryName(path));

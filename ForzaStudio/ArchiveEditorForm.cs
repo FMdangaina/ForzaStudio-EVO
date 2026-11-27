@@ -264,7 +264,7 @@
             }
             if (targetGame == "FM2")
             {
-                new CarPortFm2Form().Show(this);    // import only: PortPairs has no DLC package for FM2
+                new CarPortFm2Form(mode).Show(this);
                 return;
             }
             string root = (this.zip == null) ? null : GamePaths.FindRoot(this.zip.FilePath);

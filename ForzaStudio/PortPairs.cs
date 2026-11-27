@@ -25,7 +25,8 @@ namespace ForzaStudio
         };
 
         // Targets whose Create DLC Package exists.
-        private static readonly string[] DlcTargets = { "FM4", "FM3" };
+        // FM2: CarPortFm2Form in DLC mode (port first, then Into DLC; docs/PORT_PARITY.md C), 2026-11-27.
+        private static readonly string[] DlcTargets = { "FM4", "FM3", "FM2" };
 
         public static bool CanImport(string target, string source)
         {

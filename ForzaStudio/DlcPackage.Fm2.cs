@@ -227,7 +227,10 @@ namespace ForzaStudio
             }
 
             report.AppendLine("files:");
-            CopyPortedFilesFm3(targetRoot, trialRoot, loose, report);
+            // the port's sound too (docs/PORT_PARITY.md C3): HarmonicTuning.zip / DSPTuning.zip / EmitterData.zip entries land in
+            // Audio\Cars\Engines\HarmonicTuning\, ...\DSPTuning\, Audio\Cars\EmitterData\, the banks in Engines\Soundbanks\LOD1 and
+            // LOD2 (DLCBeta's layout); a bank under a name FM2 has goes in when it differs
+            CopyPortedFilesFm3(targetRoot, trialRoot, loose, report, true);
 
             // The licence masks: the cars bought, and listed (StockGarage) as the official packs do; the same in both files.
             StringBuilder sql = new StringBuilder();

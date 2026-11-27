@@ -1,0 +1,905 @@
+namespace ForzaStudio
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Drawing;
+    using System.Globalization;
+    using System.IO;
+    using System.Text;
+    using System.Windows.Forms;
+
+    // DLC mode of the FM2 port window (docs/PORT_PARITY.md C, user 2026-11-27: "port first, then into the pack"):
+    //   Into DLC ->       the selected car, after its Trial Run, goes into the pack with every choice of the window (template,
+    //                     variants, materials, sound, swaps, make), kept as an Fm2PortRecord;
+    //   Trial Pack        stage = the FM2 files the port reads and writes, copied under %TEMP%\ForzaStudio\PackFm2\pack_<time>
+    //                     (CarDuplicate.Stage per template + Textures.zip and the sound zips); the pack's new makes, then every
+    //                     car through CarPortFm2Chain into the stage, car ids from First car id on. The FM2 folder is only read;
+    //   Build DLC Package DlcPackage.BuildFolderFm2 (the stage against the FM2 folder: merge, strings, the files the port added,
+    //                     its sound too), the merge's integrity check, the layer zipped (FM2 reads only zips), names pack;
+    //   Remove Pack       DLC<offer> out of Xenia's FM2 content folder.
+    // The pack is remembered between sessions (ForzaStudio.ini, PortFm2.Pack*); new makes of the pack are not (made again).
+    internal sealed partial class CarPortFm2Form
+    {
+        private sealed class PackItem
+        {
+            public SourceCar Car;
+            public Fm2PortRecord Choice;    // template, variants left out, materials, sound, swaps, make
+            public long CarId;              // given by the last Trial Pack; 0: none yet
+        }
+
+        private const char PackLineSeparator = '|';
+
+        private readonly List<PackItem> pack = new List<PackItem>();
+        private readonly List<CarMakeSpec> pendingMakes = new List<CarMakeSpec>();     // DLC mode's new makes ("+"), for the pack only
+        private Button intoDlc;
+        private ListView packList;
+        private TextBox packName;
+        private TextBox packOffer;
+        private TextBox packFirstCar;
+        private TextBox xeniaBox;
+        private Button removeFromPack;
+        private Button newPack;
+        private Button packTrial;
+        private Button buildPack;
+        private Button removePack;
+        private Label packInfo;
+        private string packTrialFolder;     // the stage of the last Trial Pack that went through; null: Trial Pack first
+
+        private void BuildIntoDlcButton(Panel options)
+        {
+            this.intoDlc = new Button();
+            this.intoDlc.Text = "Into DLC \u2192";
+            this.intoDlc.Size = new Size(130, 28);
+            this.intoDlc.Location = this.install.Location;
+            new ToolTip().SetToolTip(this.intoDlc, "Put the car into the pack on the right with the choices of its trial run (template, variants, materials, sound, swaps, make)");
+            this.intoDlc.Click += delegate { this.IntoDlc(); };
+            options.Controls.Add(this.intoDlc);
+        }
+
+        private Panel BuildPackPanel()
+        {
+            Panel panel = new Panel();
+            panel.Dock = DockStyle.Fill;
+
+            Panel fields = new Panel();
+            fields.Dock = DockStyle.Top;
+            fields.Height = 136;
+            Label nameLabel = new Label();
+            nameLabel.Text = "Name:";
+            nameLabel.Location = new Point(8, 11);
+            nameLabel.AutoSize = true;
+            this.packName = new TextBox();
+            this.packName.Location = new Point(96, 8);
+            this.packName.Width = 280;
+            this.packName.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            this.packName.Text = AppSettings.Get("PortFm2.PackName", "ForzaStudio EVO pack");
+            this.packName.TextChanged += delegate { AppSettings.Set("PortFm2.PackName", this.packName.Text); this.UpdateButtons(); };
+
+            Label offerLabel = new Label();
+            offerLabel.Text = "Offer id:";
+            offerLabel.Location = new Point(8, 41);
+            offerLabel.AutoSize = true;
+            this.packOffer = new TextBox();
+            this.packOffer.Location = new Point(96, 38);
+            this.packOffer.Width = 50;
+            this.packOffer.MaxLength = 5;
+            this.packOffer.Text = AppSettings.Get("PortFm2.PackOffer", "");
+            this.packOffer.TextChanged += delegate { AppSettings.Set("PortFm2.PackOffer", this.packOffer.Text.Trim()); this.UpdateButtons(); };
+            new ToolTip().SetToolTip(this.packOffer, "The package's number: the folder DLC<offer> in Xenia's FM2 content folder (FM2's own packs use 1-7)");
+            Button freeOffer = new Button();
+            freeOffer.Text = "Free";
+            freeOffer.Location = new Point(150, 37);
+            freeOffer.Size = new Size(46, 24);
+            new ToolTip().SetToolTip(freeOffer, "Put the first number no FM2 package in Xenia uses");
+            freeOffer.Click += delegate { this.packOffer.Text = DlcPackage.FreeOfferFm2(this.XeniaContent()).ToString(CultureInfo.InvariantCulture); };
+
+            Label firstLabel = new Label();
+            firstLabel.Text = "First car id:";
+            firstLabel.Location = new Point(206, 41);
+            firstLabel.AutoSize = true;
+            this.packFirstCar = new TextBox();
+            this.packFirstCar.Location = new Point(280, 38);
+            this.packFirstCar.Width = 46;
+            this.packFirstCar.MaxLength = 4;
+            this.packFirstCar.Text = AppSettings.Get("PortFm2.PackFirstCar", "");
+            this.packFirstCar.TextChanged += delegate
+            {
+                AppSettings.Set("PortFm2.PackFirstCar", this.packFirstCar.Text.Trim());
+                this.PackChanged(false);
+            };
+            new ToolTip().SetToolTip(this.packFirstCar, "The pack's first car id (" + DbIds.Fm2FirstFreeCarId + "-" + DbIds.Fm2LastFreeCarId
+                + "): the cars take the next free ones from it, never one of the FM2 folder or of another installed pack");
+            Button freeFirst = new Button();
+            freeFirst.Text = "Free";
+            freeFirst.Location = new Point(330, 37);
+            freeFirst.Size = new Size(46, 24);
+            new ToolTip().SetToolTip(freeFirst, "Put the first car id neither the FM2 folder nor an installed pack uses");
+            freeFirst.Click += delegate { this.SuggestFirstCar(); };
+
+            Label xeniaLabel = new Label();
+            xeniaLabel.Text = "Xenia folder:";
+            xeniaLabel.Location = new Point(8, 71);
+            xeniaLabel.AutoSize = true;
+            this.xeniaBox = new TextBox();
+            this.xeniaBox.Location = new Point(96, 68);
+            this.xeniaBox.Width = 244;
+            this.xeniaBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            this.xeniaBox.Text = AppSettings.Get(SettingsForm.XeniaKey, "");
+            this.xeniaBox.TextChanged += delegate { AppSettings.Set(SettingsForm.XeniaKey, this.xeniaBox.Text.Trim()); this.UpdateButtons(); };
+            new ToolTip().SetToolTip(this.xeniaBox, "Xenia's folder (with xenia_canary.exe): the pack goes into its FM2 content folder");
+            Button xeniaBrowse = new Button();
+            xeniaBrowse.Text = "...";
+            xeniaBrowse.Size = new Size(32, 24);
+            xeniaBrowse.Location = new Point(344, 67);
+            xeniaBrowse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            xeniaBrowse.Click += delegate
+            {
+                using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+                {
+                    dialog.Description = "Xenia's folder (the one with xenia_canary.exe and its config)";
+                    dialog.ShowNewFolderButton = false;
+                    if (Directory.Exists(this.xeniaBox.Text))
+                    {
+                        dialog.SelectedPath = this.xeniaBox.Text;
+                    }
+                    if (dialog.ShowDialog(this) == DialogResult.OK)
+                    {
+                        this.xeniaBox.Text = dialog.SelectedPath;
+                    }
+                }
+            };
+
+            this.newPack = new Button();
+            this.newPack.Text = "New Pack";
+            this.newPack.Location = new Point(8, 100);
+            this.newPack.Size = new Size(100, 28);
+            new ToolTip().SetToolTip(this.newPack, "Empty the pack (nothing in Xenia changes)");
+            this.newPack.Click += delegate { this.NewPack(); };
+            this.removeFromPack = new Button();
+            this.removeFromPack.Text = "Remove";
+            this.removeFromPack.Location = new Point(114, 100);
+            this.removeFromPack.Size = new Size(100, 28);
+            new ToolTip().SetToolTip(this.removeFromPack, "Take the selected car out of the pack");
+            this.removeFromPack.Click += delegate { this.RemoveFromPack(); };
+            fields.Controls.Add(nameLabel);
+            fields.Controls.Add(this.packName);
+            fields.Controls.Add(offerLabel);
+            fields.Controls.Add(this.packOffer);
+            fields.Controls.Add(freeOffer);
+            fields.Controls.Add(firstLabel);
+            fields.Controls.Add(this.packFirstCar);
+            fields.Controls.Add(freeFirst);
+            fields.Controls.Add(xeniaLabel);
+            fields.Controls.Add(this.xeniaBox);
+            fields.Controls.Add(xeniaBrowse);
+            fields.Controls.Add(this.newPack);
+            fields.Controls.Add(this.removeFromPack);
+
+            this.packList = new ListView();
+            this.packList.Dock = DockStyle.Fill;
+            this.packList.View = View.Details;
+            this.packList.FullRowSelect = true;
+            this.packList.MultiSelect = false;
+            this.packList.HideSelection = false;
+            this.packList.Columns.Add("Car", 140);
+            this.packList.Columns.Add("Media name", 120);
+            this.packList.Columns.Add("Template", 110);
+            this.packList.Columns.Add("Id", 44);
+            this.packList.SelectedIndexChanged += delegate { this.UpdateButtons(); };
+            this.packList.DoubleClick += delegate { this.SelectPackCar(); };
+            CarPortFm3Form.StyleList(this.packList);
+
+            Panel bottom = new Panel();
+            bottom.Dock = DockStyle.Bottom;
+            bottom.Height = 92;
+            this.packInfo = new Label();
+            this.packInfo.Location = new Point(8, 4);
+            this.packInfo.Size = new Size(370, 46);
+            this.packInfo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            this.packInfo.ForeColor = ForzaTheme.TextDim;
+            this.packTrial = new Button();
+            this.packTrial.Text = "Trial Pack";
+            this.packTrial.Location = new Point(8, 56);
+            this.packTrial.Size = new Size(100, 28);
+            new ToolTip().SetToolTip(this.packTrial, "Port every pack car into a temporary copy of the FM2 files (the FM2 folder is only read): report and Review");
+            this.packTrial.Click += delegate { this.RunPackTrial(); };
+            this.buildPack = new Button();
+            this.buildPack.Text = "Build DLC Package";
+            this.buildPack.Location = new Point(114, 56);
+            this.buildPack.Size = new Size(140, 28);
+            new ToolTip().SetToolTip(this.buildPack, "Write DLC<offer> into Xenia's FM2 content folder from the last Trial Pack");
+            this.buildPack.Click += delegate { this.BuildPack(); };
+            this.removePack = new Button();
+            this.removePack.Text = "Remove Pack";
+            this.removePack.Location = new Point(260, 56);
+            this.removePack.Size = new Size(110, 28);
+            new ToolTip().SetToolTip(this.removePack, "Take DLC<offer> out of Xenia's FM2 content folder");
+            this.removePack.Click += delegate { this.RemovePackFromXenia(); };
+            bottom.Controls.Add(this.packInfo);
+            bottom.Controls.Add(this.packTrial);
+            bottom.Controls.Add(this.buildPack);
+            bottom.Controls.Add(this.removePack);
+
+            panel.Controls.Add(this.packList);
+            panel.Controls.Add(bottom);
+            panel.Controls.Add(fields);
+            panel.Controls.Add(CarPortForm.SectionHeader("DLC package"));
+            this.UpdatePackInfo();
+            return panel;
+        }
+
+        private void UpdatePackButtons(bool trialDone)
+        {
+            if (this.packList == null)
+            {
+                return;
+            }
+            string content = this.XeniaContent();
+            int offer = this.Offer();
+            bool named = this.packName.Text.Trim().Length > 0 && offer > 0;
+            this.intoDlc.Enabled = trialDone;
+            this.removeFromPack.Enabled = !this.busy && this.packList.SelectedItems.Count == 1;
+            this.newPack.Enabled = !this.busy && this.pack.Count > 0;
+            this.packTrial.Enabled = !this.busy && this.pack.Count > 0 && this.loadedTarget != null;
+            this.buildPack.Enabled = !this.busy && this.packTrialFolder != null && content != null && named;
+            this.removePack.Enabled = !this.busy && content != null && offer > 0 && Directory.Exists(DlcPackage.PackagePathFm2(content, offer));
+        }
+
+        private void UpdatePackInfo()
+        {
+            if (this.packInfo == null)
+            {
+                return;
+            }
+            string content = this.XeniaContent();
+            this.packInfo.Text = (this.pack.Count == 0) ? "Trial-run a car, then Into DLC \u2192 puts it here with its choices."
+                : (this.packTrialFolder == null) ? this.pack.Count + " car(s). Trial Pack ports them into a copy of the FM2 files (the FM2 folder is only read)."
+                : (content == null) ? this.pack.Count + " car(s), trial done. Set Xenia's folder to build the package."
+                : this.pack.Count + " car(s), trial done: Build DLC Package writes DLC" + this.packOffer.Text.Trim() + " into " + content + ".";
+        }
+
+        // Xenia's FM2 content folder (made when the pack is built); null without a Xenia folder.
+        private string XeniaContent()
+        {
+            string xenia = (this.xeniaBox == null) ? "" : this.xeniaBox.Text.Trim();
+            if (xenia.Length == 0 || !Directory.Exists(xenia))
+            {
+                return null;
+            }
+            try
+            {
+                return DlcPackage.XeniaContent(xenia, DlcPackage.TitleIdFm2);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+        }
+
+        private int Offer()
+        {
+            int offer;
+            return (int.TryParse(this.packOffer.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out offer) && offer >= 1 && offer <= 65534) ? offer : 0;
+        }
+
+        private long FirstCar()
+        {
+            long id;
+            return (long.TryParse(this.packFirstCar.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out id) && DbIds.Fm2FreeWindow(id)) ? id : 0;
+        }
+
+        // The installed packs' merges but this pack's own (its car ids are given again by the trial).
+        private static List<string> OtherPacks(string content, int offer)
+        {
+            List<string> others = DbIds.PackDatabases(content);
+            if (content != null && offer > 0)
+            {
+                string own = DlcPackage.PackagePathFm2(content, offer).TrimEnd('\\') + "\\";
+                others.RemoveAll(delegate(string path) { return path.StartsWith(own, StringComparison.OrdinalIgnoreCase); });
+            }
+            return others;
+        }
+
+        // The first car id from 'from' on that neither the database nor an installed pack uses (0: none left up to 1000).
+        private static long FreeCarId(SqliteDatabase db, long from, Dictionary<long, string> packCars)
+        {
+            for (long id = Math.Max(from, DbIds.Fm2FirstFreeCarId); id <= DbIds.Fm2LastFreeCarId; id++)
+            {
+                if (DbIds.ChosenCarIdProblem(db, id, packCars, ForzaGame.Motorsport2) == null)
+                {
+                    return id;
+                }
+            }
+            return 0;
+        }
+
+        private void SuggestFirstCar()
+        {
+            if (this.loadedTarget == null)
+            {
+                return;
+            }
+            try
+            {
+                using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(this.loadedTarget))))
+                {
+                    long id = FreeCarId(db, DbIds.Fm2FirstFreeCarId, DbIds.PackCarIds(OtherPacks(this.XeniaContent(), this.Offer())));
+                    if (id == 0)
+                    {
+                        this.status.Text = "No free car id is left in " + DbIds.Fm2FirstFreeCarId + "-" + DbIds.Fm2LastFreeCarId + ".";
+                        return;
+                    }
+                    this.packFirstCar.Text = id.ToString(CultureInfo.InvariantCulture);
+                }
+            }
+            catch (Exception e)
+            {
+                this.status.Text = "The free car id was not found: " + e.Message;
+            }
+        }
+
+        // A change of the pack's cars or of the First car id: the last trial no longer holds.
+        private void PackChanged(bool cars)
+        {
+            this.packTrialFolder = null;
+            if (cars)
+            {
+                this.SavePack();
+            }
+            this.RefreshPackList();
+            this.UpdateButtons();
+        }
+
+        private void RefreshPackList()
+        {
+            if (this.packList == null)
+            {
+                return;
+            }
+            PackItem selected = (this.packList.SelectedItems.Count == 1) ? (PackItem) this.packList.SelectedItems[0].Tag : null;
+            this.packList.BeginUpdate();
+            this.packList.Items.Clear();
+            foreach (PackItem item in this.pack)
+            {
+                ListViewItem row = new ListViewItem(item.Car.Name);
+                row.Tag = item;
+                row.SubItems.Add(item.Car.TargetMedia);
+                row.SubItems.Add(item.Choice.Template);
+                row.SubItems.Add((item.CarId > 0 && this.packTrialFolder != null) ? item.CarId.ToString(CultureInfo.InvariantCulture) : "");
+                row.Selected = item == selected;
+                this.packList.Items.Add(row);
+            }
+            this.packList.EndUpdate();
+            this.UpdatePackInfo();
+        }
+
+        // Into DLC: the selected car with the choices of its trial run.
+        private void IntoDlc()
+        {
+            SourceCar car = this.SelectedCar;
+            string template = this.SelectedTemplate;
+            Trial current = this.CurrentTrial;
+            if (car == null || template == null || current == null)
+            {
+                return;
+            }
+            if (car.Fm2Id > 0)
+            {
+                MessageBox.Show(this, car.Name + " is in the FM2 folder already (" + car.TargetMedia + ", car " + car.Fm2Id.ToString(CultureInfo.InvariantCulture)
+                    + "): a pack car needs a name the game does not have. Uninstall it in the Import window first.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            string useSoundOf = null;
+            if (this.useSound.Checked)
+            {
+                if (this.soundCars.SelectedIndex < 0 || this.soundCars.SelectedIndex >= this.templateList.Count)
+                {
+                    MessageBox.Show(this, "Choose the FM2 car whose engine sound the car gets.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                useSoundOf = this.templateList[this.soundCars.SelectedIndex][0];
+            }
+            Fm2PortRecord choice = new Fm2PortRecord();
+            choice.SourceGame = GameInfo.Name(this.sourceGame) ?? "";
+            choice.SourceMediaName = car.MediaName;
+            choice.SourcePack = car.Dlc ?? "";
+            choice.Template = template;
+            choice.Skip.AddRange(current.Skip);
+            foreach (KeyValuePair<string, string> pair in current.CarMaterials)
+            {
+                choice.CarMaterials[pair.Key] = pair.Value;
+            }
+            foreach (KeyValuePair<string, string> pair in current.WheelMaterials)
+            {
+                choice.WheelMaterials[pair.Key] = pair.Value;
+            }
+            choice.UseSoundOf = useSoundOf;
+            choice.Swaps = ChosenSwaps(current);
+            choice.MakeId = car.MakeId;
+            PackItem item = this.pack.Find(delegate(PackItem p) { return string.Equals(p.Car.TargetMedia, car.TargetMedia, StringComparison.OrdinalIgnoreCase); });
+            bool again = item != null;
+            if (item == null)
+            {
+                item = new PackItem();
+                item.Car = car;
+                this.pack.Add(item);
+            }
+            item.Choice = choice;
+            this.PackChanged(true);
+            this.status.Text = car.Name + (again ? ": its choices in the pack replaced" : " is in the pack") + " (template " + template + (current.Skip.Count > 0 ? ", " + current.Skip.Count + " variant(s) left out" : "")
+                + "). Trial Pack when the pack is complete.";
+        }
+
+        private void RemoveFromPack()
+        {
+            if (this.packList.SelectedItems.Count != 1)
+            {
+                return;
+            }
+            this.pack.Remove((PackItem) this.packList.SelectedItems[0].Tag);
+            this.PackChanged(true);
+        }
+
+        private void NewPack()
+        {
+            if (this.pack.Count > 0 && MessageBox.Show(this, "Empty the pack (" + this.pack.Count + " car(s))? Nothing in Xenia changes.", this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+            this.pack.Clear();
+            this.PackChanged(true);
+        }
+
+        // Double click on a pack car: the car chosen in the list on the left.
+        private void SelectPackCar()
+        {
+            if (this.packList.SelectedItems.Count != 1)
+            {
+                return;
+            }
+            PackItem item = (PackItem) this.packList.SelectedItems[0].Tag;
+            foreach (ListViewItem row in this.cars.Items)
+            {
+                if (row.Tag == item.Car)
+                {
+                    row.Selected = true;
+                    row.EnsureVisible();
+                    return;
+                }
+            }
+            this.status.Text = item.Car.Name + " is not shown in the car list (search, or Also show cars FM2 already has).";
+        }
+
+        private void AddPendingMake(CarMakeSpec spec)
+        {
+            this.pendingMakes.Add(spec);
+            this.fm2MakeList.Add(new object[] { spec.Id, spec.Name });
+            SourceCar car = this.SelectedCar;
+            if (car != null)
+            {
+                car.MakeId = spec.Id;
+            }
+            this.ShowMake();
+            this.status.Text = "Make " + spec.Name + " (" + spec.Id + ") kept for the pack" + ((car != null) ? " and chosen for " + car.Name : "")
+                + ": Trial Pack writes it into the pack, never into the FM2 folder. Trial Run again to see the database with it.";
+        }
+
+        private CarMakeSpec PendingMake(long id)
+        {
+            return (id > 0) ? this.pendingMakes.Find(delegate(CarMakeSpec spec) { return spec.Id == id; }) : null;
+        }
+
+        private void SavePack()
+        {
+            AppSettings.Set("PortFm2.PackSource", this.loadedSource ?? "");
+            int old;
+            int.TryParse(AppSettings.Get("PortFm2.PackCars", "0"), NumberStyles.None, CultureInfo.InvariantCulture, out old);
+            for (int i = 0; i < Math.Max(old, this.pack.Count); i++)
+            {
+                string key = "PortFm2.PackCar" + i.ToString(CultureInfo.InvariantCulture);
+                if (i >= this.pack.Count)
+                {
+                    AppSettings.Set(key, "");
+                    continue;
+                }
+                List<string> lines = new List<string>();
+                foreach (string line in this.pack[i].Choice.ToText().Replace("\r\n", "\n").Split('\n'))
+                {
+                    if (line.Length > 0 && !line.StartsWith("written=", StringComparison.Ordinal))
+                    {
+                        lines.Add(line);
+                    }
+                }
+                AppSettings.Set(key, string.Join(PackLineSeparator.ToString(), lines.ToArray()));
+            }
+            AppSettings.Set("PortFm2.PackCars", this.pack.Count.ToString(CultureInfo.InvariantCulture));
+        }
+
+        // After Load Cars: the pack of this session (its cars found again in the new list), else the one saved for this source.
+        private void RestorePack(List<SourceCar> list, string source)
+        {
+            StringBuilder notes = new StringBuilder();
+            foreach (CarMakeSpec spec in this.pendingMakes)
+            {
+                this.fm2MakeList.Add(new object[] { spec.Id, spec.Name });
+            }
+            // every change of the pack is saved at once, so the saved pack is this session's too; another source folder shows
+            // an empty pack and leaves the saved one as it is
+            List<Fm2PortRecord> choices = new List<Fm2PortRecord>();
+            if (string.Equals(AppSettings.Get("PortFm2.PackSource", ""), source, StringComparison.OrdinalIgnoreCase))
+            {
+                int count;
+                int.TryParse(AppSettings.Get("PortFm2.PackCars", "0"), NumberStyles.None, CultureInfo.InvariantCulture, out count);
+                for (int i = 0; i < count; i++)
+                {
+                    string saved = AppSettings.Get("PortFm2.PackCar" + i.ToString(CultureInfo.InvariantCulture), "");
+                    Fm2PortRecord record = (saved.Length > 0) ? Fm2PortRecord.Parse(saved.Replace(PackLineSeparator.ToString(), "\r\n")) : null;
+                    if (record != null)
+                    {
+                        choices.Add(record);
+                    }
+                }
+            }
+            this.pack.Clear();
+            foreach (Fm2PortRecord choice in choices)
+            {
+                SourceCar car = list.Find(delegate(SourceCar c)
+                {
+                    return string.Equals(c.MediaName, choice.SourceMediaName, StringComparison.OrdinalIgnoreCase) && string.Equals(c.Dlc ?? "", choice.SourcePack ?? "", StringComparison.OrdinalIgnoreCase);
+                });
+                if (car == null)
+                {
+                    notes.AppendLine("pack: " + choice.SourceMediaName + (choice.SourcePack.Length > 0 ? " (" + choice.SourcePack + ")" : "") + " is not in the source any more, left out");
+                    continue;
+                }
+                if (car.Fm2Id > 0)
+                {
+                    notes.AppendLine("pack: " + car.Name + " is in the FM2 folder now (car " + car.Fm2Id + "), left out");
+                    continue;
+                }
+                if (choice.MakeId > 0 && !this.fm2MakeList.Exists(delegate(object[] m) { return Convert.ToInt64(m[0], CultureInfo.InvariantCulture) == choice.MakeId; }))
+                {
+                    notes.AppendLine("pack: " + car.Name + "'s make " + choice.MakeId + " was a new make of an earlier session: the source's make again (create it with + and choose it)");
+                    choice.MakeId = -1;
+                }
+                car.MakeId = choice.MakeId;
+                PackItem item = new PackItem();
+                item.Car = car;
+                item.Choice = choice;
+                this.pack.Add(item);
+            }
+            if (choices.Count > 0)
+            {
+                this.status.Text = this.pack.Count + " car(s) in the pack (kept from before). " + this.status.Text;
+            }
+            if (notes.Length > 0)
+            {
+                this.report.AppendText("\r\n" + notes.ToString());
+            }
+            this.packTrialFolder = null;
+            if (this.pack.Count != choices.Count)
+            {
+                this.SavePack();    // the cars left out (see the report) are out of the saved pack too
+            }
+            this.RefreshPackList();
+            this.UpdateButtons();
+        }
+
+        // The FM2 files the port reads and writes, copied under the stage at the same places.
+        private static void BuildStage(string target, string stage, IEnumerable<string> templates, List<string> log)
+        {
+            foreach (string template in templates)
+            {
+                CarDuplicate copy = new CarDuplicate();
+                copy.TargetRoot = target;
+                copy.SourceMediaName = template;
+                copy.Stage(stage);      // database, zip list, string tables, the template's car / wheel / tyre zips, thumbnail zip, sound zips
+            }
+            string media = Path.Combine(target, "Media");
+            string audio = Path.Combine(Path.Combine(media, "Audio"), "Cars");
+            // new makes' / part makers' logos, the port's HarmonicTunings (Fm2LookupPort, Fm2SoundPort)
+            foreach (string file in new string[] { Path.Combine(Path.Combine(media, "UI"), "Textures.zip"), Path.Combine(Path.Combine(audio, "Engines"), "HarmonicTuning.zip"),
+                Path.Combine(Path.Combine(audio, "Engines"), "DSPTuning.zip"), Path.Combine(audio, "EmitterData.zip") })
+            {
+                if (!File.Exists(file))
+                {
+                    continue;
+                }
+                string copy = Path.Combine(stage, file.Substring(target.TrimEnd('\\').Length + 1));
+                if (!File.Exists(copy))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(copy));
+                    File.Copy(file, copy, true);
+                }
+            }
+            foreach (string lod in new string[] { "LOD1", "LOD2" })
+            {
+                Directory.CreateDirectory(Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(stage, "Media"), "Audio"), "Cars"), "Engines"), Path.Combine("Soundbanks", lod)));
+            }
+            log.Add("stage: " + stage + " (the FM2 files the port reads and writes; the FM2 folder is only read)");
+        }
+
+        private void RunPackTrial()
+        {
+            string source = this.loadedSource;
+            string target = this.loadedTarget;
+            string content = this.XeniaContent();
+            int offer = this.Offer();
+            if (this.pack.Count == 0 || target == null)
+            {
+                return;
+            }
+            long first = this.FirstCar();
+            if (first == 0)
+            {
+                MessageBox.Show(this, "Put the pack's first car id (" + DbIds.Fm2FirstFreeCarId + "-" + DbIds.Fm2LastFreeCarId + "), or Free.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (content != null && offer > 0 && Directory.Exists(DlcPackage.PackagePathFm2(content, offer)))
+            {
+                MessageBox.Show(this, "DLC" + offer + " is in Xenia's FM2 content folder already. Remove Pack first, or choose another offer id (Free).", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            List<PackItem> items = new List<PackItem>(this.pack);
+            List<CarMakeSpec> makes = new List<CarMakeSpec>();
+            foreach (PackItem item in items)
+            {
+                CarMakeSpec spec = this.PendingMake(item.Choice.MakeId);
+                if (spec != null && !makes.Contains(spec))
+                {
+                    makes.Add(spec);
+                }
+            }
+            string folder = Path.Combine(Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "PackFm2"), "pack_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture));
+            ForzaGame game = this.sourceGame;
+            this.packTrialFolder = null;
+            this.status.Text = "Trial of the pack (" + items.Count + " car(s))...";
+            this.Background(delegate
+            {
+                // only the last stage is kept: each one holds a copy of FM2's UI\Textures.zip
+                string parent = Path.GetDirectoryName(folder);
+                if (Directory.Exists(parent))
+                {
+                    foreach (string old in Directory.GetDirectories(parent, "pack_*"))
+                    {
+                        try
+                        {
+                            Directory.Delete(old, true);
+                        }
+                        catch (IOException)
+                        {
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                        }
+                    }
+                }
+                StringBuilder text = new StringBuilder();
+                Dictionary<string, List<ReviewRow>> reviews = new Dictionary<string, List<ReviewRow>>(StringComparer.OrdinalIgnoreCase);
+                Dictionary<PackItem, long> ids = new Dictionary<PackItem, long>();
+                string failed = null;
+                List<string> log = new List<string>();
+                try
+                {
+                    List<string> templates = new List<string>();
+                    foreach (PackItem item in items)
+                    {
+                        if (!templates.Exists(delegate(string t) { return string.Equals(t, item.Choice.Template, StringComparison.OrdinalIgnoreCase); }))
+                        {
+                            templates.Add(item.Choice.Template);
+                        }
+                    }
+                    BuildStage(target, folder, templates, log);
+                    foreach (CarMakeSpec spec in makes)
+                    {
+                        WriteMake(folder, spec, null, log);
+                    }
+                }
+                catch (Exception e)
+                {
+                    failed = "the stage: " + e.Message;
+                }
+                foreach (string line in log)
+                {
+                    text.AppendLine(line);
+                }
+                Dictionary<long, string> packCars = (failed == null) ? DbIds.PackCarIds(OtherPacks(content, offer)) : null;
+                long next = first;
+                foreach (PackItem item in items)
+                {
+                    if (failed != null)
+                    {
+                        break;
+                    }
+                    SourceCar car = item.Car;
+                    CarPortFm2Chain chain = new CarPortFm2Chain();
+                    try
+                    {
+                        long id;
+                        using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(folder))))
+                        {
+                            id = FreeCarId(db, next, packCars);
+                        }
+                        if (id == 0)
+                        {
+                            throw new InvalidOperationException("no free car id left from " + next + " up to " + DbIds.Fm2LastFreeCarId + ".");
+                        }
+                        next = id + 1;
+                        chain.SourceRoot = SourceRootOf(car, source, chain.Log);
+                        chain.SourceBaseRoot = (car.Pack != null) ? source : null;
+                        chain.SourceMediaName = car.MediaName;
+                        chain.TargetRoot = folder;
+                        chain.PackStage = true;
+                        chain.PerfRoot = target;
+                        chain.ChosenId = id;
+                        chain.TemplateMediaName = item.Choice.Template;
+                        chain.NewMediaName = car.TargetMedia;
+                        chain.SourceGameName = GameInfo.Name(game) ?? "";
+                        chain.SourcePack = car.Dlc ?? "";
+                        chain.DisplayName = car.Name;
+                        chain.ModelShort = car.Short;
+                        chain.Year = car.Year;
+                        chain.SkipParts.AddRange(item.Choice.Skip);
+                        chain.CarMaterials = new Dictionary<string, string>(item.Choice.CarMaterials, StringComparer.Ordinal);
+                        chain.WheelMaterials = new Dictionary<string, string>(item.Choice.WheelMaterials, StringComparer.Ordinal);
+                        chain.UseSoundOf = item.Choice.UseSoundOf;
+                        chain.Swaps = item.Choice.Swaps;
+                        chain.MakeId = item.Choice.MakeId;
+                        chain.Progress = delegate(string step)
+                        {
+                            this.BeginInvoke((MethodInvoker) delegate { this.status.Text = "Trial Pack, " + car.Name + ": " + step; });
+                        };
+                        chain.Run();
+                        ids[item] = chain.CarId;
+                    }
+                    catch (Exception e)
+                    {
+                        failed = car.Name + ": " + e.Message;
+                    }
+                    text.AppendLine();
+                    text.AppendLine("== " + car.Name + " (" + car.MediaName + " -> " + car.TargetMedia + ")" + (ids.ContainsKey(item) ? ", car " + ids[item] : ", FAILED"));
+                    foreach (string line in chain.Log)
+                    {
+                        text.AppendLine(line);
+                    }
+                    List<ReviewRow> review = ReviewFromLog(chain.Log);
+                    if (!ids.ContainsKey(item))
+                    {
+                        review.Insert(0, new ReviewRow("pack", "FAILED: " + failed, ReviewKind.Error));
+                    }
+                    reviews[car.MediaName] = review;
+                }
+                return delegate
+                {
+                    foreach (KeyValuePair<string, List<ReviewRow>> pair in reviews)
+                    {
+                        this.installReviews[pair.Key] = pair.Value;
+                    }
+                    foreach (PackItem item in items)
+                    {
+                        long id;
+                        item.CarId = ids.TryGetValue(item, out id) ? id : 0;
+                    }
+                    this.report.Text = ((failed != null) ? "TRIAL PACK FAILED (" + failed + "): nothing can be built until it goes through.\r\n\r\n" : "TRIAL PACK: " + items.Count + " car(s) ported into the stage.\r\n\r\n") + text.ToString();
+                    this.tabs.SelectedIndex = 0;
+                    this.packTrialFolder = (failed == null) ? folder : null;
+                    this.RefreshPackList();
+                    this.ShowReview();
+                    this.status.Text = (failed != null) ? "Trial Pack failed: " + failed : "Trial done: name the pack, then Build DLC Package. The Review tab shows each car's lines (choose it in the list).";
+                };
+            });
+        }
+
+        private void BuildPack()
+        {
+            string target = this.loadedTarget;
+            string trial = this.packTrialFolder;
+            string content = this.XeniaContent();
+            int offer = this.Offer();
+            string name = this.packName.Text.Trim();
+            if (target == null || trial == null || content == null || offer <= 0 || name.Length == 0)
+            {
+                return;
+            }
+            if (Directory.Exists(DlcPackage.PackagePathFm2(content, offer)))
+            {
+                MessageBox.Show(this, "DLC" + offer + " is in Xenia's FM2 content folder already: Remove Pack first (then Trial Pack again), or choose another offer id.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!XeniaGuard.Confirm(this, this.Text, "FM2's DLC packages"))
+            {
+                return;
+            }
+            this.status.Text = "Building DLC" + offer + "...";
+            this.Background(delegate
+            {
+                StringBuilder text = new StringBuilder();
+                text.AppendLine("Building the pack \"" + name + "\" (offer " + offer + ") from " + trial + " into " + content + ":");
+                string failed = null;
+                Directory.CreateDirectory(content);
+                List<string> others = DbIds.PackDatabases(content);
+                try
+                {
+                    string package = DlcPackage.BuildFolderFm2(target, trial, content, content, offer, name, text);
+                    string merge = Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(package, "Media"), "DLCZips"), DlcPackage.LayerFm2(offer)), "media"), "db"), "patch");
+                    DbIntegrity.Result merged = DbIntegrity.CheckMerge(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target)), others,
+                        File.ReadAllBytes(Path.Combine(merge, offer.ToString(CultureInfo.InvariantCulture) + "0000_merge.slt")), ForzaGame.Motorsport2);
+                    if (!merged.Ok)
+                    {
+                        throw new InvalidOperationException("the pack's database would break the game's:\r\n  " + string.Join("\r\n  ", merged.Errors.ToArray()));
+                    }
+                    text.AppendLine("pack database check: merged into the game's database the rules hold");
+                    foreach (string line in merged.Warnings)
+                    {
+                        text.AppendLine("  warning: " + line);
+                    }
+                    DlcPackage.ZipLayerFm2(package, offer, text);
+                    DlcPackage.RefreshNamesPack(ForzaGame.Motorsport2, target, content, text);
+                }
+                catch (Exception e)
+                {
+                    failed = e.Message;
+                    try
+                    {
+                        DlcPackage.RemoveFm2(content, offer);     // nothing half-built is left in Xenia
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+                return delegate
+                {
+                    this.report.Text = ((failed != null) ? "BUILD FAILED: " + failed + "\r\nNothing was left in Xenia.\r\n\r\n" : "") + text.ToString();
+                    this.tabs.SelectedIndex = 0;
+                    this.status.Text = (failed != null) ? "Build failed: " + failed : "DLC" + offer + " built. Start FM2 in Xenia (with its title update): the cars are in the dealer's DLC.";
+                    this.UpdatePackInfo();
+                };
+            });
+        }
+
+        private void RemovePackFromXenia()
+        {
+            string content = this.XeniaContent();
+            int offer = this.Offer();
+            string target = this.loadedTarget;
+            if (content == null || offer <= 0 || !Directory.Exists(DlcPackage.PackagePathFm2(content, offer)))
+            {
+                return;
+            }
+            if (MessageBox.Show(this, "Remove DLC" + offer + " from Xenia's FM2 content folder?\n\n" + DlcPackage.PackagePathFm2(content, offer)
+                + "\n\nIf you own one of its cars in an FM2 garage, the saved car can crash the game.", this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
+            if (!XeniaGuard.Confirm(this, this.Text, "FM2's DLC packages"))
+            {
+                return;
+            }
+            this.Background(delegate
+            {
+                StringBuilder text = new StringBuilder();
+                string failed = null;
+                try
+                {
+                    DlcPackage.RemoveFm2(content, offer);
+                    text.AppendLine("DLC" + offer + " removed from " + content);
+                    if (target != null)
+                    {
+                        DlcPackage.RefreshNamesPack(ForzaGame.Motorsport2, target, content, text);
+                    }
+                }
+                catch (Exception e)
+                {
+                    failed = e.Message;
+                }
+                return delegate
+                {
+                    this.report.Text = ((failed != null) ? "REMOVE FAILED: " + failed + "\r\n\r\n" : "") + text.ToString();
+                    this.tabs.SelectedIndex = 0;
+                    this.status.Text = (failed != null) ? "Remove failed: " + failed : "DLC" + offer + " removed from Xenia.";
+                    this.UpdatePackInfo();
+                };
+            });
+        }
+    }
+}

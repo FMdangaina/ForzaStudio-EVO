@@ -111,7 +111,33 @@ namespace ForzaStudio
             }
         }
 
-        // "+": a make created in the FM2 folder now (backed up first), then chosen for the selected car.
+        // A new make written under root: the FM2 folder ("+" in Import mode), or DLC mode's pack stage (Trial Pack). The row,
+        // its strings in every language and its logo, as Fm2LookupPort.AddMake gives them; backup: null = none.
+        private static void WriteMake(string root, CarMakeSpec spec, string backup, List<string> log)
+        {
+            string dbPath = CarPortFm2Chain.FindDatabase(root);
+            byte[] bytes = File.ReadAllBytes(dbPath);
+            using (SqliteDatabase db = SqliteDatabase.FromBytes(bytes))
+            {
+                Fm2LookupPort lookups = new Fm2LookupPort();
+                lookups.TargetRoot = root;
+                lookups.BackupFolder = backup;
+                lookups.Begin(null, db);
+                lookups.AddMake(spec);
+                if (backup != null)
+                {
+                    Directory.CreateDirectory(backup);
+                    File.WriteAllBytes(Path.Combine(backup, "gamedb.slt"), bytes);
+                }
+                lookups.Commit();
+                File.WriteAllBytes(dbPath, db.ToBytes());
+                log.AddRange(lookups.Log);
+                log.Add("written: " + dbPath + ((backup != null) ? " (backup in " + backup + ")" : ""));
+            }
+        }
+
+        // "+": a make created in the FM2 folder now (backed up first), then chosen for the selected car; in DLC mode the
+        // make waits for the pack (pendingMakes, written into the stage by Trial Pack).
         private void NewMake()
         {
             string target = this.loadedTarget;
@@ -120,13 +146,25 @@ namespace ForzaStudio
                 return;
             }
             CarMakeSpec spec;
-            using (NewMakeForm form = new NewMakeForm(target, InstalledDlc.ContentFolder(ForzaGame.Motorsport2), new List<long>(), true, false, true))
+            bool dlc = this.mode == PortMode.Dlc;
+            List<long> pendingIds = new List<long>();
+            foreach (CarMakeSpec pending in this.pendingMakes)
             {
-                if (form.ShowDialog(this) != DialogResult.OK || !form.InGame)
+                pendingIds.Add(pending.Id);
+            }
+            // DLC mode: the make goes into the pack (written into the pack's stage by Trial Pack), never into the FM2 folder
+            using (NewMakeForm form = new NewMakeForm(target, InstalledDlc.ContentFolder(ForzaGame.Motorsport2), pendingIds, !dlc, dlc, true))
+            {
+                if (form.ShowDialog(this) != DialogResult.OK || form.InGame == dlc)
                 {
                     return;
                 }
                 spec = form.Spec;
+            }
+            if (dlc)
+            {
+                this.AddPendingMake(spec);
+                return;
             }
             if (!XeniaGuard.Confirm(this, this.Text, "the Forza Motorsport 2 files"))
             {
@@ -140,27 +178,9 @@ namespace ForzaStudio
                 Exception failed = null;
                 try
                 {
-                    string dbPath = CarPortFm2Chain.FindDatabase(target);
                     string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
                     string backup = BackupPolicy.Enabled ? Path.Combine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bak"), "fm2make_" + stamp) : null;
-                    byte[] bytes = File.ReadAllBytes(dbPath);
-                    using (SqliteDatabase db = SqliteDatabase.FromBytes(bytes))
-                    {
-                        Fm2LookupPort lookups = new Fm2LookupPort();
-                        lookups.TargetRoot = target;
-                        lookups.BackupFolder = backup;
-                        lookups.Begin(null, db);
-                        lookups.AddMake(spec);
-                        if (backup != null)
-                        {
-                            Directory.CreateDirectory(backup);
-                            File.WriteAllBytes(Path.Combine(backup, "gamedb.slt"), bytes);
-                        }
-                        lookups.Commit();
-                        File.WriteAllBytes(dbPath, db.ToBytes());
-                        log.AddRange(lookups.Log);
-                        log.Add("written: " + dbPath + ((backup != null) ? " (backup in " + backup + ")" : ""));
-                    }
+                    WriteMake(target, spec, backup, log);
                 }
                 catch (Exception e)
                 {

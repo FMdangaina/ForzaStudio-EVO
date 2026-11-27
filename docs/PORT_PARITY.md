@@ -4,37 +4,37 @@ User 2026-11-26: "Create DLC package for: FM2" must be enabled and built. Before
 qualcuna su fm3 e tutte su fm2. FACCIAMO UN LAVORO COMPLETO."
 
 Three windows: FM4 (`CarPortForm`, `.Makes`, `.Upgrades`), FM3 (`CarPortFm3Form`, `.Choices`) and FM2
-(`CarPortFm2Form`). FM4 and FM3 each have two modes, Import and DLC (`PortMode`). FM2 has Import only, and
-`PortPairs.CanCreateDlc("FM2")` is false, so the button is greyed.
+(`CarPortFm2Form`). All three have two modes, Import and DLC (`PortMode`); FM2 got its DLC mode with C (2026-11-27), before
+that `PortPairs.CanCreateDlc("FM2")` was false and the button greyed.
 
 ## 1. What each window has
 
 | Feature | FM4 | FM3 | FM2 |
 |---|---|---|---|
-| Source: game folder, **Package...** (single package files) | ✅ combo + info line | ✅ | folder only |
+| Source: game folder, **Package...** (single package files) | ✅ combo + info line | ✅ | ✅ (B2) |
 | Cars: search, include the game's DLC | ✅ | ✅ | ✅ |
-| **Also show cars the target already has** | ✅ (count of hidden) | ✅ "In FM3" column | ❌ |
+| **Also show cars the target already has** | ✅ (count of hidden) | ✅ "In FM3" column | ✅ "In FM2" column, Port Again (B1) |
 | Traffic cars in yellow | ✅ | ✅ | ✅ (2026-11-25) |
 | Source **PI** column | ✅ | ❌ | ✅ (B7) |
 | Template car | ✅ ([DLC] marked) | ✅ | ✅ |
 | **Arcade** | ✅ | ✅ | always (user rule) |
-| **Make** + **New make** | ✅ | ✅ | ❌ (`MakeID` copied; `CarMake` has no FM2) |
+| **Make** + **New make** | ✅ | ✅ | ✅ (B5) |
 | Engine sound: the source's / a target car's | ✅ | ✅ | ✅ (2026-11-25) |
 | Tires (Normal / Offroad / Small / Offroad Big) | ✅ | ❌ | n/a (FM2 shared tire texture) |
 | Front / rear brakes + caliper angle | ✅ | ✅ | n/a (FM2: no per-car brakes) |
 | Trial Run, Install | ✅ | ✅ | ✅ |
 | **Open Trial Folder** | ✅ | ❌ | n/a (the FM2 trial writes no files) |
-| **Uninstall...** (take a ported car out of the folder) | ✅ | ❌ | ❌ |
+| **Uninstall...** (take a ported car out of the folder) | ✅ | ❌ | ✅ (B6) |
 | Tab Report | ✅ | ✅ | ✅ |
-| Tab **Review** (what the port changed or could not do, **Fix** choices) | ✅ | ✅ | ❌ (Report lines only) |
-| Tab **Upgrades** | ✅ editable: swaps add / remove, drive type | read only (part, level, item, in FM3) | ❌ |
+| Tab **Review** (what the port changed or could not do, **Fix** choices) | ✅ | ✅ | ✅ (B3) |
+| Tab **Upgrades** | ✅ editable: swaps add / remove, drive type | read only (part, level, item, in FM3) | ✅ (B4) |
 | Tabs Variants, Materials (buffer counters, material choices) | — | — | ✅ (FM2 only) |
-| **DLC mode**: pack list Add / Remove, New pack, Name, Offer + Free | ✅ | ✅ | ❌ |
-| DLC: **First car id** | ✅ | ❌ | ❌ |
-| DLC: Trial Pack, Build for Xenia, Remove Pack | ✅ | ✅ | ❌ (`DlcPackage.BuildFolderFm2` exists, ST-02) |
+| **DLC mode**: pack list Add / Remove, New pack, Name, Offer + Free | ✅ | ✅ | ✅ (C, Into DLC) |
+| DLC: **First car id** | ✅ | ❌ | ✅ (C) |
+| DLC: Trial Pack, Build for Xenia, Remove Pack | ✅ | ✅ | ✅ (C) |
 | DLC: **Add to existing package** (`DlcPackageAdd`) | ✅ | ❌ | ❌ |
 | DLC: Build for Xbox 360 | ✅ | ✅ | ❌ |
-| DLC: the pack is **remembered** between sessions (`RestorePack`) | ✅ | ❌ | ❌ |
+| DLC: the pack is **remembered** between sessions (`RestorePack`) | ✅ | ❌ | ✅ (C) |
 
 ## 2. FM2 data still the template's (rule: nothing of the template may stay)
 
@@ -137,6 +137,42 @@ Each UI step is described to the user and gets a yes before it is built (`descri
    (Xenia's FM2 content folder, `DLC<offer>`), Remove Pack, the pack remembered between sessions.
 3. `BuildFolderFm2` extended with HarmonicTuning and `Soundbanks\LOD1/LOD2` (DLCBeta's layout) for "Port sound".
 4. Later: Add to existing package, Xbox 360.
+
+**C built 2026-11-27** (user "sì, marche dentro il pacchetto, fai C"; `CarPortFm2Form.Pack.cs`):
+- `PortPairs.CanCreateDlc("FM2")` on; the top bar opens `CarPortFm2Form(PortMode.Dlc)`: title "Create DLC Package > FM2",
+  banner "DLC PACKAGE", **Into DLC →** in Install's place, no Uninstall. The FM2 folder is only read.
+- Into DLC keeps the trial's choices as an `Fm2PortRecord` (template, variants left out, materials, sound, swaps, make).
+  A car already ported into the FM2 folder (In FM2 "ported, car N") is refused: a pack car needs a name the game lacks.
+  Into DLC again on a pack car replaces its choices. Double click on a pack car selects it in the list on the left.
+- Pack panel: Name, Offer id + Free (`FreeOfferFm2`), First car id + Free (659-1000, not used by the FM2 folder nor by
+  another installed pack), Xenia folder, New Pack, Remove, the list (Car, Media name, Template, Id after the trial),
+  Trial Pack, Build DLC Package, Remove Pack. Saved in ForzaStudio.ini (`PortFm2.Pack*`, the choices as record lines
+  joined by `|`), restored when the same source folder is loaded.
+- **Trial Pack**: stage `%TEMP%\ForzaStudio\PackFm2\pack_<time>` (older stages deleted: each holds Textures.zip) =
+  `CarDuplicate.Stage` per template (database, zip list, string tables, template car / wheel / tyre zips, thumbnail
+  zip, EmitterData / DSPTuning) + `UI\Textures.zip` + `HarmonicTuning.zip` + empty `Soundbanks\LOD1/LOD2`; the pack's new
+  makes (`WriteMake`), then `CarPortFm2Chain` per car with `PackStage` (no backups; CarDuplicate `GameOverride` FM2,
+  `RefreshNames` off, `PerfMedia` and `PerfRoot` = the FM2 folder's AI\PerfPrediction), `ChosenId` = the next free id
+  from First car id. Each car's log lines go to the Review tab. Refused while `DLC<offer>` is in Xenia (Remove Pack first).
+- **Build DLC Package**: `BuildFolderFm2` (stage against the FM2 folder), `DbIntegrity.CheckMerge` against the installed
+  packs, `ZipLayerFm2`, `RefreshNamesPack`; on any error the half-built folder is removed. **Remove Pack**: `RemoveFm2`
+  and the names pack again. Both behind XeniaGuard.
+- **Makes in the pack** (user): a make FM2 lacks goes into the pack as it goes into the folder on Install: row in the
+  merge, strings in the override tables, logo as a loose `UI\Textures\L_Map\...` file. "+" New make in DLC mode keeps
+  the make for the pack (NewMakeForm "add to pack"), the trial's dry run adds it in memory, Trial Pack writes it into
+  the stage. Not remembered between sessions (a saved car whose make is gone gets the source's make, with a note).
+- C3: the sound needed no new code in `BuildFolderFm2`: the zip entries the port added land as loose files at the
+  zip's mount (`Audio\Cars\Engines\HarmonicTuning\`, `...\DSPTuning\`, `Audio\Cars\EmitterData\`), the banks as
+  `Audio\Cars\Engines\Soundbanks\LOD1|LOD2\*.fsb`; FM2 packs now also take a loose file the game has when its bytes
+  differ (`CopyPortedFilesFm3(..., changedToo)`; FM3 packs unchanged).
+- Offline check (`E:\DEV\fm4dev\PortToFM2\packtest`, FM2_Extracted only read, fake content folder): FH1 R8 GT
+  `AUD_R8GT_11` on `AUD_RS6_03` -> car 659, merge check OK, layer 37 files (car, wheel, 4 banks, 2 HTs, DSPTuning, ED,
+  part maker logo decal386, thumbnail 659, merge), strings DLC9Overrides1_pri_159. The window off screen
+  (`packtest\ui\shotdlc`): Trial Run, Into DLC, Trial Pack -> pack row id 659, Build off without a Xenia folder.
+- Open: the in-game test (pack built from the app into Xenia, FM2 with its title update): car in the dealer's DLC,
+  its sound, a new make's logo from a pack. The DLC merge has no ArcadeCarList (with it FM2 hung, 2026-11-14), so a
+  pack car is not in Arcade unless the official packs' way says otherwise. A source bank named only "NA" (FH1 R8 GT)
+  keeps that name: two such cars in one pack would share NA.fsb / NA_HT.xml (the Install path has the same naming).
 
 ### A done in code (2026-11-26, built, trial-folder / dry-run checks; DEV rewrite of the ported cars pending)
 

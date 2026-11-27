@@ -345,8 +345,9 @@ namespace ForzaStudio
             }
         }
 
-        // The files a copy reads or changes, at the same place under a temporary root.
-        private void Stage(string stage)
+        // The files a copy reads or changes, at the same place under a temporary root (also the FM2 port window's pack
+        // stage: one call per template car, before any car is ported into it).
+        internal void Stage(string stage)
         {
             List<string> files = new List<string>();
             files.Add(Path.Combine(Path.Combine(this.Media, "db"), "gamedb.slt"));

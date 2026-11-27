@@ -31,6 +31,11 @@ namespace ForzaStudio
                                             // car id, upgrade ids and engine id stay; TemplateMediaName = the template of the first port
         public string SourceGameName = "";  // for the record (port_log.txt in the car zip)
         public string SourcePack = "";
+        // DLC mode (docs/PORT_PARITY.md C): TargetRoot is a pack stage (the FM2 files the port reads and writes, copied under
+        // a temporary root, no default.xex), the FM2 folder itself is only read (PerfRoot) and never written.
+        public bool PackStage;
+        public string PerfRoot;             // the FM2 folder whose AI\PerfPrediction gives the performance numbers; null = TargetRoot
+        public long? ChosenId;              // the car id (pack: from the First car id on); null = the first free one
         public List<string> Log = new List<string>();
         public long CarId;
         public bool SoundDone;
@@ -145,7 +150,7 @@ namespace ForzaStudio
         public void Run()
         {
             string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-            string backup = BackupPolicy.Enabled ? Path.Combine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bak"), "fm2port_" + stamp) : null;
+            string backup = (BackupPolicy.Enabled && !this.PackStage) ? Path.Combine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bak"), "fm2port_" + stamp) : null;
             string dbPath = FindDatabase(this.TargetRoot);
 
             // before anything is written: the parts must fit
@@ -201,6 +206,14 @@ namespace ForzaStudio
                 copy.DisplayName = this.DisplayName;
                 copy.ModelShort = string.IsNullOrEmpty(this.ModelShort) ? this.DisplayName : this.ModelShort;
                 copy.Year = this.Year;
+                copy.ChosenId = this.ChosenId;
+                if (this.PackStage)
+                {
+                    // the stage has no default.xex and no AI\PerfPrediction; the names pack is rebuilt by the pack build
+                    copy.GameOverride = ForzaGame.Motorsport2;
+                    copy.RefreshNames = false;
+                    copy.PerfMedia = Path.Combine(this.PerfRoot ?? this.TargetRoot, "Media");
+                }
                 try
                 {
                     copy.Run();
@@ -300,7 +313,7 @@ namespace ForzaStudio
                 {
                     this.Log.AddRange(data.Log);
                 }
-                Fm2Perf.Result perf = Fm2Perf.Compute(db, car, Path.Combine(Path.Combine(Path.Combine(this.TargetRoot, "Media"), "AI"), "PerfPrediction"));
+                Fm2Perf.Result perf = Fm2Perf.Compute(db, car, Path.Combine(Path.Combine(Path.Combine(this.PerfRoot ?? this.TargetRoot, "Media"), "AI"), "PerfPrediction"));
                 if (perf == null || double.IsNaN(perf.Pi))
                 {
                     throw new InvalidOperationException("FM2's performance numbers could not be computed for the car: the database was not written.");

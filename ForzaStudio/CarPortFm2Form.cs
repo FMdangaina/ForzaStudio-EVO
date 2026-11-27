@@ -227,10 +227,20 @@ namespace ForzaStudio
         private string loadedTarget;
         private bool busy;
         private bool filling;
+        private readonly PortMode mode;
 
         public CarPortFm2Form()
+            : this(PortMode.Import)
         {
-            this.Text = "Import Car From Another Forza > FM2";
+        }
+
+        // Dlc (docs/PORT_PARITY.md C, user 2026-11-27): the same window; a car is trial-run as for Install, then Into DLC puts
+        // it with its choices into the pack on the right; Trial Pack ports every pack car into a stage, Build DLC Package
+        // writes DLC<offer> into Xenia's FM2 content folder. The FM2 folder is only read.
+        public CarPortFm2Form(PortMode mode)
+        {
+            this.mode = mode;
+            this.Text = (mode == PortMode.Dlc) ? "Create DLC Package > FM2" : "Import Car From Another Forza > FM2";
             this.Size = new Size(1360, 900);
             this.MinimumSize = new Size(1100, 720);
             this.StartPosition = FormStartPosition.CenterParent;
@@ -251,7 +261,8 @@ namespace ForzaStudio
             ToolStripLabel studio = new ToolStripLabel("STUDIO EVO");
             studio.Font = new Font("Segoe UI Light", 11f, FontStyle.Italic);
             studio.Margin = new Padding(0, 1, 18, 2);
-            ToolStripLabel title = new ToolStripLabel("IMPORT A CAR FROM FORZA MOTORSPORT 4, FORZA MOTORSPORT 3 OR FORZA HORIZON INTO FORZA MOTORSPORT 2");
+            ToolStripLabel title = new ToolStripLabel((mode == PortMode.Dlc) ? "CREATE A DLC PACKAGE FOR FORZA MOTORSPORT 2 WITH CARS FROM FM4, FM3 OR FORZA HORIZON"
+                : "IMPORT A CAR FROM FORZA MOTORSPORT 4, FORZA MOTORSPORT 3 OR FORZA HORIZON INTO FORZA MOTORSPORT 2");
             title.Font = ForzaTheme.Bold;
             title.ForeColor = ForzaTheme.TextDim;
             header.Items.Add(forza);
@@ -264,7 +275,7 @@ namespace ForzaStudio
             this.status.TextAlign = ContentAlignment.MiddleLeft;
             statusStrip.Items.Add(this.status);
 
-            GameBanner banner = new GameBanner("FORZA MOTORSPORT 2", "FROM  FM4 / FM3 / FH1 / FH2", Color.FromArgb(200, 70, 60));
+            GameBanner banner = new GameBanner("FORZA MOTORSPORT 2", (mode == PortMode.Dlc) ? "DLC PACKAGE" : "FROM  FM4 / FM3 / FH1 / FH2", Color.FromArgb(200, 70, 60));
             banner.Dock = DockStyle.Top;
 
             Panel folders = new Panel();
@@ -398,6 +409,13 @@ namespace ForzaStudio
             options.Controls.Add(this.trial);
             options.Controls.Add(this.install);
             this.BuildUninstallButton(options);
+            if (mode == PortMode.Dlc)
+            {
+                // nothing goes into the FM2 folder here: Into DLC in Install's place, no Uninstall
+                this.install.Visible = false;
+                this.uninstall.Visible = false;
+                this.BuildIntoDlcButton(options);
+            }
             Panel selectedCar = new Panel();
             selectedCar.Dock = DockStyle.Bottom;
             selectedCar.Height = 162;
@@ -555,7 +573,21 @@ namespace ForzaStudio
             body.Dock = DockStyle.Fill;
             body.Orientation = Orientation.Horizontal;
             body.FixedPanel = FixedPanel.Panel2;
-            body.Panel1.Controls.Add(carsArea);
+            if (mode == PortMode.Dlc)
+            {
+                // the pack on the right of the cars, as the FM3 / FM4 DLC windows
+                SplitContainer top = new SplitContainer();
+                top.Dock = DockStyle.Fill;
+                top.FixedPanel = FixedPanel.Panel2;
+                top.Panel1.Controls.Add(carsArea);
+                top.Panel2.Controls.Add(this.BuildPackPanel());
+                body.Panel1.Controls.Add(top);
+                this.Load += delegate { top.SplitterDistance = Math.Max(500, top.Width - 400); };
+            }
+            else
+            {
+                body.Panel1.Controls.Add(carsArea);
+            }
             body.Panel2.Controls.Add(CarPortForm.TabHost(this.tabs));
             this.Load += delegate { body.SplitterDistance = Math.Max(200, body.Height - 280); };
 
@@ -901,6 +933,10 @@ namespace ForzaStudio
                     {
                         this.report.Text = "DLC packages:\r\n" + notes.ToString();
                     }
+                    if (this.mode == PortMode.Dlc)
+                    {
+                        this.RestorePack(list, source);
+                    }
                 };
             });
         }
@@ -1033,6 +1069,10 @@ namespace ForzaStudio
             }
             this.install.Text = (car != null && car.Fm2Id > 0) ? "Port Again Over Car " + car.Fm2Id.ToString(CultureInfo.InvariantCulture) + "..."
                 : (car != null && car.Fm2Own) ? "Install In FM2 As " + car.TargetMedia + "..." : "Install In FM2...";
+            if (this.mode == PortMode.Dlc)
+            {
+                this.UpdatePackButtons(this.install.Enabled);
+            }
         }
 
         // The MediaName of a copy of one of FM2's own cars: the source's + _FM4 / _FM3 / _FH (up to 40 characters), as
@@ -1360,7 +1400,7 @@ namespace ForzaStudio
         // The database step on a copy of FM2's database in memory (nothing written): the rows FM2 cannot take, the makes,
         // part makers and cylinders it would get, before Install (user 2026-11-26). A new car is converted over its
         // template's rows, a port again over its own.
-        private static List<string> DryRunData(string sourceRoot, string sourceBase, string sourceMedia, string target, string onCar, List<Fm2CarbinModel.PlanPart> plan, ICollection<string> skip, List<CarDataToFm2.Fm2Swap> swaps, List<string[]> upgrades, long makeOverride)
+        private static List<string> DryRunData(string sourceRoot, string sourceBase, string sourceMedia, string target, string onCar, List<Fm2CarbinModel.PlanPart> plan, ICollection<string> skip, List<CarDataToFm2.Fm2Swap> swaps, List<string[]> upgrades, long makeOverride, CarMakeSpec pendingMake)
         {
             List<string> lines = new List<string>();
             using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target))))
@@ -1404,6 +1444,10 @@ namespace ForzaStudio
                     if (makeOverride <= 0)
                     {
                         lookups.PrepareMake(Fm2LookupPort.SourceMake(source, sourceMedia));   // a chosen Make: the source's is not added
+                    }
+                    else if (pendingMake != null)
+                    {
+                        lookups.AddMake(pendingMake);   // DLC mode: a new make of the pack (Trial Pack writes it into the stage)
                     }
                     data.IdResolver = lookups.Resolve;
                     data.Target = db;
@@ -1855,7 +1899,7 @@ namespace ForzaStudio
                 List<string> dryRun;
                 try
                 {
-                    dryRun = DryRunData(port.SourceRoot, (car.Pack != null) ? source : null, car.MediaName, target, (car.Fm2Id > 0) ? car.TargetMedia : template, plan, made.Skip, ChosenSwaps(made), made.Upgrades, car.MakeId);
+                    dryRun = DryRunData(port.SourceRoot, (car.Pack != null) ? source : null, car.MediaName, target, (car.Fm2Id > 0) ? car.TargetMedia : template, plan, made.Skip, ChosenSwaps(made), made.Upgrades, car.MakeId, this.PendingMake(car.MakeId));
                 }
                 catch (Exception e)
                 {
@@ -1947,9 +1991,10 @@ namespace ForzaStudio
                     {
                         this.tabs.SelectedTab = this.materialsPage;
                     }
+                    string next = (this.mode == PortMode.Dlc) ? "Into DLC" : "Install In FM2";
                     this.status.Text = !stockFits ? "Trial done: the stock parts alone do not fit FM2."
-                        : !allFit ? "Trial done: not every variant fits. Untick variants in the Variants tab until the counters are green, then Install In FM2." + materialNote
-                        : "Trial done: everything fits. Install In FM2 when ready." + materialNote;
+                        : !allFit ? "Trial done: not every variant fits. Untick variants in the Variants tab until the counters are green, then " + next + "." + materialNote
+                        : "Trial done: everything fits. " + next + " when ready." + materialNote;
                 };
             });
         }

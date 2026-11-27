@@ -192,6 +192,9 @@
     <Compile Include="ForzaStudio\CarPortFm2Form.Makes.cs">
       <DependentUpon>CarPortFm2Form.cs</DependentUpon>
     </Compile>
+    <Compile Include="ForzaStudio\CarPortFm2Form.Pack.cs">
+      <DependentUpon>CarPortFm2Form.cs</DependentUpon>
+    </Compile>
     <Compile Include="ForzaStudio\CarDataToFm2.cs" />
     <Compile Include="ForzaStudio\CarDataToFm2.Typical.cs" />
     <Compile Include="ForzaStudio\CarDataToFm2.Specific.cs" />
