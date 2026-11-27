@@ -35,6 +35,8 @@ namespace ForzaStudio
             public bool RecordApplied;  // the record's template / sound were put into the window once
             public long SourceMake = -1;    // the source's Data_Car.MakeID
             public long MakeId = -1;        // the Make chosen (FM2 List_CarMake.ID); -1: the source's (added to FM2 when it lacks it)
+            public double Pi = -1;          // the source game's Data_Car.PerformanceIndex; -1: none
+            public string Class = "";       // the source game's class and shown PI ("B 441"); FM2's are computed by the port, never here
 
             public bool InFm2 { get { return this.Fm2Own || this.Fm2Id > 0; } }
 
@@ -325,9 +327,11 @@ namespace ForzaStudio
             this.cars.Columns.Add("Car", 260);
             this.cars.Columns.Add("Year", 50);
             this.cars.Columns.Add("Media name", 200);
+            this.cars.Columns.Add("PI", 60);        // "PI FM4" / "PI FM3" / "PI FH" once the source is known (LoadCars)
+            this.cars.Columns.Add("Class", 60);     // the source game's class badge, as in the FM3 / FM4 windows
             this.cars.Columns.Add("DLC pack", 220);
             this.cars.Columns.Add("In FM2", 260);
-            this.cars.SelectedIndexChanged += delegate { this.ApplyRecord(); this.ShowMake(); this.ShowTrial(); this.UpdateButtons(); };
+            this.cars.SelectedIndexChanged += delegate { this.ShowSourcePi(); this.ApplyRecord(); this.ShowMake(); this.ShowTrial(); this.UpdateButtons(); };
             CarPortFm3Form.StyleList(this.cars);
 
             Panel options = new Panel();
@@ -855,6 +859,7 @@ namespace ForzaStudio
                     this.loadedTarget = target;
                     this.trials.Clear();
                     this.items.Clear();
+                    this.cars.Columns[4].Text = "PI " + GameInfo.Tag(game);
                     foreach (SourceCar car in list)
                     {
                         ListViewItem item = new ListViewItem(car.Id.ToString(CultureInfo.InvariantCulture));
@@ -862,6 +867,8 @@ namespace ForzaStudio
                         item.SubItems.Add(car.Name);
                         item.SubItems.Add(car.Year.ToString(CultureInfo.InvariantCulture));
                         item.SubItems.Add(car.MediaName);
+                        item.SubItems.Add((car.Pi >= 0) ? car.Pi.ToString("0.000", CultureInfo.InvariantCulture) : "");
+                        item.SubItems.Add(car.Class);
                         item.SubItems.Add(car.Dlc);
                         item.SubItems.Add(car.Fm2Text);
                         if (car.InFm2)
@@ -918,11 +925,13 @@ namespace ForzaStudio
                     return;
                 }
                 bool hasShort = false;
+                bool hasPi = false;
                 foreach (string column in source.Query("SELECT * FROM Data_Car LIMIT 0").Columns)
                 {
                     hasShort |= string.Equals(column, "ModelShort", StringComparison.OrdinalIgnoreCase);
+                    hasPi |= string.Equals(column, "PerformanceIndex", StringComparison.OrdinalIgnoreCase);
                 }
-                foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year, " + (hasShort ? "ModelShort" : "NULL") + ", MakeID FROM Data_Car ORDER BY Id").Rows)
+                foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year, " + (hasShort ? "ModelShort" : "NULL") + ", MakeID, " + (hasPi ? "PerformanceIndex" : "NULL") + " FROM Data_Car ORDER BY Id").Rows)
                 {
                     string media = row[1] as string;
                     if (media == null || (own != null && !own.Contains(media)))
@@ -950,6 +959,13 @@ namespace ForzaStudio
                     car.Dlc = label;
                     car.Traffic = horizon && CarPortFm3Form.IsTraffic(root, media, lazy);
                     car.SourceMake = (row[5] == null || row[5] is DBNull) ? -1 : Convert.ToInt64(row[5], CultureInfo.InvariantCulture);
+                    if (row[6] != null && !(row[6] is DBNull))
+                    {
+                        // the PI and class badge the source game shows (CarClasses of the car's own database, as the FM3 / FM4
+                        // windows); FM2's PI and class are computed by the port (its log), never estimated in the list
+                        car.Pi = Convert.ToDouble(row[6], CultureInfo.InvariantCulture);
+                        car.Class = CarPortForm.OwnClass(source, car.Pi, car.Id);
+                    }
                     into.Add(car);
                 }
             }
@@ -1025,6 +1041,20 @@ namespace ForzaStudio
         {
             string tag = (game == ForzaGame.Motorsport4) ? "_FM4" : (game == ForzaGame.Motorsport3) ? "_FM3" : "_FH";
             return ((media.Length + tag.Length > 40) ? media.Substring(0, 40 - tag.Length) : media) + tag;
+        }
+
+        // The chosen car's PI in its own game on the status line, as the details line of the FM3 / FM4 windows (ApplyRecord
+        // writes over it the first time a ported car is chosen).
+        private void ShowSourcePi()
+        {
+            SourceCar car = this.SelectedCar;
+            if (car == null || car.Pi < 0)
+            {
+                return;
+            }
+            string tag = GameInfo.Tag(this.sourceGame);
+            this.status.Text = string.Format(CultureInfo.InvariantCulture, "{0} ({1}, id {2}): {3}PI {1} {4:0.000} (FM2's PI and class are computed by the port: its log).",
+                car.Name, tag, car.Id, (car.Class.Length > 0) ? car.Class + ", " : "", car.Pi);
         }
 
         // The first time a car ported before is chosen: the template and the engine sound of its port record go into the
@@ -2043,7 +2073,7 @@ namespace ForzaStudio
                     {
                         if (item.Tag == car)
                         {
-                            item.SubItems[5].Text = car.Fm2Text;
+                            item.SubItems[7].Text = car.Fm2Text;
                             item.ForeColor = ForzaTheme.TextDim;
                         }
                     }

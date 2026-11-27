@@ -75,7 +75,7 @@ namespace ForzaStudio
                             {
                                 if (item.Tag == car)
                                 {
-                                    item.SubItems[5].Text = car.Fm2Text;
+                                    item.SubItems[7].Text = car.Fm2Text;
                                     item.ForeColor = car.InFm2 ? ForzaTheme.TextDim : car.Traffic ? ForzaTheme.Yellow : ForzaTheme.Text;
                                 }
                             }

@@ -15,7 +15,7 @@ Three windows: FM4 (`CarPortForm`, `.Makes`, `.Upgrades`), FM3 (`CarPortFm3Form`
 | Cars: search, include the game's DLC | ✅ | ✅ | ✅ |
 | **Also show cars the target already has** | ✅ (count of hidden) | ✅ "In FM3" column | ❌ |
 | Traffic cars in yellow | ✅ | ✅ | ✅ (2026-11-25) |
-| Source **PI** column | ✅ | ❌ | ❌ |
+| Source **PI** column | ✅ | ❌ | ✅ (B7) |
 | Template car | ✅ ([DLC] marked) | ✅ | ✅ |
 | **Arcade** | ✅ | ✅ | always (user rule) |
 | **Make** + **New make** | ✅ | ✅ | ❌ (`MakeID` copied; `CarMake` has no FM2) |
@@ -128,7 +128,7 @@ Each UI step is described to the user and gets a yes before it is built (`descri
    - Plan offline (`reviewtest\unplan`, nothing written): RUF 675: make 91 + 2 strings + L_MAN_RUF_Logo, part maker 306 +
      decal402; 107 670: part maker 302 + decal398, cylinders 11 + its string; 240SX 671: URAS 303 + decal399 out, Nissan
      290 kept (other cars use it).
-7. Source PI column.
+7. Source PI column (built 2026-11-27): "PI FM4" / "PI FM3" / "PI FH" (Data_Car.PerformanceIndex of the source) and "Class" (the source game's badge, `CarPortForm.OwnClass` on its own CarClasses; empty for a database without that table) after Media name; the chosen car's PI on the status line. FM2's PI and class are computed by the port (its log), never estimated in the list. App test pending.
 
 **C. FM2 DLC mode** ("Create DLC package for: FM2"), port first, then into the pack (user 2026-11-26):
 1. The same window in DLC mode: after the car's trial, **Into DLC →** puts it in the pack with all its choices

@@ -2793,7 +2793,7 @@ namespace ForzaStudio
 
         // "B 441": the class of a PI and the number shown, by the CarClasses of the car's OWN game; "" for a database without
         // that table (FM2). The target game's PI is never estimated in the list: the port computes it (Fm4Perf / Fm3Perf).
-        private static string OwnClass(SqliteDatabase db, double pi, long id)
+        internal static string OwnClass(SqliteDatabase db, double pi, long id)
         {
             if (db == null || !DbIds.HasTable(db, "CarClasses"))
             {
