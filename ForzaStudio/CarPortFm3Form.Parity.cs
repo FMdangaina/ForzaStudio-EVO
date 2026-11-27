@@ -463,6 +463,57 @@ namespace ForzaStudio
             this.UpdateButtons();
         }
 
+        // ----- D6: Add To Package (as the FM4 window's) -----
+
+        private Button addToPackage;
+
+        private void AddToPackage()
+        {
+            string target = this.targetBox.Text.Trim();
+            string trial = this.packTrialFolder;
+            string content = this.XeniaContent();
+            if (trial == null || content == null || !Directory.Exists(target))
+            {
+                return;
+            }
+            string package = CarPortFm2Form.PickPackage(this, ForzaGame.Motorsport3, content, this.Text);
+            if (package == null)
+            {
+                return;
+            }
+            if (MessageBox.Show(this, "Add the " + this.pack.Count + " car(s) of the last Trial Pack to\n" + package + "?\n\nThe package keeps its offer and its cars; the new cars' rows, strings and files are added. "
+                + (BackupPolicy.Enabled ? "The original is kept in bak\\ first." : "Backups are off: the original is not kept."), this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+            if (!XeniaGuard.Confirm(this, this.Text, "FM3's DLC packages"))
+            {
+                return;
+            }
+            string name = File.Exists(package) ? null : this.packName.Text.Trim();
+            this.status.Text = "Adding the cars to " + Path.GetFileName(package) + "...";
+            this.Background(delegate
+            {
+                StringBuilder text = new StringBuilder();
+                text.AppendLine("Add To Package: " + package);
+                string failed = null;
+                try
+                {
+                    DlcPackageAdd.AddFm(ForzaGame.Motorsport3, package, target, trial, content, name, text);
+                    DlcPackage.RefreshNamesPack(ForzaGame.Motorsport3, target, content, text);
+                }
+                catch (Exception e)
+                {
+                    failed = e.Message;
+                }
+                return delegate
+                {
+                    this.report.Text = ((failed != null) ? "ADD TO PACKAGE FAILED: " + failed + "\r\nThe package was not changed.\r\n\r\n" : "") + text.ToString().Replace("\r\n", "\n").Replace("\n", "\r\n");
+                    this.status.Text = (failed != null) ? "Add To Package failed: " + failed : "The cars are in " + Path.GetFileName(package) + ". Start FM3 in Xenia.";
+                };
+            });
+        }
+
         // ----- D4 -----
 
         private void BuildFirstCarRow(Panel panel)

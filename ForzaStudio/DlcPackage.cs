@@ -1518,11 +1518,18 @@ namespace ForzaStudio
         // column is in the package with other values is added anyway and reported, as BuildMerge does for the game.
         public static byte[] AppendMerge(byte[] old, byte[] added, int offer, StringBuilder report)
         {
+            return AppendMerge(old, added, offer, report, "ContentOffers");
+        }
+
+        // packTable: the table of the package's own row, which stays the package's ("ContentOffers" FM4, checked for the offer;
+        // "MultiDiscContentPacks" FM3); null: none (FM2 packs are no row of the database).
+        public static byte[] AppendMerge(byte[] old, byte[] added, int offer, StringBuilder report, string packTable)
+        {
             using (SqliteDatabase target = SqliteDatabase.FromBytes(old))
             using (SqliteDatabase extra = SqliteDatabase.FromBytes(added))
             {
-                if (Convert.ToInt64(target.Scalar("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'ContentOffers'")) == 0
-                    || Convert.ToInt64(target.Scalar("SELECT count(*) FROM ContentOffers WHERE PubOfferingID = ?", (long) offer)) == 0)
+                if (packTable == "ContentOffers" && (Convert.ToInt64(target.Scalar("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'ContentOffers'")) == 0
+                    || Convert.ToInt64(target.Scalar("SELECT count(*) FROM ContentOffers WHERE PubOfferingID = ?", (long) offer)) == 0))
                 {
                     throw new InvalidOperationException("The package's merge database has no ContentOffers row for offer " + offer + ".");
                 }
@@ -1531,7 +1538,7 @@ namespace ForzaStudio
                 foreach (object[] table in extra.Query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").Rows)
                 {
                     string name = (string) table[0];
-                    if (name == "ContentOffers" || name.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase))
+                    if ((packTable != null && name == packTable) || name.StartsWith("sqlite_", StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }

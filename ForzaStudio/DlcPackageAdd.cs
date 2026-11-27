@@ -20,7 +20,7 @@ namespace ForzaStudio
     //   4. the work folder is packed again into the same file with its own header (StfsPackage.Rewrite), the original
     //      kept in bak\ when backups are on.
     // Nothing is touched until the whole new package is built.
-    public static class DlcPackageAdd
+    public static partial class DlcPackageAdd
     {
         public static string Add(string packageFile, string cleanRoot, string targetRoot, string trialRoot, string installedContent, StringBuilder report)
         {

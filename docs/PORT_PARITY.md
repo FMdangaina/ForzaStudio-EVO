@@ -32,8 +32,8 @@ that `PortPairs.CanCreateDlc("FM2")` was false and the button greyed.
 | **DLC mode**: pack list Add / Remove, New pack, Name, Offer + Free | ✅ | ✅ | ✅ (C, Into DLC) |
 | DLC: **First car id** | ✅ | ✅ (D4) | ✅ (C) |
 | DLC: Trial Pack, Build for Xenia, Remove Pack | ✅ | ✅ | ✅ (C) |
-| DLC: **Add to existing package** (`DlcPackageAdd`) | ✅ | ❌ | ❌ |
-| DLC: Build for Xbox 360 | ✅ | ✅ | ❌ |
+| DLC: **Add to existing package** (`DlcPackageAdd`) | ✅ | ✅ (D6, `AddFm`) | ✅ (`AddFm`) |
+| DLC: Build for Xbox 360 | ✅ | ✅ | ✅ |
 | DLC: the pack is **remembered** between sessions (`RestorePack`) | ✅ | ✅ (D5) | ✅ (C) |
 
 ## 2. FM2 data still the template's (rule: nothing of the template may stay)
@@ -251,3 +251,33 @@ Upgrades editable (swaps, drive type), source PI column.
   Corvette, Remove -> "left out", drive picked, CCX-R (FH1) "ported, car 1719" with Uninstall on, the pack restored in
   a second window; `fm3check\unplan3` the CCX-R's uninstall plan (its rows only).
 - D6 (Add to existing package for FM3) after a study: DlcPackageAdd is FM4 only.
+
+**E. Last gaps closed 2026-11-27** (user "fai tutto in un colpo"): FM2 Build for Xbox 360, Add To Package for FM2 and FM3.
+- Study: `DlcPackageAdd.Add` (FM4) = extract the package, build the new cars for the SAME offer in a temp content folder,
+  append the merge rows (`AppendMerge`), new string tables with the old-only keys (`MergeStrings`), the new files into the
+  pack zip, `StfsPackage.Rewrite`. FM4-only parts: `.puboffer`, ContentOffers, `StringTables_pri` / `<offer>_pri_65.zip`
+  names, `ForzaZip.Replace` (transforms carbins for FM4 on write).
+- `DlcPackageAdd.AddFm` (`DlcPackageAdd.Fm.cs`), FM2 and FM3: the package is a folder pack in Xenia's content folder (FM2
+  `DLC<n>`, FM3 `4D53084D0CCF<hex>`) or an STFS file of the game. Layer FM2 `DLC<n>_pri_65(.zip)`, FM3 `<hex>_pri_65(.zip)`:
+  a zipped layer is unpacked, the new files copied in (same bytes skipped), written again with `WriteStoredZip` (FM2
+  deflate, FM3 LZX). Merge: `AppendMerge` with the pack table (`MultiDiscContentPacks` FM3, none FM2; FM4 keeps
+  ContentOffers + its offer check), `CheckCars`, FM2 ContentIds kept apart from the old cars', then
+  `DbIntegrity.CheckMerge` against the game and the other installed packs (the package's own merge left out by its bytes:
+  a zipped layer's / STFS file's merge is a temp copy) before anything is written. Strings: the new build's zip with the
+  old-only keys, `zipmount.xml` / `stringtables.xml` follow. Licence masks written again for every car (FM2 both files with
+  the StockGarage insert, FM3 `00000001.sql`). The folder or file is replaced at the end (original in `bak\`).
+- FM3's new build for the package's own offer: `BuildFolderFm3(..., addingTo)` does not refuse that offer, and the old
+  package's keys stay taken (DlcRelocate moves the new rows off them).
+- FM2 fix found on the way (`Fm2LookupPort`): a new part maker, cylinder, `decal<n>` logo name and New make id are also
+  above the FM2 packs installed in Xenia (`PackMax`); two packs each with a new part maker both took 290, the second could
+  be neither built nor added.
+- Windows: FM2 DLC panel second row **Add To Package...** + **Build for Xbox 360...** (`BuildXbox`: BuildFolderFm2 in a
+  work folder, merge check, `BuildConsolePackage` deflate); FM3 **Add To Package...** beside Build for Xbox 360. The
+  package is picked from a list of the game's folder packs and package files in Xenia's content folder
+  (`CarPortFm2Form.PickPackage`); XeniaGuard; names pack refreshed.
+- Offline (`E:\DEV\fm4dev\PortToFM2\addtest`, fake content folders and a fake Xenia under `addtest\xenia`, game folders only
+  read): FM2 DLC9 (R8 GT 659) + BMW 1M 660, as folder pack and as STFS file: 2 cars, ContentId 51 / 52, layer 67 files
+  deflate, strings `DLC9Overrides1_pri_160.zip` in zipmount, masks with both cars. FM3 offer 101 (Skyline 1413) + Corvette
+  1416: merge check OK, 47 files added, strings pri_252, mask `(1413,1416)`, one MultiDiscContentPacks row. The check
+  refused (nothing written) the trials made without the first pack installed: their ids clashed, as they should.
+

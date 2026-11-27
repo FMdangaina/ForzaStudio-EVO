@@ -256,6 +256,7 @@
     <Compile Include="ForzaStudio\CarUninstall.cs" />
     <Compile Include="ForzaStudio\DlcCarDelete.cs" />
     <Compile Include="ForzaStudio\DlcPackageAdd.cs" />
+    <Compile Include="ForzaStudio\DlcPackageAdd.Fm.cs" />
     <Compile Include="ForzaStudio\CarUpgrades.cs" />
     <Compile Include="ForzaStudio\DbIds.cs" />
     <Compile Include="ForzaStudio\GameIdLimits.cs" />

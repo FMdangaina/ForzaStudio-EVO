@@ -1428,6 +1428,10 @@ namespace ForzaStudio
                 this.packTrial.Enabled = !this.busy && this.pack.Count > 0;
                 this.buildXenia.Enabled = !this.busy && this.packTrialFolder != null && content != null && named;
                 this.buildXbox.Enabled = !this.busy && this.packTrialFolder != null && named;
+                if (this.addToPackage != null)
+                {
+                    this.addToPackage.Enabled = !this.busy && this.packTrialFolder != null && content != null;
+                }
                 this.removeXenia.Enabled = !this.busy && content != null && this.Offer() > 0 && Directory.Exists(DlcPackage.PackagePathFm3(content, this.Offer()));
                 this.packInfo.Text = (this.pack.Count == 0) ? "Select a car on the left, choose its template car, then Add (or double-click the car)."
                     : (this.packTrialFolder == null) ? this.pack.Count + " car(s): Trial Pack, then Build DLC Package."
@@ -1554,6 +1558,9 @@ namespace ForzaStudio
             this.removeXenia = PackButton(packPanel, "Remove Pack", 250, 0, 108);
             this.removeXenia.Click += delegate { this.RemoveFromXenia(); };
             this.buildXbox = PackButton(packPanel, "Build for Xbox 360...", 8, 0, 238);
+            this.addToPackage = PackButton(packPanel, "Add To Package...", 250, 0, 120);     // the last Trial Pack's cars into a package already in Xenia
+            new ToolTip().SetToolTip(this.addToPackage, "Put the cars of the last Trial Pack into an FM3 package that is already in Xenia (a pack folder or a package file): it keeps its offer, name and cars");
+            this.addToPackage.Click += delegate { this.AddToPackage(); };
             this.buildXbox.Click += delegate { this.BuildForXbox(); };
             this.packInfo = new Label();
             this.packInfo.Size = new Size(350, 48);
@@ -1575,7 +1582,7 @@ namespace ForzaStudio
                 int h = packPanel.ClientSize.Height;
                 int w = packPanel.ClientSize.Width;
                 this.packInfo.Bounds = new Rectangle(8, h - 52, w - 16, 48);
-                this.buildXbox.Top = h - 84;
+                this.buildXbox.Top = this.addToPackage.Top = h - 84;
                 this.packTrial.Top = this.buildXenia.Top = this.removeXenia.Top = h - 116;
                 this.xeniaBox.Bounds = new Rectangle(8, h - 148, w - 54, this.xeniaBox.Height);
                 xeniaBrowse.Location = new Point(w - 40, h - 150);

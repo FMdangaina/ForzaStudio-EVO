@@ -161,7 +161,7 @@ namespace ForzaStudio
             }
             else
             {
-                found = Convert.ToInt64(this.target.Scalar("SELECT ifnull(MAX(CylinderID), 0) FROM List_Cylinders"), CultureInfo.InvariantCulture) + 1;
+                found = Math.Max(Convert.ToInt64(this.target.Scalar("SELECT ifnull(MAX(CylinderID), 0) FROM List_Cylinders"), CultureInfo.InvariantCulture), PackMax("List_Cylinders", "CylinderID")) + 1;   // also above the installed packs'
                 uint high = High(this.target, "SELECT Description FROM List_Cylinders WHERE Description LIKE '\\_&%' ESCAPE '\\' LIMIT 1");
                 string text = Convert.ToString(number, CultureInfo.InvariantCulture) + (Convert.ToInt64(rotors, CultureInfo.InvariantCulture) != 0 ? " rotors" : " cylinders");
                 string description = this.AddString("List_Cylinders.str", Convert.ToString(row.Rows[0][2], CultureInfo.InvariantCulture), text, high, "IDS_Description_", null);
@@ -218,7 +218,7 @@ namespace ForzaStudio
             }
             else
             {
-                found = Convert.ToInt64(this.target.Scalar("SELECT ifnull(MAX(Id), 0) FROM List_PartManufacturer"), CultureInfo.InvariantCulture) + 1;
+                found = Math.Max(Convert.ToInt64(this.target.Scalar("SELECT ifnull(MAX(Id), 0) FROM List_PartManufacturer"), CultureInfo.InvariantCulture), PackMax("List_PartManufacturer", "Id")) + 1;   // also above the installed packs'
                 string decal = "decal" + this.NextDecal().ToString("000", CultureInfo.InvariantCulture);
                 string logoPath = @"GAME:\Media\UI\Textures\L_Map\Car_Parts_Logos_256x128\" + decal + ".TGA";
                 this.target.Execute("INSERT INTO List_PartManufacturer (Id, PartManufacturer, LogoPath) VALUES (?, ?, ?)", found, name, logoPath);
@@ -264,6 +264,7 @@ namespace ForzaStudio
                     }
                 }
             }
+            top = Math.Max(top, (int) PackMax("List_PartManufacturer", "LogoPath"));     // a pack's logo file of that name would be the other maker's
             return top + 1;
         }
 
@@ -496,7 +497,47 @@ namespace ForzaStudio
             {
                 id = Math.Max(id, Convert.ToInt64(max, CultureInfo.InvariantCulture));
             }
+            id = Math.Max(id, PackMax("List_CarMake", "ID"));
             return id + 1;
+        }
+
+        // The largest value of a column in the merges of the FM2 packs installed in Xenia (0: none, or no Xenia folder): an id
+        // the port adds must not be one another pack added already (two packs, each with a new part maker, both took 290:
+        // the second could not be built nor added, 2026-11-27).
+        private static long PackMax(string table, string column)
+        {
+            long top = 0;
+            foreach (string merge in DbIds.PackDatabases(InstalledDlc.ContentFolder(ForzaGame.Motorsport2)))
+            {
+                try
+                {
+                    using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(merge)))
+                    {
+                        if (!DbIds.HasTable(db, table) || Array.IndexOf(db.Query("SELECT * FROM " + SqliteDatabase.Quote(table) + " LIMIT 0").Columns, column) < 0)
+                        {
+                            continue;
+                        }
+                        if (column == "LogoPath")
+                        {
+                            foreach (object[] row in db.Query("SELECT LogoPath FROM " + SqliteDatabase.Quote(table)).Rows)
+                            {
+                                top = Math.Max(top, DecalNumber(Convert.ToString(row[0], CultureInfo.InvariantCulture)));
+                            }
+                            continue;
+                        }
+                        object max = db.Scalar("SELECT max(" + SqliteDatabase.Quote(column) + ") FROM " + SqliteDatabase.Quote(table));
+                        if (max != null && !(max is DBNull))
+                        {
+                            top = Math.Max(top, Convert.ToInt64(max, CultureInfo.InvariantCulture));
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    // a merge that does not open: its ids are not known
+                }
+            }
+            return top;
         }
 
         // Why a make made in the window cannot go into FM2, or null.

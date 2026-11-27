@@ -42,6 +42,8 @@ namespace ForzaStudio
         private Button packTrial;
         private Button buildPack;
         private Button removePack;
+        private Button addToPackage;
+        private Button buildXbox;
         private Label packInfo;
         private string packTrialFolder;     // the stage of the last Trial Pack that went through; null: Trial Pack first
 
@@ -215,10 +217,25 @@ namespace ForzaStudio
             this.removePack.Size = new Size(110, 28);
             new ToolTip().SetToolTip(this.removePack, "Take DLC<offer> out of Xenia's FM2 content folder");
             this.removePack.Click += delegate { this.RemovePackFromXenia(); };
+            this.addToPackage = new Button();
+            this.addToPackage.Text = "Add To Package...";
+            this.addToPackage.Location = new Point(8, 90);
+            this.addToPackage.Size = new Size(140, 28);
+            new ToolTip().SetToolTip(this.addToPackage, "Put the cars of the last Trial Pack into an FM2 package that is already in Xenia (a DLC<n> folder or a package file): it keeps its offer, name and cars");
+            this.addToPackage.Click += delegate { this.AddToPackage(); };
+            this.buildXbox = new Button();
+            this.buildXbox.Text = "Build for Xbox 360...";
+            this.buildXbox.Location = new Point(154, 90);
+            this.buildXbox.Size = new Size(160, 28);
+            new ToolTip().SetToolTip(this.buildXbox, "Write the pack as an Xbox 360 package file (STFS) into a folder you choose, from the last Trial Pack");
+            this.buildXbox.Click += delegate { this.BuildXbox(); };
+            bottom.Height = 126;
             bottom.Controls.Add(this.packInfo);
             bottom.Controls.Add(this.packTrial);
             bottom.Controls.Add(this.buildPack);
             bottom.Controls.Add(this.removePack);
+            bottom.Controls.Add(this.addToPackage);
+            bottom.Controls.Add(this.buildXbox);
 
             panel.Controls.Add(this.packList);
             panel.Controls.Add(bottom);
@@ -242,6 +259,8 @@ namespace ForzaStudio
             this.newPack.Enabled = !this.busy && this.pack.Count > 0;
             this.packTrial.Enabled = !this.busy && this.pack.Count > 0 && this.loadedTarget != null;
             this.buildPack.Enabled = !this.busy && this.packTrialFolder != null && content != null && named;
+            this.addToPackage.Enabled = !this.busy && this.packTrialFolder != null && content != null;
+            this.buildXbox.Enabled = !this.busy && this.packTrialFolder != null && named;
             this.removePack.Enabled = !this.busy && content != null && offer > 0 && Directory.Exists(DlcPackage.PackagePathFm2(content, offer));
         }
 
@@ -853,6 +872,161 @@ namespace ForzaStudio
                     this.tabs.SelectedIndex = 0;
                     this.status.Text = (failed != null) ? "Build failed: " + failed : "DLC" + offer + " built. Start FM2 in Xenia (with its title update): the cars are in the dealer's DLC.";
                     this.UpdatePackInfo();
+                };
+            });
+        }
+
+        // The package an Add To Package goes into: the game's folder packs and package files in Xenia's content folder.
+        internal static string PickPackage(IWin32Window owner, ForzaGame game, string content, string title)
+        {
+            List<KeyValuePair<string, string>> packages = DlcPackageAdd.Packages(game, content);
+            if (packages.Count == 0)
+            {
+                MessageBox.Show(owner, "Xenia's " + GameInfo.Tag(game) + " content folder has no package to add to:\n" + content, title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return null;
+            }
+            List<object[]> rows = new List<object[]>();
+            foreach (KeyValuePair<string, string> package in packages)
+            {
+                rows.Add(new object[] { package.Key, Path.GetFileName(package.Key), package.Value });
+            }
+            using (PickDialog dialog = new PickDialog(title + " - choose the package", new string[] { "Path", "Package", "What" }, new int[] { 0, 260, 300 }, rows, null))
+            {
+                if (dialog.ShowDialog(owner) != DialogResult.OK || dialog.SelectedKey == null)
+                {
+                    return null;
+                }
+                return Convert.ToString(dialog.SelectedKey, CultureInfo.InvariantCulture);
+            }
+        }
+
+        // Add To Package (as the FM4 window's): the last Trial Pack's cars into a package already in Xenia.
+        private void AddToPackage()
+        {
+            string target = this.loadedTarget;
+            string trial = this.packTrialFolder;
+            string content = this.XeniaContent();
+            if (target == null || trial == null || content == null)
+            {
+                return;
+            }
+            string package = PickPackage(this, ForzaGame.Motorsport2, content, this.Text);
+            if (package == null)
+            {
+                return;
+            }
+            if (MessageBox.Show(this, "Add the " + this.pack.Count + " car(s) of the last Trial Pack to\n" + package + "?\n\nThe package keeps its offer and its cars; the new cars' rows, strings and files are added. "
+                + (BackupPolicy.Enabled ? "The original is kept in bak\\ first." : "Backups are off: the original is not kept."), this.Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+            if (!XeniaGuard.Confirm(this, this.Text, "FM2's DLC packages"))
+            {
+                return;
+            }
+            string name = File.Exists(package) ? null : this.packName.Text.Trim();
+            this.status.Text = "Adding the cars to " + Path.GetFileName(package) + "...";
+            this.Background(delegate
+            {
+                StringBuilder text = new StringBuilder();
+                text.AppendLine("Add To Package: " + package);
+                string failed = null;
+                try
+                {
+                    DlcPackageAdd.AddFm(ForzaGame.Motorsport2, package, target, trial, content, name, text);
+                    DlcPackage.RefreshNamesPack(ForzaGame.Motorsport2, target, content, text);
+                }
+                catch (Exception e)
+                {
+                    failed = e.Message;
+                }
+                return delegate
+                {
+                    this.report.Text = ((failed != null) ? "ADD TO PACKAGE FAILED: " + failed + "\r\nThe package was not changed.\r\n\r\n" : "") + text.ToString().Replace("\r\n", "\n").Replace("\n", "\r\n");
+                    this.tabs.SelectedIndex = 0;
+                    this.status.Text = (failed != null) ? "Add To Package failed: " + failed : "The cars are in " + Path.GetFileName(package) + ". Start FM2 in Xenia.";
+                    this.UpdatePackInfo();
+                };
+            });
+        }
+
+        // Build for Xbox 360 (as the FM3 / FM4 windows): the pack as an STFS package file in a folder the user chooses.
+        private void BuildXbox()
+        {
+            string target = this.loadedTarget;
+            string trial = this.packTrialFolder;
+            int offer = this.Offer();
+            string name = this.packName.Text.Trim();
+            if (target == null || trial == null || offer <= 0 || name.Length == 0)
+            {
+                return;
+            }
+            string output;
+            using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = "Folder for the Xbox 360 package file (saved directly in it)";
+                string start = DlcPackage.PackageOutputStart("CarPort.XboxOut.FM2", DlcPackage.TitleIdFm2);   // never another game's folder
+                if (start != null)
+                {
+                    dialog.SelectedPath = start;
+                }
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+                output = dialog.SelectedPath;
+            }
+            string foreign = DlcPackage.ForeignTitleFolder(output, DlcPackage.TitleIdFm2);
+            if (foreign != null)
+            {
+                MessageBox.Show(this, output + " is the content folder of another game (title " + foreign + ").\n\nThis is a Forza Motorsport 2 package (title " + DlcPackage.TitleIdFm2 + "): choose its own folder.", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                return;
+            }
+            AppSettings.Set("CarPort.XboxOut.FM2", output);
+            string installed = this.XeniaContent();   // the strings and ids of the FM2 packs installed in Xenia, if its folder is set
+            this.status.Text = "Building the Xbox 360 package...";
+            this.Background(delegate
+            {
+                StringBuilder text = new StringBuilder();
+                text.AppendLine(string.Format("Building the Xbox 360 package \"{0}\" (offer {1}) into {2}", name, offer, output));
+                string failed = null;
+                string work = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "XboxFm2_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
+                try
+                {
+                    List<string> others = DbIds.PackDatabases(installed);
+                    string folder = DlcPackage.BuildFolderFm2(target, trial, Path.Combine(work, "00000002"), installed, offer, name, text);
+                    string merge = Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(folder, "Media"), "DLCZips"), DlcPackage.LayerFm2(offer)), "media"), "db"), "patch");
+                    DbIntegrity.Result merged = DbIntegrity.CheckMerge(File.ReadAllBytes(CarPortFm2Chain.FindDatabase(target)), others,
+                        File.ReadAllBytes(Path.Combine(merge, offer.ToString(CultureInfo.InvariantCulture) + "0000_merge.slt")), ForzaGame.Motorsport2);
+                    if (!merged.Ok)
+                    {
+                        throw new InvalidOperationException("the pack's database would break the game's:\r\n  " + string.Join("\r\n  ", merged.Errors.ToArray()));
+                    }
+                    text.AppendLine("pack database check: merged into the game's database the rules hold");
+                    DlcPackage.BuildConsolePackage(folder, output, name, null, text, DlcPackage.TitleIdFm2, "Forza Motorsport 2");   // the layer zipped deflate
+                }
+                catch (Exception e)
+                {
+                    failed = e.Message;
+                }
+                finally
+                {
+                    try
+                    {
+                        if (Directory.Exists(work))
+                        {
+                            Directory.Delete(work, true);
+                        }
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+                return delegate
+                {
+                    this.report.Text = text.ToString().Replace("\r\n", "\n").Replace("\n", "\r\n") + ((failed != null) ? "\r\nFAILED: " + failed + "\r\n" : "\r\nDone.\r\n");
+                    this.tabs.SelectedIndex = 0;
+                    this.status.Text = (failed != null) ? "The package failed, see the report." : "Xbox 360 package built in " + output;
                 };
             });
         }

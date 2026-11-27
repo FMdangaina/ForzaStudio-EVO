@@ -80,11 +80,18 @@ namespace ForzaStudio
         // installed: the FM3 content folder whose packages' string tables the new tables are built on (Xenia's; "content" is a temporary folder for a console package).
         public static string BuildFolderFm3(string targetRoot, string trialRoot, string content, string installed, int offer, string name, StringBuilder report)
         {
+            return BuildFolderFm3(targetRoot, trialRoot, content, installed, offer, name, report, null);
+        }
+
+        // addingTo: the installed package Add To Package puts the new cars into: its offer is the one they are built for (not refused);
+        // its keys stay taken (the new rows are moved off them, as off every installed pack's).
+        public static string BuildFolderFm3(string targetRoot, string trialRoot, string content, string installed, int offer, string name, StringBuilder report, string addingTo)
+        {
             string layerTemp = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "StringLayers_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
             try
             {
                 List<StringLayer> layers = StringLayer.Installed(installed, layerTemp, report, ForzaGame.Motorsport3);
-                return BuildFolderFm3With(targetRoot, trialRoot, content, installed, layers, offer, name, report);
+                return BuildFolderFm3With(targetRoot, trialRoot, content, installed, layers, offer, name, report, addingTo);
             }
             finally
             {
@@ -101,7 +108,7 @@ namespace ForzaStudio
             }
         }
 
-        private static string BuildFolderFm3With(string targetRoot, string trialRoot, string content, string installed, List<StringLayer> layers, int offer, string name, StringBuilder report)
+        private static string BuildFolderFm3With(string targetRoot, string trialRoot, string content, string installed, List<StringLayer> layers, int offer, string name, StringBuilder report, string addingTo)
         {
             string id = OfferIdFm3(offer);
             string package = PackagePathFm3(content, offer);
@@ -115,7 +122,7 @@ namespace ForzaStudio
 
             report.AppendLine("database:");
             byte[] merge = BuildMerge(File.ReadAllBytes(GameDb(targetRoot)), File.ReadAllBytes(GameDb(trialRoot)), offer, report, true);
-            merge = ClearOfInstalledFm3(targetRoot, installed, package, merge, offer, report);
+            merge = ClearOfInstalledFm3(targetRoot, installed, package, merge, offer, report, addingTo != null);
 
             // Strings: every table the port changed, whole (the game's + the installed packs' + the port's), and the pack's name.
             report.AppendLine("strings:");
@@ -177,7 +184,7 @@ namespace ForzaStudio
 
         // The pack's keys (engines, drivetrains, upgrade rows...) must not be the ones an installed pack has (the port chose them against the game alone): DlcRelocate
         // moves them in the merge, no file follows. A car Id or MediaName or the offer that an installed pack has stops the build: the files are named after them.
-        private static byte[] ClearOfInstalledFm3(string targetRoot, string installed, string package, byte[] merge, int offer, StringBuilder report)
+        private static byte[] ClearOfInstalledFm3(string targetRoot, string installed, string package, byte[] merge, int offer, StringBuilder report, bool ownOffer)
         {
             if (string.IsNullOrEmpty(installed) || !Directory.Exists(installed))
             {
@@ -186,7 +193,7 @@ namespace ForzaStudio
             using (DlcWorld world = DlcWorld.Load(installed, targetRoot, package))
             using (SqliteDatabase patch = SqliteDatabase.FromBytes(merge))
             {
-                if (world.Offers.Contains(offer))
+                if (world.Offers.Contains(offer) && !ownOffer)
                 {
                     throw new InvalidOperationException("Offer " + offer + " is used by an installed pack: choose another offer number.");
                 }
