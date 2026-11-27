@@ -15,26 +15,26 @@ that `PortPairs.CanCreateDlc("FM2")` was false and the button greyed.
 | Cars: search, include the game's DLC | ✅ | ✅ | ✅ |
 | **Also show cars the target already has** | ✅ (count of hidden) | ✅ "In FM3" column | ✅ "In FM2" column, Port Again (B1) |
 | Traffic cars in yellow | ✅ | ✅ | ✅ (2026-11-25) |
-| Source **PI** column | ✅ | ❌ | ✅ (B7) |
+| Source **PI** column | ✅ | ✅ (D1) | ✅ (B7) |
 | Template car | ✅ ([DLC] marked) | ✅ | ✅ |
 | **Arcade** | ✅ | ✅ | always (user rule) |
 | **Make** + **New make** | ✅ | ✅ | ✅ (B5) |
 | Engine sound: the source's / a target car's | ✅ | ✅ | ✅ (2026-11-25) |
-| Tires (Normal / Offroad / Small / Offroad Big) | ✅ | ❌ | n/a (FM2 shared tire texture) |
+| Tires (Normal / Offroad / Small / Offroad Big) | ✅ | n/a (FM3 has no tyres per car) | n/a (FM2 shared tire texture) |
 | Front / rear brakes + caliper angle | ✅ | ✅ | n/a (FM2: no per-car brakes) |
 | Trial Run, Install | ✅ | ✅ | ✅ |
 | **Open Trial Folder** | ✅ | ❌ | n/a (the FM2 trial writes no files) |
-| **Uninstall...** (take a ported car out of the folder) | ✅ | ❌ | ✅ (B6) |
+| **Uninstall...** (take a ported car out of the folder) | ✅ | ✅ (D2) | ✅ (B6) |
 | Tab Report | ✅ | ✅ | ✅ |
 | Tab **Review** (what the port changed or could not do, **Fix** choices) | ✅ | ✅ | ✅ (B3) |
-| Tab **Upgrades** | ✅ editable: swaps add / remove, drive type | read only (part, level, item, in FM3) | ✅ (B4) |
+| Tab **Upgrades** | ✅ editable: swaps add / remove, drive type | ✅ editable (D3) + the read-only table | ✅ (B4) |
 | Tabs Variants, Materials (buffer counters, material choices) | — | — | ✅ (FM2 only) |
 | **DLC mode**: pack list Add / Remove, New pack, Name, Offer + Free | ✅ | ✅ | ✅ (C, Into DLC) |
-| DLC: **First car id** | ✅ | ❌ | ✅ (C) |
+| DLC: **First car id** | ✅ | ✅ (D4) | ✅ (C) |
 | DLC: Trial Pack, Build for Xenia, Remove Pack | ✅ | ✅ | ✅ (C) |
 | DLC: **Add to existing package** (`DlcPackageAdd`) | ✅ | ❌ | ❌ |
 | DLC: Build for Xbox 360 | ✅ | ✅ | ❌ |
-| DLC: the pack is **remembered** between sessions (`RestorePack`) | ✅ | ❌ | ✅ (C) |
+| DLC: the pack is **remembered** between sessions (`RestorePack`) | ✅ | ✅ (D5) | ✅ (C) |
 
 ## 2. FM2 data still the template's (rule: nothing of the template may stay)
 
@@ -220,3 +220,34 @@ Each UI step is described to the user and gets a yes before it is built (`descri
 
 **D. FM3 window** (what FM4 has and FM3 lacks): Uninstall, First car id, the pack remembered, Add to existing package,
 Upgrades editable (swaps, drive type), source PI column.
+
+**D1-D5 built 2026-11-27** (user "fai tutta la D in un colpo"; `CarPortFm3Form.Parity.cs`, `CarPortToFm3.Upgrades.cs`):
+- FM3 facts first (`E:\DEV\fm4dev\PortToFM2\fm3check\fm3db`): FM3 has engine swaps (List_UpgradeEngine IsStock 0: 405
+  rows, 208 cars) and drive conversions in their own table (List_UpgradeDrivetrain IsStock 0: 168 rows, 152 cars),
+  Powertrains (7 rows) and Data_Engine.EngineName as FM4. Data_Car ids of FM3 itself: up to 1215 (MaxCarBase).
+- **D1** "PI FM4" / "PI FH" / "PI FM2" + "Class" after Media name (CarPortForm.OwnClass), PI on the status line.
+  "In FM3" is now column 7.
+- **D2** Uninstall... beside Install (Import only), on a car this window ported: an FM3 row above 1215, not a second
+  disc / DLC car, under the source's name or `_FM4` / `_FH` / `_FM2` ("ported, car N" in the In FM3 column). Plan in
+  the report, confirmation with the saved-game warning, XeniaGuard, CarUninstall (backups).
+- **D3** Upgrades tab: above the read-only table, the source's swaps (Remove / Put Back), **Add FM3 Engine...** (an
+  engine FM3 has, price), **Drive type** (no choice / no conversion / -> RWD, AWD, FWD). Kept in the car's fixes with
+  the FM4 window's keys, so the trial, the install and the pack use them:
+  - FM4 car (CarPortToFm3 directly, `UpgradeChoicesHere`): `swapdel:` rows out before the engines are resolved, `drive`
+    through CarUpgrades after the car's row (engine placement), as FM4's conversion (drivetrain 100000 + car id);
+  - FH / FM2 car: `swapdel:` and `drive` go to step 1 (CarPort, FM4 form) as in the FM4 window;
+  - `fm3swapadd:<engine>` (FM3 engine) is always written by CarPortToFm3, after the engines (an FM3 id can be another
+    engine in FM4): next level, mass / weight distribution as the game's swaps, ManufacturerID = the car's make.
+  - FM2 car: its swaps come with its FM4 form, only FM3 engines and the drive type are offered.
+- **D4** DLC: First car id + Free (first id above 1215 that neither the FM3 folder nor another installed pack uses);
+  Trial Pack gives each car the next free id from it (`CarPortToFm3.ChosenCarId`, through CarPortViaFm4 too; the
+  port's own checks still move it off an id taken elsewhere). Empty = the first free id, as before.
+- **D5** DLC: the pack saved at every change (`PortFm3.PackSource`, `PortFm3.PackCars`, `PortFm3.PackCar<n>` = car | DLC
+  pack | template | arcade | make | sound | brakes | fixes, fixes as `key=type:value` joined by `;;`) and restored after
+  Load Cars of the same source folder. New makes of the pack are not remembered (as FM2).
+- Offline checks (FM3 / FM4 / FH1 folders only read): `fm3check\d3` FM4 Skyline 2000GT-R and Corvette '60 into a temp
+  folder: swap left out, FM3 engine 300 added at the next level with the car's make, RWD -> AWD conversion (drivetrain
+  101302, level 1), chosen id honoured; `fm3check\ui\shot3` the window off screen: columns, PI, the swaps of the
+  Corvette, Remove -> "left out", drive picked, CCX-R (FH1) "ported, car 1719" with Uninstall on, the pack restored in
+  a second window; `fm3check\unplan3` the CCX-R's uninstall plan (its rows only).
+- D6 (Add to existing package for FM3) after a study: DlcPackageAdd is FM4 only.

@@ -26,6 +26,19 @@ namespace ForzaStudio
             public string Dlc;          // the pack's name, or ""
             public bool InFm3;
             public bool Traffic;        // FH traffic car: placeholder close-up models, rebuilt by step 1 (shown yellow)
+            public double Pi = -1;      // the source game's Data_Car.PerformanceIndex; -1: none (D1)
+            public string Class = "";   // the source game's class and shown PI ("B 441"); FM3's are computed by the port
+            public long Fm3Id;          // a car this window ported into the FM3 folder (id above FM3's own): its id, for Uninstall (D2); else 0
+            public string Fm3Media;     // that car's MediaName in FM3 (the source's, or <name>_FM4 / _FH / _FM2)
+
+            public string Fm3Text
+            {
+                get
+                {
+                    return (this.Fm3Id > 0) ? "ported, car " + this.Fm3Id.ToString(CultureInfo.InvariantCulture) + (string.Equals(this.Fm3Media, this.MediaName, StringComparison.OrdinalIgnoreCase) ? "" : " as " + this.Fm3Media)
+                        : this.InFm3 ? "yes (ported under another name)" : "";
+                }
+            }
         }
 
         // Dlc mode: cars go into a pack list, then Trial Pack, Build DLC Package / Build for Xbox 360.
@@ -189,9 +202,11 @@ namespace ForzaStudio
             this.cars.Columns.Add("Car", 240);
             this.cars.Columns.Add("Year", 50);
             this.cars.Columns.Add("Media name", 190);
+            this.cars.Columns.Add("PI", 60);        // "PI FM4" / "PI FH" / "PI FM2" once the source is known (D1, as the FM2 / FM4 windows)
+            this.cars.Columns.Add("Class", 60);
             this.cars.Columns.Add("DLC pack", 220);
             this.cars.Columns.Add("In FM3", 220);
-            this.cars.SelectedIndexChanged += delegate { this.UpdateButtons(); this.ShowUpgrades(); this.ShowSelectedFixes(); };
+            this.cars.SelectedIndexChanged += delegate { this.ShowSourcePi(); this.UpdateButtons(); this.ShowUpgrades(); this.ShowSelectedFixes(); };
             StyleList(this.cars);
 
             Panel options = new Panel();
@@ -223,6 +238,7 @@ namespace ForzaStudio
             {
                 options.Controls.Add(this.trial);
                 options.Controls.Add(this.install);
+                this.BuildUninstallButton(options);     // D2: a ported car out of the FM3 folder again
             }
             Panel selectedCar = new Panel();
             selectedCar.Dock = DockStyle.Bottom;
@@ -512,6 +528,7 @@ namespace ForzaStudio
                 List<SourceCar> list = new List<SourceCar>();
                 List<string[]> donorList = new List<string[]>();
                 HashSet<string> inFm3 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                Dictionary<string, long> ported3 = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
                 Dictionary<long, string> engines3 = new Dictionary<long, string>();
                 HashSet<long> drive3 = new HashSet<long>();
                 using (SqliteDatabase to = SqliteDatabase.FromBytes(File.ReadAllBytes(Db(target))))
@@ -525,7 +542,8 @@ namespace ForzaStudio
                     {
                         drive3.Add(Convert.ToInt64(row[0], CultureInfo.InvariantCulture));
                     }
-                    foreach (object[] row in to.Query("SELECT MediaName, DisplayName FROM Data_Car ORDER BY MediaName").Rows)
+                    long ownMax = GameIdLimits.MaxCarBase(ForzaGame.Motorsport3);
+                    foreach (object[] row in to.Query("SELECT MediaName, DisplayName, Id FROM Data_Car ORDER BY MediaName").Rows)
                     {
                         string media = row[0] as string;
                         if (media == null)
@@ -533,6 +551,11 @@ namespace ForzaStudio
                             continue;
                         }
                         inFm3.Add(media);
+                        long id = Convert.ToInt64(row[2], CultureInfo.InvariantCulture);
+                        if (ownMax > 0 && id > ownMax && DlcCatalog.PackOf(ForzaGame.Motorsport3, media) == null)
+                        {
+                            ported3[media] = id;     // a car a port added (above FM3's own ids, not a second disc / DLC car): Uninstall (D2)
+                        }
                         if (GamePaths.FindMedia(target, "cars", media) != null)
                         {
                             string name = (names3 != null) ? names3.Lookup("Data_Car", "DisplayName", row[1] as string) : null;
@@ -672,12 +695,28 @@ namespace ForzaStudio
                         notes.AppendLine(label + ": left out, " + e.Message);
                     }
                 }
+                // the car this window ported, under the source's name or the renamed one (CarPortToFm3 _FM4, CarPortViaFm4 _FH / _FM2)
+                foreach (SourceCar car in list)
+                {
+                    foreach (string suffix in new string[] { "", "_FM4", "_FH", "_FM2" })
+                    {
+                        string name = (suffix.Length == 0 || car.MediaName.Length + suffix.Length <= 40) ? car.MediaName + suffix : car.MediaName.Substring(0, 40 - suffix.Length) + suffix;
+                        long id;
+                        if (ported3.TryGetValue(name, out id))
+                        {
+                            car.Fm3Id = id;
+                            car.Fm3Media = name;
+                            break;
+                        }
+                    }
+                }
                 return delegate
                 {
                     this.sourceGame = game;
                     this.fm3Engines = engines3;
                     this.fm3Drivetrains = drive3;
                     this.items.Clear();
+                    this.cars.Columns[4].Text = "PI " + GameInfo.Tag(game);
                     foreach (SourceCar car in list)
                     {
                         ListViewItem item = new ListViewItem(car.Id.ToString(CultureInfo.InvariantCulture));
@@ -685,8 +724,10 @@ namespace ForzaStudio
                         item.SubItems.Add(car.Name);
                         item.SubItems.Add(car.Year.ToString(CultureInfo.InvariantCulture));
                         item.SubItems.Add(car.MediaName);
+                        item.SubItems.Add((car.Pi >= 0) ? car.Pi.ToString("0.000", CultureInfo.InvariantCulture) : "");
+                        item.SubItems.Add(car.Class);
                         item.SubItems.Add(car.Dlc);
-                        item.SubItems.Add(car.InFm3 ? "yes (ported under another name)" : "");
+                        item.SubItems.Add(car.Fm3Text);
                         if (car.InFm3)
                         {
                             item.ForeColor = ForzaTheme.TextDim;
@@ -720,6 +761,10 @@ namespace ForzaStudio
                     if (notes.Length > 0)
                     {
                         this.report.Text = "DLC packages:\r\n" + notes.ToString();
+                    }
+                    if (this.mode == PortMode.Dlc)
+                    {
+                        this.RestorePack(list, source);     // D5
                     }
                 };
             });
@@ -763,7 +808,12 @@ namespace ForzaStudio
                 bool horizonSource = CarPortViaFm4.IsHorizon(root);
                 Dictionary<string, KeyValuePair<bool, string>> lazy = horizonSource ? DlcSource.LazyCars(root) : null;
                 int noFiles = 0;
-                foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year FROM Data_Car ORDER BY Id").Rows)
+                bool hasPi = false;
+                foreach (string column in source.Query("SELECT * FROM Data_Car LIMIT 0").Columns)
+                {
+                    hasPi |= string.Equals(column, "PerformanceIndex", StringComparison.OrdinalIgnoreCase);
+                }
+                foreach (object[] row in source.Query("SELECT Id, MediaName, DisplayName, Year, " + (hasPi ? "PerformanceIndex" : "NULL") + " FROM Data_Car ORDER BY Id").Rows)
                 {
                     if (!(row[1] is string))
                     {
@@ -792,6 +842,12 @@ namespace ForzaStudio
                     car.Dlc = pack;
                     car.InFm3 = inFm3.Contains(car.MediaName);
                     car.Traffic = horizonSource && IsTraffic(root, car.MediaName, lazy);
+                    if (row[4] != null && !(row[4] is DBNull))
+                    {
+                        // the PI and class badge the source game shows (D1); FM3's are computed by the port (its log)
+                        car.Pi = Convert.ToDouble(row[4], CultureInfo.InvariantCulture);
+                        car.Class = CarPortForm.OwnClass(source, car.Pi, car.Id);
+                    }
                     into.Add(car);
                 }
                 if (noFiles > 0)
@@ -1257,6 +1313,7 @@ namespace ForzaStudio
             this.upgradesList.Columns.Add("In FM3", 600);
             StyleList(this.upgradesList);
             page.Controls.Add(this.upgradesList);
+            page.Controls.Add(this.BuildSwapPanel());     // D3: the swaps and the drive type, editable (above the read-only table)
             page.Controls.Add(this.upgradesTitle);
             return page;
         }
@@ -1267,6 +1324,7 @@ namespace ForzaStudio
             {
                 return;
             }
+            this.ShowSwaps((this.cars.SelectedItems.Count == 1) ? (SourceCar) this.cars.SelectedItems[0].Tag : null);
             this.upgradesList.Items.Clear();
             if (this.cars.SelectedItems.Count != 1)
             {
@@ -1355,6 +1413,11 @@ namespace ForzaStudio
             this.trial.Enabled = ready;
             this.install.Enabled = ready;
             this.load.Enabled = !this.busy;
+            if (this.uninstall != null)
+            {
+                SourceCar selected = (this.cars.SelectedItems.Count == 1) ? (SourceCar) this.cars.SelectedItems[0].Tag : null;
+                this.uninstall.Enabled = !this.busy && selected != null && selected.Fm3Id > 0;   // a ported car only, never one of FM3's own
+            }
             if (this.mode == PortMode.Dlc && this.packList != null && this.removeXenia != null)
             {
                 string content = this.XeniaContent();
@@ -1439,6 +1502,7 @@ namespace ForzaStudio
             suggest.Size = new Size(46, 24);
             new ToolTip().SetToolTip(suggest, "Put the first number the game's database and Xenia's packages do not use");
             suggest.Click += delegate { this.SuggestOffer(); };
+            this.BuildFirstCarRow(packPanel);     // D4: First car id + Free
             this.packList = new ListView();
             this.packList.Location = new Point(8, 100);
             this.packList.Size = new Size(350, 150);
@@ -1637,6 +1701,7 @@ namespace ForzaStudio
                 this.packList.Items.Add(row);
             }
             this.status.Text = this.pack.Count + " car(s) in the pack. Trial Pack next.";
+            this.SavePack();      // D5: the pack is remembered between sessions
             this.UpdateButtons();
         }
 
@@ -1663,8 +1728,12 @@ namespace ForzaStudio
             }
             Dictionary<string, List<CarPort.Issue>> foundInPack = new Dictionary<string, List<CarPort.Issue>>(StringComparer.OrdinalIgnoreCase);
             List<CarMakeSpec> newMakes = this.MakesToWrite(false, null);   // the pack's new makes: into the trial, and with it into the pack
+            long firstCar = this.FirstCar();       // D4: 0 = the first free id, as before
+            List<string> otherPacks = OtherPacks3(this.XeniaContent(), this.Offer());
             this.Background(delegate
             {
+                Dictionary<long, string> packCars = DbIds.PackCarIds(otherPacks);
+                long nextCar = firstCar;
                 StringBuilder text = new StringBuilder();
                 string failed = null;
                 Exception error = null;
@@ -1690,7 +1759,23 @@ namespace ForzaStudio
                         // the cars of the pack go one on top of the other in 'folder': the next reads the previous one's database
                         List<CarPort.Issue> carIssues;
                         string carReview;
-                        string carReport = RunCar(game, source, target, folder, item.Car, item.Donor, this.DonorRootOf(item.Donor), packFixes[item.Car.MediaName], item.Choices, fm4Stage, out carIssues, out carReview, out error);
+                        long? chosenId = null;
+                        if (nextCar > 0)
+                        {
+                            // the cars before this one are in the trial folder's database: the next free id from First car id
+                            string trialDb = Path.Combine(Path.Combine(Path.Combine(folder, "Media"), "db"), "gamedb.slt");
+                            using (SqliteDatabase db = SqliteDatabase.FromBytes(File.ReadAllBytes(File.Exists(trialDb) ? trialDb : Db(target))))
+                            {
+                                long id = FreeFm3CarId(db, nextCar, packCars);
+                                if (id > 0)
+                                {
+                                    chosenId = id;
+                                    nextCar = id + 1;
+                                    text.AppendLine("car id " + id + " (First car id " + firstCar + ")");
+                                }
+                            }
+                        }
+                        string carReport = RunCar(game, source, target, folder, item.Car, item.Donor, this.DonorRootOf(item.Donor), packFixes[item.Car.MediaName], item.Choices, fm4Stage, out carIssues, out carReview, out error, chosenId);
                         foundInPack[item.Car.MediaName] = carIssues;
                         if (error != null)
                         {
@@ -1997,7 +2082,7 @@ namespace ForzaStudio
 
         // One car into 'folder' (the FM3 result, never a game folder): an FM4 car (or a car of an FM4 pack) straight through
         // CarPortToFm3, a Horizon car through its FM4 form (CarPortViaFm4). Returns the report; 'error' is what stopped it.
-        private static string RunCar(ForzaGame game, string source, string target, string folder, SourceCar car, string donor, string donorRoot, Dictionary<string, object> fixes, CarChoices choices, string sharedStage, out List<CarPort.Issue> issues, out string reviewText, out Exception error)
+        private static string RunCar(ForzaGame game, string source, string target, string folder, SourceCar car, string donor, string donorRoot, Dictionary<string, object> fixes, CarChoices choices, string sharedStage, out List<CarPort.Issue> issues, out string reviewText, out Exception error, long? chosenId = null)
         {
             error = null;
             issues = null;
@@ -2015,6 +2100,7 @@ namespace ForzaStudio
                 chain.XeniaContent = InstalledDlc.ContentFolder(ForzaGame.Motorsport3);
                 chain.Fixes = fixes;
                 chain.SharedStage = sharedStage;   // a pack trial: one FM4-form folder for all its cars (ids of their own)
+                chain.ChosenCarId = chosenId;
                 if (choices != null)
                 {
                     chain.Arcade = choices.Arcade;
@@ -2043,6 +2129,8 @@ namespace ForzaStudio
             port.DonorRoot = donorRoot;
             port.XeniaContent = InstalledDlc.ContentFolder(ForzaGame.Motorsport3);
             port.Fixes = fixes;     // the review's material choices (FM3 names)
+            port.UpgradeChoicesHere = true;     // an FM4 car: the Upgrades tab's swaps left out and drive type are written here (D3)
+            port.ChosenCarId = chosenId;
             if (choices != null)
             {
                 port.Arcade = choices.Arcade;

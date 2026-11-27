@@ -15,7 +15,7 @@ namespace ForzaStudio
     //              the donor's row (GaugeID, FM3-only columns), PI mapped to the FM3 scale; engines, drivetrains and wheels FM3
     //              already has (same Id and MediaName) are FM3's own, an FM4-only engine or drivetrain becomes the donor's;
     //  - strings   DisplayName and ModelShort in FM3's Data_Car.str tables (new key above the table's largest).
-    public class CarPortToFm3
+    public partial class CarPortToFm3
     {
         public string SourceRoot;       // FM4 game folder
         public string PackRoot;         // optional: a staged FM4 DLC pack (DlcSource.Stage + Materialize) whose rows, files and strings come first, the FM4 folder filling in the rest
@@ -29,6 +29,12 @@ namespace ForzaStudio
         // The window's choices, as the FM4 window's (user 2026-11-22: FM3's car tables are FM4's):
         public bool Arcade = true;      // Data_Car.IsArcade (before: the template's value)
         public long? MakeId;            // an FM3 make (List_CarMake.ID, also one just created in OutputRoot) instead of the car's own
+        public long? ChosenCarId;       // the DLC window's First car id (the next free one from it); null = the first free id
+        // The Upgrades tab's choices (docs/PORT_PARITY.md D3) in Fixes, the FM4 window's keys: swapdel:<engine> (a source swap left
+        // out) and drive (RWD / AWD / FWD) are applied here only for an FM4 car (UpgradeChoicesHere); an FH / FM2 car gets them in
+        // its FM4-form step (CarPort). fm3swapadd:<engine> (an FM3 engine added as a swap, value: price) is always applied here.
+        public bool UpgradeChoicesHere;
+        public const string Fm3SwapAddKey = "fm3swapadd:";
         // (No brake choice here: the generic brakes and their angles are written by the FM4-form step with the model, CarPort.Brakes;
         // an FM4 car keeps its own brakes and angles.)
         public readonly StringBuilder Report = new StringBuilder();
@@ -95,6 +101,10 @@ namespace ForzaStudio
                 }
                 DbIds.PackContent = null;
                 this.carId = DbIds.Next(this.target, "Data_Car", "Id", ForzaGame.Motorsport3);
+                if (this.ChosenCarId.HasValue && this.ChosenCarId.Value > 0 && !DbIds.Taken(this.target, this.ChosenCarId.Value))
+                {
+                    this.carId = this.ChosenCarId.Value;   // the pack's First car id (the checks below still move it off a taken id)
+                }
                 while (this.carId != sourceId && Convert.ToInt64(this.source.Scalar("SELECT count(*) FROM Data_Car WHERE Id = ?", this.carId)) > 0)
                 {
                     this.carId++;   // the id is also written into a copy of FM4's database: it must not be another FM4 car's (id 1314 is the McLaren F1)
@@ -227,9 +237,18 @@ namespace ForzaStudio
                 }
             }
             this.Line("database: {0} rows in {1} car tables + Data_Car", rows, tables);
+            if (this.UpgradeChoicesHere)
+            {
+                this.RemoveSwaps();
+            }
             this.EnginesAndDrivetrains(from, to);
+            this.AddFm3Swaps();
             this.Dangling(from, to);
             this.PortCarRow(from["Data_Car"], to["Data_Car"]);
+            if (this.UpgradeChoicesHere)
+            {
+                this.DriveConversion();     // after the car's row: the conversion reads its engine placement
+            }
             this.PortWheel(from, to);
             this.CockpitCamera();
             this.TuneForMotorsport3();

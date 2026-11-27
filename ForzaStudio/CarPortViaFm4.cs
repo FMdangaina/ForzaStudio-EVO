@@ -31,6 +31,7 @@ namespace ForzaStudio
         public CarPort.BrakeChoice Brakes;   // null = the car's own
         public bool Arcade = true;
         public long? MakeId;            // an FM3 make; null = the car's own
+        public long? ChosenCarId;       // the DLC window's First car id (CarPortToFm3.ChosenCarId); null = the first free id
         public string SoundFrom;        // an FM3 car whose sound files the car takes; null = its own, converted
         // A pack trial: the FM4-form folder shared by every car of the pack (kept, the caller deletes it). Each car's step 1 then
         // sees the earlier cars' FM4 forms and takes ids of its own, as the FM4 window's pack trial does. Without it every step 1
@@ -135,6 +136,7 @@ namespace ForzaStudio
                 second.Fixes = this.Fixes;      // the material fixes are FM3 names: step 2 writes them
                 second.Arcade = this.Arcade;
                 second.MakeId = this.MakeId;
+                second.ChosenCarId = this.ChosenCarId;   // the DLC window's First car id
                 second.SoundDonorMediaName = this.SoundFrom;   // (the brakes and their angles were written by step 1, with the model)
                 // the Horizon name again when FM3 has no car of that name
                 // FM3 has a car of that name too, in its folder or in a package of its second disc / DLC (the 458 Italia

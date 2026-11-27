@@ -220,6 +220,7 @@
     <Compile Include="ForzaStudio\CarbinModelMotorsport3Edit.cs" />
     <Compile Include="ForzaStudio\CarbinModelToMotorsport3.cs" />
     <Compile Include="ForzaStudio\CarPortToFm3.cs" />
+    <Compile Include="ForzaStudio\CarPortToFm3.Upgrades.cs" />
     <Compile Include="ForzaStudio\Fm3Textures.cs" />
     <Compile Include="ForzaStudio\CarbinExhaust.cs" />
     <Compile Include="ForzaStudio\Fm2Source.cs" />
@@ -358,6 +359,7 @@
     <Compile Include="ForzaStudio\PortPairs.cs" />
     <Compile Include="ForzaStudio\CarPortFm3Form.cs" />
     <Compile Include="ForzaStudio\CarPortFm3Form.Choices.cs" />
+    <Compile Include="ForzaStudio\CarPortFm3Form.Parity.cs" />
     <Compile Include="ForzaStudio\CarPortForm.cs">
       <SubType>Form</SubType>
     </Compile>
