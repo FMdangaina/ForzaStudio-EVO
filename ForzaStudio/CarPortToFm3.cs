@@ -884,6 +884,11 @@ namespace ForzaStudio
                     }
                 }
             }
+            // The keys the packages installed in Xenia hold in their Data_Car.str: a key of the folder's table must be none of
+            // them, or the names pack (and the game, which lays the packages' strings over the folder's) gives the car the
+            // package car's name (2026-11-27: MC12 Corsa / CCX-R took the keys of the R8 GT Spyder / S65 of pack "458 R8").
+            // As CarDuplicate does for FM2 / FM4.
+            HashSet<int> installedKeys = DlcPackage.InstalledStringKeys(ForzaGame.Motorsport3, this.XeniaContent, "Data_Car.str");
             for (int c = 0; c < columns.Length; c++)
             {
                 // The FM4 row (the source copy was renumbered to carId).
@@ -894,7 +899,11 @@ namespace ForzaStudio
                     continue;
                 }
                 int key = (int) (stringId & 0xFFFF);
-                next++;
+                do
+                {
+                    next++;
+                }
+                while (installedKeys.Contains(next));
                 foreach (KeyValuePair<string, StrFile> language in targetFiles)
                 {
                     StrFile.Entry text = null;
@@ -1523,7 +1532,7 @@ namespace ForzaStudio
                         string converted = model.ConvertMotorsport4ToMotorsport3();
                         foreach (string line in (converted ?? "").Replace("\r\n", "\n").Split('\n'))
                         {
-                            if (line.Contains("sized for FM3"))
+                            if (line.Contains("sized for FM3") || line.Contains("morph kept"))
                             {
                                 this.Line("  wheel {0}: {1}", media, line.Trim());
                             }
@@ -1634,13 +1643,16 @@ namespace ForzaStudio
             {
                 high = uint.Parse(((string) other).Substring(2), CultureInfo.InvariantCulture) & 0xFFFF0000u;
             }
+            // The keys the packages installed in Xenia hold in their List_CarMake.str: the game lays them over the folder's table, so a
+            // key free in the folder only would show the package make's text (as D13 for Data_Car.str, 2026-11-27).
+            HashSet<int> installedKeys = DlcPackage.InstalledStringKeys(ForzaGame.Motorsport3, this.XeniaContent, "List_CarMake.str");
             string[] ids = new string[2];
             for (int c = 0; c < 2; c++)
             {
                 string value = Convert.ToString(source[c == 0 ? 0 : 5], CultureInfo.InvariantCulture);
                 uint stringId;
                 int key = (value.StartsWith("_&", StringComparison.Ordinal) && uint.TryParse(value.Substring(2), NumberStyles.None, CultureInfo.InvariantCulture, out stringId)) ? (int) (stringId & 0xFFFF) : -1;
-                bool used = key < 0;
+                bool used = key < 0 || installedKeys.Contains(key);
                 foreach (StrFile file in files.Values)
                 {
                     used = used || file.Contains(key);
@@ -1648,7 +1660,7 @@ namespace ForzaStudio
                 if (used)
                 {
                     key = 0xFFFE;
-                    while (key > 0 && (this.KeyUsed(files, key) || (c == 1 && ids[0] == "_&" + (high | (uint) key).ToString(CultureInfo.InvariantCulture))))
+                    while (key > 0 && (this.KeyUsed(files, key) || installedKeys.Contains(key) || (c == 1 && ids[0] == "_&" + (high | (uint) key).ToString(CultureInfo.InvariantCulture))))
                     {
                         key--;
                     }

@@ -239,6 +239,9 @@ namespace ForzaStudio
             return ht.EndsWith("_HT.xml", StringComparison.OrdinalIgnoreCase) ? ht.Substring(0, ht.Length - 7) : Path.GetFileNameWithoutExtension(ht);
         }
 
+        // The HT of a role at an upgrade level. "NA.xml" means "no bank on this level" (FH1 ETs: Exhaust / EngineIntake L0 = NA.xml,
+        // L1-L3 real, AUD_R8GT_11): the port built a bank "NA" out of it, which gave FM2 a disc read error (2026-11-27). Such a
+        // level takes the nearest level with a real HT (the lower one first on a tie); none at all = no HT.
         private static string UpgradeHt(XElement et, string role, int level)
         {
             XElement upgrade = et.Element(role) == null ? null : et.Element(role).Element("Upgrade");
@@ -247,7 +250,27 @@ namespace ForzaStudio
                 return null;
             }
             string name = (string) upgrade.Attribute("L" + level.ToString(CultureInfo.InvariantCulture)) ?? (string) upgrade.Attribute("L0");
-            return string.IsNullOrEmpty(name) ? null : name;
+            if (!IsNoBank(name))
+            {
+                return name;
+            }
+            for (int distance = 1; distance < 4; distance++)
+            {
+                foreach (int other in new int[] { level - distance, level + distance })
+                {
+                    string near = (other < 0 || other > 3) ? null : (string) upgrade.Attribute("L" + other.ToString(CultureInfo.InvariantCulture));
+                    if (!IsNoBank(near))
+                    {
+                        return near;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private static bool IsNoBank(string ht)
+        {
+            return string.IsNullOrEmpty(ht) || string.Equals(ht, "NA.xml", StringComparison.OrdinalIgnoreCase);
         }
 
         private XElement SourceHt(string name)
@@ -363,13 +386,22 @@ namespace ForzaStudio
             string folder = Path.Combine(Path.Combine(Path.GetTempPath(), "ForzaStudio"), "Fm2SoundPort");
             Directory.CreateDirectory(folder);
             int rate = 0;
+            // One file name per process (2026-11-27): with a fixed "decode.wav" two ports into FM2 at the same time (two
+            // windows, a harness) hit "file in use" and the sound step failed.
+            string wav = Path.Combine(folder, "decode_" + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture) + ".wav");
             for (int s = 0; s < info.Samples; s++)
             {
-                string wav = Path.Combine(folder, "decode.wav");
                 Run(Decoder, "-i -s " + (s + 1).ToString(CultureInfo.InvariantCulture) + " -o \"" + wav + "\" \"" + path + "\"");
                 int channels, sampleRate;
-                short[] pcm = ReadWav(File.ReadAllBytes(wav), out channels, out sampleRate);
-                File.Delete(wav);
+                short[] pcm;
+                try
+                {
+                    pcm = ReadWav(File.ReadAllBytes(wav), out channels, out sampleRate);
+                }
+                finally
+                {
+                    File.Delete(wav);
+                }
                 rate = sampleRate;
                 int frames = pcm.Length / channels;
                 for (int c = 0; c < maxChannels; c++)
