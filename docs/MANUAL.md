@@ -18,7 +18,7 @@ files: you open a game folder or one of its `.zip` archives, change what you nee
 8. [Text and XML files](#8-text-and-xml-files)
 9. [Game database (gamedb.slt)](#9-game-database-gamedbslt)
 10. [Digital dash (.fbf)](#10-digital-dash-fbf)
-11. [Porting cars from Forza Horizon or Forza Motorsport 3 to FM4](#11-porting-cars-from-forza-horizon-or-forza-motorsport-3-to-fm4)
+11. [Porting cars from Forza Horizon or Forza Motorsport 3 to FM4](#11-porting-cars-from-forza-horizon-or-forza-motorsport-3-to-fm4) (and into FM3 and FM2)
 12. [Music](#12-music)
 13. [Known limitations](#13-known-limitations)
 14. [Other tools](#14-other-tools)
@@ -34,8 +34,8 @@ files: you open a game folder or one of its `.zip` archives, change what you nee
 | Forza Motorsport 4 | Everything: models, textures, XML, database, dash view, music. Target of car ports. |
 | Forza Horizon 2 | Models, textures, XML, database, music. Source for car ports. |
 | Forza Horizon (1) | Textures, XML, database, music. Source for car ports. |
-| Forza Motorsport 3 | Models (edited in place: parts, meshes, UVs, OBJ / FBX / glTF), textures, database, music. Source for car ports, target of the FM4 port. |
-| Forza Motorsport 2 | Models (edited in place: parts, meshes, UVs, OBJ / FBX / glTF; one file, LODs 1 to 5), archives, textures, music. Source for car ports. |
+| Forza Motorsport 3 | Models (edited in place: parts, meshes, UVs, OBJ / FBX / glTF), textures, database, music. Source and target of car ports, DLC packages. |
+| Forza Motorsport 2 | Models (edited in place: parts, meshes, UVs, OBJ / FBX / glTF; one file, LODs 1 to 5), archives, textures, music. Source and target of car ports, DLC packages. |
 
 The game is detected from its `default.xex`. You need the game **extracted** to a folder, the one
 that holds `default.xex` and `Media`.
@@ -220,21 +220,21 @@ Technical details (priorities, merge database) are in [DLC_PACKAGES.md](DLC_PACK
 | `.fbf`, `.bgf`, `.bsg` | Digital dash (view and edit) |
 | anything else | Name and size. Extract or Replace on the FILES bar. |
 
-### The tree and the Archive menu
+### The tree and the FILES bar
 
-The **Archive** menu works on the file selected in the tree (the same commands are on its right-click menu):
+The **FILES bar** works on the file selected in the tree (the same commands are on the tree's right-click menu):
 
-- **Open Selected Archive** opens a `.zip` selected in a game folder (also double-click or Enter).
-- **Replace Selected File...** puts any file from disk in its place.
-- **Revert Selected File** undoes the pending change. On a file you added it reads **Remove Added File**.
-- **Add File...** adds a file (see [section 7](#7-adding-files-and-new-textures)); on the right-click menu it is **Add File Here...**.
-- **Delete Selected File or Folder...** removes it (**Undo Delete** brings it back until you save).
-- **New Folder...** (right-click: **New Folder Here...**) makes a folder in a game folder or a DLC
+- A `.zip` selected in a game folder opens with a double-click or Enter (right-click: **Open Selected Archive**).
+- **Replace** puts any file from disk in its place, and **Extract** writes the file to disk.
+- **Revert** undoes the pending change. On a file you added it removes the file.
+- **Add File** adds a file (see [section 7](#7-adding-files-and-new-textures)); on the right-click menu it is **Add File Here...**.
+- **Delete** removes the selected file or folder (**Undo Delete** brings it back until you save).
+- **New Folder** (right-click: **New Folder Here...**) makes a folder in a game folder or a DLC
   package. In a zip the folder only shows in the tree until a file is added to it: a zip stores no
   empty folder.
-- **Copy Dash From Another Car...** copies another car's digital dash files into the open car zip
+- **Tools ▾ > Copy Dash From Another Car...** copies another car's digital dash files into the open car zip
   (experimental, see [section 10](#10-digital-dash-fbf)).
-- **Extract All...** writes the whole archive to a folder.
+- **Extract All** writes the whole archive to a folder.
 
 The tree marks pending changes: an edited file is **bold** with `*`, and an added file has `+`.
 
@@ -569,7 +569,7 @@ Select an `.xds` to view it.
 - **Mip level** chooses which mip to show.
 - **Channels**: RGB + Alpha, RGB only, or Alpha only.
 
-Both commands below are in the side panel and in the **Texture** menu.
+Both commands below are in the side panel of the texture page.
 
 **Export Image...** saves a PNG, or a 32-bit TGA.
 
@@ -1040,8 +1040,12 @@ All in the **Tools ▾** panel of the top bar.
 
 | Command | What it does |
 |---|---|
-| **Import Car From Another Forza...** | Port a car into the game's files. See [Porting cars](#11-porting-cars-from-forza-horizon-or-forza-motorsport-3-to-fm4). |
-| **Create DLC Package...** | Port cars into a DLC package. Same section. |
+| **Import car from another Forza, into: FM4 / FM3 / FM2** | Port a car into that game's files. See [Porting cars](#11-porting-cars-from-forza-horizon-or-forza-motorsport-3-to-fm4). |
+| **Create DLC package for: FM4 / FM3 / FM2** | Port cars into a DLC package for that game. Same section. |
+| **Copy Dash From Another Car...** | Copy another car's digital dash into the open car zip (experimental). |
+| **Mod packs (list, uninstall) of: FM4** | The installed mod packs. See [section 3](#game-and-dlc-cars-mod-packs-fm4). |
+| **New Texture from Image...** | A standalone `.xds` from a picture. See [section 7](#7-adding-files-and-new-textures). |
+| **Check Model Format...** | Check an FM4 car model file against the format. |
 | **Duplicate Car...** | See [section 9](#duplicating-a-car-tools--duplicate-car). |
 | **Database SQL...** | One checked SQL statement on the open database. |
 | **Car Performance From Game...** | Type the PI and bars the garage shows for a car. |
@@ -1050,7 +1054,7 @@ All in the **Tools ▾** panel of the top bar.
 | **Validate DLC for Installation...** | Make a pack fit the packs already installed in Xenia (ids, names, thumbnails, offer, strings), then install it. Use it when a pack was built against other installed packs. |
 | **Set Generated Thumbnail...** | Replace a car's Xenia thumbnail. |
 | **Settings...** | Folders and options. |
-| **Pay Respects (F)** | The original Forza Studio 4.6 window, kept as a tribute. |
+| **Pay Respects** (on the top bar, at the right) | The original Forza Studio 4.6 window, kept as a tribute. |
 
 ## 15. Files ForzaStudio EVO writes
 
