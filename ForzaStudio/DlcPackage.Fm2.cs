@@ -145,9 +145,60 @@ namespace ForzaStudio
         public static void ZipLayerFm2(string package, int offer, StringBuilder report)
         {
             string folder = Path.Combine(Path.Combine(Path.Combine(package, "Media"), "DLCZips"), LayerFm2(offer));
-            int count = WriteStoredZip(folder, folder + ".zip", null, true);
-            Directory.Delete(folder, true);
-            report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}.zip: {1} files (deflate, as the official FM2 packs)", LayerFm2(offer), count));
+            int loose;
+            int count = WriteLayerZipFm2(folder, folder + ".zip", out loose);
+            report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}.zip: {1} files (deflate, as the official FM2 packs){2}", LayerFm2(offer), count, LooseText(LayerFm2(offer), loose)));
+        }
+
+        // FM2's sound banks stay loose next to the layer zip, as in the official packs (DLC3_pri_62.zip beside
+        // DLC3_pri_62\media\Audio\cars\Engines\Soundbanks\LOD1|LOD2\*.fsb; the tracks' .fev/.fsb the same): the game opens
+        // them from the disc, a bank inside the zip leaves the car with no sound at all (DLC9 BMW 1M and Sesto, in game
+        // 2026-11-28; the same banks put loose played).
+        internal const string Fm2LooseExtensions = ".fsb;.fev";
+
+        // The layer folder as <folder>.zip (deflate) without the sound banks, which stay in the folder; the folder keeps
+        // only them (deleted when there are none). loose: the number of banks left in the folder.
+        internal static int WriteLayerZipFm2(string folder, string zip, out int loose)
+        {
+            int count = WriteStoredZip(folder, zip, Fm2LooseExtensions, true);
+            loose = 0;
+            foreach (string file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
+            {
+                if (HasExtension(file, Fm2LooseExtensions))
+                {
+                    loose++;
+                }
+                else
+                {
+                    File.Delete(file);
+                }
+            }
+            if (loose == 0)
+            {
+                Directory.Delete(folder, true);
+            }
+            else
+            {
+                DeleteEmptyFolders(folder);
+            }
+            return count;
+        }
+
+        internal static string LooseText(string layer, int loose)
+        {
+            return loose == 0 ? "" : string.Format(CultureInfo.InvariantCulture, "; {0} sound bank(s) loose in {1}\\ (as the official FM2 packs)", loose, layer);
+        }
+
+        private static void DeleteEmptyFolders(string folder)
+        {
+            foreach (string sub in Directory.GetDirectories(folder))
+            {
+                DeleteEmptyFolders(sub);
+                if (Directory.GetFileSystemEntries(sub).Length == 0)
+                {
+                    Directory.Delete(sub);
+                }
+            }
         }
 
         private static string BuildFolderFm2With(string targetRoot, string trialRoot, string content, string installed, List<StringLayer> layers, int offer, string name, StringBuilder report)
@@ -240,6 +291,8 @@ namespace ForzaStudio
             }
             sql.Append("\r\n\r\n");
             sql.Append(Fm2StockGarage.LicenseInsert(cars));
+            sql.Append(Fm2StockGarage.ArcadeInsert(cars));
+            report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  licence masks: {0} car(s) bought, listed and opened in Arcade (ArcadeCarList Level 0)", cars.Count));
             string masks = Path.Combine(Path.Combine(package, "Media"), "LicenseMasks");
             Directory.CreateDirectory(masks);
             File.WriteAllText(Path.Combine(masks, "00000001.sql"), sql.ToString(), Encoding.ASCII);

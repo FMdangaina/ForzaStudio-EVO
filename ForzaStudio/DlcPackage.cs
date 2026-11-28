@@ -219,7 +219,10 @@ namespace ForzaStudio
             foreach (string folder in Directory.GetDirectories(from))
             {
                 string name = Path.GetFileName(folder);
-                if (name.IndexOf("_pri_", StringComparison.OrdinalIgnoreCase) > 0 && string.Equals(Path.GetFileName(from), "DLCZips", StringComparison.OrdinalIgnoreCase))
+                // a layer already zipped (FM2 DLC<n>_pri_65.zip): its folder holds only the loose sound banks, copied as they are
+                // (zipped again it would replace the layer zip copied above)
+                bool zipped = File.Exists(Path.Combine(from, name + ".zip"));
+                if (name.IndexOf("_pri_", StringComparison.OrdinalIgnoreCase) > 0 && !zipped && string.Equals(Path.GetFileName(from), "DLCZips", StringComparison.OrdinalIgnoreCase))
                 {
                     int count = WriteStoredZip(folder, Path.Combine(to, name + ".zip"), keepBanksLoose ? ".fsb" : null, deflate);
                     if (keepBanksLoose)
@@ -249,10 +252,27 @@ namespace ForzaStudio
             return WriteStoredZip(folder, path, null);
         }
 
-        // leaveOut: an extension (".fsb") of files that stay out of the zip.
+        // leaveOut: the extensions (".fsb", or ".fsb;.fev") of files that stay out of the zip.
         internal static int WriteStoredZip(string folder, string path, string leaveOut)
         {
             return WriteStoredZip(folder, path, leaveOut, false);
+        }
+
+        // True when the file ends with one of the ';' separated extensions (none when null).
+        internal static bool HasExtension(string file, string extensions)
+        {
+            if (extensions == null)
+            {
+                return false;
+            }
+            foreach (string extension in extensions.Split(';'))
+            {
+                if (extension.Length > 0 && file.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // deflate: method 8 (version 20) instead of LZX, for FM2, whose zips are all deflate.
@@ -261,7 +281,7 @@ namespace ForzaStudio
             List<string> files = new List<string>();
             foreach (string file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
             {
-                if (!file.EndsWith("_build_report.html", StringComparison.OrdinalIgnoreCase) && (leaveOut == null || !file.EndsWith(leaveOut, StringComparison.OrdinalIgnoreCase)))
+                if (!file.EndsWith("_build_report.html", StringComparison.OrdinalIgnoreCase) && !HasExtension(file, leaveOut))
                 {
                     files.Add(file);
                 }

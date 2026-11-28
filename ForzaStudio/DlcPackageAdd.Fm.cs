@@ -176,9 +176,19 @@ namespace ForzaStudio
                 if (zipped)
                 {
                     File.Delete(layerZip);
-                    int count = DlcPackage.WriteStoredZip(layer, layerZip, null, fm2);
-                    Directory.Delete(layer, true);
-                    report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}.zip written again: {1} files ({2})", layerName, count, fm2 ? "deflate, as FM2's" : "as the game's zips"));
+                    if (fm2)
+                    {
+                        // the sound banks stay loose next to the zip (a pack made before 2026-11-28 had them inside: moved out)
+                        int loose;
+                        int count = DlcPackage.WriteLayerZipFm2(layer, layerZip, out loose);
+                        report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}.zip written again: {1} files (deflate, as FM2's){2}", layerName, count, DlcPackage.LooseText(layerName, loose)));
+                    }
+                    else
+                    {
+                        int count = DlcPackage.WriteStoredZip(layer, layerZip, null, false);
+                        Directory.Delete(layer, true);
+                        report.AppendLine(string.Format(CultureInfo.InvariantCulture, "  {0}.zip written again: {1} files (as the game's zips)", layerName, count));
+                    }
                 }
 
                 // Strings: the new tables with the old-only keys, in place of the old zip.
@@ -206,6 +216,7 @@ namespace ForzaStudio
                     }
                     sql.Append("\r\n\r\n");
                     sql.Append(Fm2StockGarage.LicenseInsert(cars));
+                    sql.Append(Fm2StockGarage.ArcadeInsert(cars));
                     File.WriteAllText(Path.Combine(masks, "00000001.sql"), sql.ToString(), Encoding.ASCII);
                     File.WriteAllText(Path.Combine(masks, "00000002.sql"), sql.ToString(), Encoding.ASCII);
                 }
@@ -213,7 +224,7 @@ namespace ForzaStudio
                 {
                     File.WriteAllText(Path.Combine(masks, "00000001.sql"), "UPDATE Data_Car SET IsPurchased=1 WHERE ID IN (" + string.Join(",", cars.ConvertAll<string>(delegate(long car) { return car.ToString(CultureInfo.InvariantCulture); }).ToArray()) + ");", Encoding.ASCII);
                 }
-                report.AppendLine(string.Format(CultureInfo.InvariantCulture, "licence masks: {0} cars", cars.Count));
+                report.AppendLine(string.Format(CultureInfo.InvariantCulture, fm2 ? "licence masks: {0} cars (each opened in Arcade, ArcadeCarList Level 0)" : "licence masks: {0} cars", cars.Count));
 
                 // The package itself, replaced only now.
                 string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);

@@ -3,6 +3,7 @@ namespace ForzaStudio
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.Text;
 
     // FM2's StockGarage (found 2026-11-14, ST-02): a table of the database with one row per car the game shows (Id, names,
     // thumbnail, make, class, ratings, stock upgrade ids...). FM2 lists its cars from it: a car with every Data_Car row but no
@@ -60,6 +61,21 @@ namespace ForzaStudio
             List<string> own = cars.ConvertAll<string>(delegate(long c) { return "Id=" + c.ToString(CultureInfo.InvariantCulture); });
             return "INSERT INTO " + Table + " \r\n" + SelectBody + "\r\nWHERE\tList_UpgradeEngine.IsStock=1 AND \r\n\t\tData_Car.IsPurchased=1 AND \r\n\t\t(" + string.Join(" OR ", ids.ToArray())
                 + ")\r\nEXCEPT\r\nSELECT * FROM " + Table + " WHERE (" + string.Join(" OR ", own.ToArray()) + ");\r\n";
+        }
+
+        // The licence mask lines that open each pack car in Arcade (ArcadeCarList Level 0), once. The merge cannot carry
+        // ArcadeCarList (FM2 hung on loading with it, DLC8 Mustang 2026-11-14), so the mask adds it when the pack is read. User
+        // rule: FM2 added cars ALWAYS in Arcade. Hand test on DLC9 (BMW 1M 679, Add To Package, was missing from Arcade):
+        // the line made it show, no hang (in game 2026-11-28).
+        public static string ArcadeInsert(List<long> cars)
+        {
+            StringBuilder sql = new StringBuilder();
+            foreach (long car in cars)
+            {
+                string id = car.ToString(CultureInfo.InvariantCulture);
+                sql.Append("INSERT INTO ArcadeCarList (CarId, Level) SELECT " + id + ", 0 WHERE NOT EXISTS (SELECT 1 FROM ArcadeCarList WHERE CarId=" + id + ");\r\n");
+            }
+            return sql.ToString();
         }
 
         // FM2's Arcade lists the cars of NewProfile_Arcade_Garage (235 base cars) plus the ones Rewards_Arcade unlocks; the
