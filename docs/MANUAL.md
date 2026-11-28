@@ -3,7 +3,7 @@
 ForzaStudio EVO is a modding tool for the Xbox 360 Forza games. It works directly on the game's
 files: you open a game folder or one of its `.zip` archives, change what you need, and save.
 
-> **Version 0.0.7 (beta).** Some features are experimental or not fully tested in game (see
+> **Version 0.0.8 (beta).** Some features are experimental or not fully tested in game (see
 > [Known limitations](#13-known-limitations)). Always work on a copy of your game folder.
 
 ## Contents
@@ -86,33 +86,48 @@ ForzaStudioEVO.exe <archive.zip | folder | file> [entry to select]
 
 ## 3. The main window
 
-The menu bar holds:
+There are no menus: the commands are buttons, where they are used.
 
-- **File**: open, save, close.
-- **Archive**: add, extract, replace, delete and revert files of the open folder or archive, and make new folders.
-- **Model**: OBJ, FBX and glTF export and import of the model shown, and **Export UV Map to TGA...** (the UV
-  layout of the materials you choose, from the car's main, lod0 and cockpit files, e.g. the digital
-  dash screen to draw the dash picture on).
-- **Texture**: new textures, image export and import of the texture shown.
-- **Tools**, **Help** and **◀ Back**.
+The **top bar** holds:
 
- The left side shows the tree of
-the open folder or archive. The right side shows the selected file.
+- **Open ▾**: Archive... (Ctrl+O), Folder... (Ctrl+Shift+O), DLC Package..., Close.
+- **Save** (Ctrl+S) and **Save As...**.
+- **DLC ▾**, shown while a DLC package or a mod pack car is open: Rebuild DLC Package, Delete Car from DLC
+  Package..., Base Game Database (disc 2 packs), Database of This Car.
+- **Tools ▾**: a panel with the tools in groups.
+  - **Cars**: Import car from another Forza, Create DLC package, Duplicate Car, Change Car Sound, Car Performance
+    From Game, Copy Dash From Another Car, Mod packs.
+  - **Database**: Database SQL.
+  - **Texture**: New Texture from Image.
+  - **Checks**: Check Model Format, Check and Validate DLC, Validate DLC for Installation, Set Generated Thumbnail.
+  - **Settings**.
+- **◀ Back**, **Undo** and **Redo**.
+- **?**: Commands and Help (F1), About.
+
+The **FILES bar** under it works on the open folder or archive: Add File, New Folder, New Texture; Extract,
+Replace, Revert for the selected file; Delete, Undo Delete; Extract All.
+
+The commands of a model are in its side tabs: OBJ, FBX and glTF export and import in the **PART** tab (section
+**Import / export model**), **Export UV Map to TGA...** in the **TEXTURE** tab (the UV layout of the materials you
+choose, from the car's main, lod0 and cockpit files, e.g. the digital dash screen to draw the dash picture on).
+Image export and import of a texture are on the texture's own page.
+
+The left side shows the tree of the open folder or archive. The right side shows the selected file.
 
 ### Opening things
 
 | Command | Shortcut | What it opens |
 |---|---|---|
-| File > Open Folder... | Ctrl+Shift+O | A game folder, or any folder inside it. The tree loads as you expand it. **Double-click a `.zip`** in the tree (or Enter, or Archive > Open Selected Archive) to open it. |
-| File > Open Archive... | Ctrl+O | One `.zip`, a `gamedb.slt` or a single `.xds`. |
-| File > Open DLC Package... | | An Xbox 360 DLC package file (`CON`/`LIVE`, the file named by its content id, e.g. `ED6D95A9…4D`). Open Archive opens it too. |
+| Open ▾ > Folder... | Ctrl+Shift+O | A game folder, or any folder inside it. The tree loads as you expand it. **Double-click a `.zip`** in the tree (or Enter, or Archive > Open Selected Archive) to open it. |
+| Open ▾ > Archive... | Ctrl+O | One `.zip`, a `gamedb.slt` or a single `.xds`. |
+| Open ▾ > DLC Package... | | An Xbox 360 DLC package file (`CON`/`LIVE`, the file named by its content id, e.g. `ED6D95A9…4D`). Open Archive opens it too. |
 
 Opening a `gamedb.slt` directly opens the folder it is in, so links to other game files can be
 followed.
 
 ### DLC packages
 
-**File > Open DLC Package...** opens a marketplace package of any Forza game (FM4, FH1, FM3...).
+**Open ▾ > DLC Package...** opens a marketplace package of any Forza game (FM4, FH1, FM3...).
 Its files are extracted to a work folder (`%TEMP%\ForzaStudio\DlcEdit\<file name>`) and shown like a
 game folder, with the package's name at the top of the tree:
 
@@ -122,8 +137,8 @@ game folder, with the package's name at the top of the tree:
 - **Save** (Ctrl+S) writes the work folder **and packs the package file again**, in place, with
   its own header (title, names, licences, thumbnails); the hash tables and the content id are
   recomputed. The original file is copied to `bak\` the first time;
-- **File > Rebuild DLC Package** packs it again by hand (for example after a failed save);
-- **File > Delete Car from DLC Package...** takes one car of the pack out (rows, strings and files;
+- **DLC ▾ > Rebuild DLC Package** packs it again by hand (for example after a failed save);
+- **DLC ▾ > Delete Car from DLC Package...** takes one car of the pack out (rows, strings and files;
   the list shows what goes before anything is changed). Save or discard your edits first.
 
 The package is read in place: only the files you open are unpacked, so a large pack does not fill the
@@ -150,12 +165,12 @@ that Xenia loads on top of the original. Delete the mod pack and the original ca
    game (disc 1) or of an original DLC package, the editor opens a **copy** of the car (the status line says
    so). If the car already has a mod pack, the copy is the mod pack's version.
 2. Edit the model as usual: parts, meshes, materials, textures, Copy Part From Another Car...
-3. **File > Database of This Car** opens the car's database: a copy of the game's database, plus the
+3. **DLC ▾ > Database of This Car** opens the car's database: a copy of the game's database, plus the
    original package's rows and the car's mod pack rows. Only the car is shown (no car list). Edit
    anything here: the car's rows, a new body kit row (for example `List_UpgradeCarBodyRearBumper` for a
    new rear bumper made in step 2), its upgrades, colors, cameras, engine. **Go to / Used by** reach the
    other tables.
-4. **Close Xenia**, then **File > Save**. One save writes the car's files **and** its database rows into
+4. **Close Xenia**, then **Save**. One save writes the car's files **and** its database rows into
    the mod pack, in Xenia's FM4 content folder. With Xenia open the copy is saved and the status line
    asks you to save again once Xenia is closed.
 5. Start FM4 in Xenia: the car has the changes, model and data together.
@@ -182,7 +197,7 @@ that Xenia loads on top of the original. Delete the mod pack and the original ca
 
 **Managing mod packs**
 
-- **File > Mod Packs (uninstall)...** lists the installed mod packs (car, offer, standalone, date) and
+- **Tools ▾ > Mod packs (list, uninstall) of: FM4** lists the installed mod packs (car, offer, standalone, date) and
   uninstalls the ones you pick (Xenia closed): the original car comes back.
 - One mod pack per car. Saving the car again replaces its mod pack and keeps its offer number. Several mod
   packs work together: each has its own offer number, so their zips never share a name.
@@ -203,7 +218,7 @@ Technical details (priorities, merge database) are in [DLC_PACKAGES.md](DLC_PACK
 | `.html`, `.htm`, `.rdf` | Read-only text |
 | `gamedb.slt` | Game database |
 | `.fbf`, `.bgf`, `.bsg` | Digital dash (view and edit) |
-| anything else | Name and size. Archive > Extract or Replace Selected File. |
+| anything else | Name and size. Extract or Replace on the FILES bar. |
 
 ### The tree and the Archive menu
 
@@ -223,7 +238,7 @@ The **Archive** menu works on the file selected in the tree (the same commands a
 
 The tree marks pending changes: an edited file is **bold** with `*`, and an added file has `+`.
 
-**File > Close** closes the open folder or archive.
+**Open ▾ > Close** closes the open folder or archive.
 
 ### Going back
 
@@ -238,9 +253,14 @@ Many actions jump to another file:
 
 ## 4. Saving, backups and undo
 
-- **Edits are kept in memory** until **File > Save** (Ctrl+S). The window title shows `*` while
+- **Edits are kept in memory** until **Save** (Ctrl+S). The window title shows `*` while
   there are unsaved changes. Closing or opening something else asks whether to save.
-- **Archive > Revert Selected File** undoes everything not yet saved on it.
+- **Revert** on the FILES bar undoes everything not yet saved on the selected file.
+- **Undo** (Ctrl+Z) and **Redo** on the top bar go back and forward one step of a model edit (a part moved, attached,
+  merged, duplicated or deleted). There is no Apply button for these edits: a change is kept as you make it, until
+  Save.
+- **A backup is not repeated.** When the `bak` folder already holds a copy of the file with the same bytes, no second
+  copy is written (new in 0.0.8).
 - **Every save makes a backup first.** The version being overwritten is copied to `bak\` next to
   the exe, named `yyyy-MM-dd_HH-mm-ss_bak_<file>`. To undo a save, copy the backup back.
   Backups can be switched off with `Enabled = off` in the `[Backup]` section of `ForzaStudio.ini`
@@ -260,7 +280,7 @@ Select a `.carbin` to see the model.
 
 The model tree on the left lists **LOD > part > material**. Check a node to show it in the view.
 
-The toolbar has these controls (**Model > Export Checked Parts to OBJ...** writes the checked parts as one OBJ):
+The toolbar has these controls (**Export Checked Parts to OBJ...**, in the PART tab, writes the checked parts as one OBJ):
 
 - **Wireframe**.
 - **Camera speed**: slow, normal or fast.
@@ -332,7 +352,7 @@ Open a car model from the game folder (FM4): the Camera tab reads the car's cock
   car's `_cockpit.carbin` first if another model of the car is shown. With **Live** ticked the view
   follows every change of a number.
 - **Save to Game Database Now** writes both rows into `gamedb.slt` (missing rows are added) after a
-  backup in the `bak` folder. It writes at once, not with File > Save. Close the game first. Values you
+  backup in the `bak` folder. It writes at once, not with Save. Close the game first. Values you
   did not change keep their full precision.
 
 The port tool adds the steering wheel point by itself when the source car has none.
@@ -366,12 +386,12 @@ values, not checked in game.
   click picks. The tool bar also has select all / none / linked, **Delete**, **Detach** and the **UV
   mapper** (a window with the UV layout, the same selection tools, keys 1-5 for the levels). While the
   tab is open the model is drawn in wireframe and the selection in red. Delete and Detach touch only
-  the LOD of the selected faces; pending until File > Save.
+  the LOD of the selected faces; pending until Save.
 - **Collision**: the car's collision spheres and bounding box. Blue: body spheres; orange: contact
   points; grey: the box; yellow: the selected one. **Add** copies the selected sphere, **Mirror** copies it
   to the other side. **Generate Basic Collision...** rebuilds the box and the spheres from the shown
   model, as a starting point for cars whose own is wrong; the top and left views (numpad 6 and 2) help
-  to edit it. Pending until File > Save.
+  to edit it. Pending until Save.
 - **Driver**: the points the game places the driver from, and the driver offsets of `carattribs.xml`.
   The game keeps two separate sets, each edited with its own model in the view:
   - **LOD 0** (the close-up car): open the car's `_lod0.carbin` or `_cockpit.carbin`. One set for both
@@ -383,7 +403,7 @@ values, not checked in game.
   The two sets are not meant to be equal: on the game's own cars each follows the interior of its own
   model. A car made from scratch starts with the donor's points in both, so place both by hand. The
   label above the list says which set is listed and in which file it is stored. **Apply to Model**
-  writes them into the car file, pending until File > Save.
+  writes them into the car file, pending until Save.
 - **Exhaust**: the points the backfire flames start from (`Media\Effects\Backfire.xml` draws them).
   Add, Mirror and **Apply to Model** as above.
 
@@ -397,7 +417,8 @@ one of its materials to edit only that material.
 - **Pivot**: the part's center, the model origin, or a custom point.
 - **Also in the car's other model files (main, lod0, cockpit)** keeps the three files in step.
   Leave it on unless you know why you want otherwise.
-- The change is previewed live in red. **Apply** keeps it, **Reset** clears it.
+- The change is shown at once and kept until Save: there is no Apply. **Ctrl+Z** undoes it, and **Reset** goes back to
+  the part as it was before this move. The part can also be dragged in the viewport by its X / Y / Z handles.
 - **Focus On Part** centres the camera on the part. **Show only this part** hides the rest.
 - **Merge...** joins this part into the one picked in **Merge this part into**. Materials with the same name are
   joined, and the source part is removed.
@@ -436,13 +457,13 @@ one of its materials to edit only that material.
 
 ### Whole model as an OBJ work folder
 
-**Model > Export Model to OBJ Folder...** writes the whole car to a folder:
+**Export Model to OBJ Folder...** (PART tab, section **Import / export model**) writes the whole car to a folder:
 
 - one folder per model file, e.g. `toy_supra_98`, `toy_supra_98_lod0`;
 - inside it, `lod0`, `lod1`, …;
 - one OBJ per part in each LOD folder.
 
-Edit the OBJs in Blender or any 3D program, then **Model > Import Model from OBJ Folder...**. Import
+Edit the OBJs in Blender or any 3D program, then **Import Model from OBJ Folder...** (PART tab, section **Import / export model**). Import
 works like this:
 
 - only the OBJs you changed are rebuilt;
@@ -456,7 +477,7 @@ This works on FM3 and FM2 cars too. An FM2 car has one model file with LODs 1 to
 
 ### Whole model as one FBX or glTF scene
 
-**Model > Export Model to FBX...** and **Model > Export Model to glTF...** write the car as one scene
+**Export Model to FBX...** and **Export Model to glTF...** (PART tab, section **Import / export model**) write the car as one scene
 with the model's own hierarchy:
 
 ```
@@ -475,8 +496,8 @@ with the model's own hierarchy:
   game's own), as an opaque PNG, so the UV map can be checked in the 3D program: inside the file for a
   `.glb`, in a `textures` folder next to a `.gltf` or `.fbx`.
 
-Edit the scene, export it again in the same format, then **Model > Import Model from FBX...** or
-**Model > Import Model from glTF...**:
+Edit the scene, export it again in the same format, then **Import Model from FBX...** or
+**Import Model from glTF...** (PART tab, section **Import / export model**):
 
 - keep the names of the `main` / `lod0` / `cockpit` and `LODn` nodes and of the materials; copy
   suffixes such as `.001` are ignored;
@@ -561,7 +582,7 @@ Both commands below are in the side panel and in the **Texture** menu.
 
 ## 7. Adding files and new textures
 
-**Archive > Add File...** (Ctrl+Shift+A), or right-click > **Add File Here...**, adds a file to the
+**Add File** on the FILES bar (Ctrl+Shift+A), or right-click > **Add File Here...**, adds a file to the
 archive. Choose:
 
 - the folder in the archive;
@@ -577,7 +598,7 @@ is. For textures you also choose:
 | Gamma color | On for color maps. Off for normal maps and masks. |
 | Mip levels | The full chain, or none. |
 
-**Texture > New Texture from Image...** makes a standalone `.xds` file with the same options.
+**Tools ▾ > New Texture from Image...** (or **New Texture** on the FILES bar) makes a standalone `.xds` file with the same options.
 
 ## 8. Text and XML files
 
@@ -585,7 +606,7 @@ Text and XML files open in an editor.
 
 | Key or button | Action |
 |---|---|
-| **Apply** (Ctrl+Enter) | Keep your edits (they are saved with File > Save). |
+| **Apply** (Ctrl+Enter) | Keep your edits (they are saved with Save). |
 | **Discard Edits** | Drop the edits not yet applied. |
 | **Check XML** | Show whether the file is well formed. If not, it gives the line and column of the error. |
 | Ctrl+F, F3 | Find, find next. |
@@ -596,7 +617,7 @@ Text and XML files open in an editor.
 ## 9. Game database (gamedb.slt)
 
 Opening `Media\db\gamedb.slt` shows the database. Edits go into the database at once and are
-written with **File > Save**, with a backup.
+written with **Save**, with a backup.
 
 ### Sections
 
@@ -711,7 +732,7 @@ Select an element to edit it in the property list (on the right, grouped as Elem
 Appearance and Graph properties): numbers for positions and sizes, drop-down lists for choices
 (alignment, font, texture), check boxes-style True/False for flags, text for strings and a color
 picker for colors. Each value is changed where the dash already keeps it, so nothing is added to
-the files; a value the element does not have is greyed out. Edits are pending until **File > Save**
+the files; a value the element does not have is greyed out. Edits are pending until **Save**
 writes the car's zip.
 
 On the preview: drag an element to move it, drag one of the 8 handles of the selected element to
@@ -726,10 +747,14 @@ the middle or right mouse button.
 
 ## 11. Porting cars from Forza Horizon or Forza Motorsport 3 to FM4
 
-**Tools > Import Car From Another Forza > For FM4...** (into the game's files) and **Tools > Create DLC Package > For
-FM4...** (into a package) open the same window. Only the target game is chosen in the menu: the source game is read
-from the folder you choose in the window. It converts a Forza Horizon 1, Forza Horizon 2, Forza Motorsport 3 or Forza
-Motorsport 2 car into FM4. A port includes:
+In the **Tools ▾** panel, group **Cars**, the rows **Import car from another Forza, into:** (into the game's files)
+and **Create DLC package for:** (into a package) have one button per target game: **FM4**, **FM3**, **FM2**. Both rows
+open the same window for that game. Only the target game is chosen there: the source game is the one you choose in the
+window. This section is about FM4; the FM3 and FM2 windows are at its end. Since 0.0.8 the three windows have the same
+size and the same arrangement.
+
+The FM4 window converts a Forza Horizon 1, Forza Horizon 2, Forza Motorsport 3 or Forza Motorsport 2 car into FM4. A
+port includes:
 
 - the model, wheels and brakes;
 - textures and dash;
@@ -826,7 +851,7 @@ The other buttons:
 - **New Pack** starts a new empty pack.
 - **Remove Pack** deletes the built package from Xenia.
 - **Add To Package...** adds the cars of the trial to a DLC package that already exists, without rebuilding it.
-- A car can also be taken out of a built package later: **File > Delete Car from DLC Package...** (section 3).
+- A car can also be taken out of a built package later: **DLC ▾ > Delete Car from DLC Package...** (section 3).
 - **Tools > Check and Validate DLC...** checks a built package (installed in Xenia, a package file or a folder)
   and lists the problems it finds without writing anything: structure, database, files of each car, engine
   sounds and string tables.
@@ -865,13 +890,49 @@ Every file is backed up to `bak\` first. Use this only if you want the car in th
 
 Technical details of the package format are in [DLC_PACKAGES.md](DLC_PACKAGES.md).
 
+### What the three port windows share
+
+The FM4, FM3 and FM2 windows are laid out the same way, in both modes (import and DLC package):
+
+- **Source game** is a list of the games set in Tools > Settings > Folders; another folder can be typed or chosen with
+  **Folder...**, and **Package...** adds DLC package files. The line under it says what was found (the game, its DLC in
+  Xenia) and turns yellow when something is missing.
+- The car list shows the source game's **PI** and its **Class** as the game's badge. Yellow rows are Forza Horizon
+  traffic cars; grey rows are cars the target already has. Those are hidden until you tick **Also show cars already
+  in target (N hidden)**; the number says how many.
+- Under the list: the **template car**, **Make** with **+** for a new make, **Engine sound**, then **Trial Run**,
+  **Install In ...** and **Uninstall...**.
+- The tabs at the bottom: **Report**, **Review** (what the port changed or could not do, with a **Fix** choice where
+  there is one) and **Upgrades** (engine swaps, drive type).
+- In DLC mode the pack is on the right: **Add →** and **← Remove** between the two lists, **Name**, **Offer id** and
+  **First car id** with **Free**, then **New Pack**, the Xenia folder (changed with **Settings...**), **Trial Pack**,
+  **Build DLC Package**, **Remove Pack**, **Build for Xbox 360...** and **Add To Package...**.
+
+### Porting a car into Forza Motorsport 3
+
+**Tools ▾ > Import car from another Forza, into: FM3** opens the FM3 port window. It takes cars of Forza Motorsport 4,
+Forza Motorsport 2, Forza Horizon and Forza Horizon 2. A Forza Horizon or FM2 car goes through its FM4 form first, so
+the FM4 folder must be set in Tools > Settings (it is read, not written).
+
+1. Choose the **Source game**, check the **Forza Motorsport 3** folder and press **Load Cars**. Write to the `_DEV`
+   copy of the game: the window starts on it when there is one.
+2. Pick a car and an **FM3 template car**. Choose the **Make** (or **+** for a make FM3 lacks), the **Engine
+   sound** (the car's own or an FM3 car's), and brakes for a car that has none.
+3. **Trial Run** writes the car into a temporary folder: **Open Trial Folder** shows it. Read the **Review** tab.
+4. **Install In FM3...** copies the files into the FM3 folder, with a backup. **Uninstall...** takes a ported car
+   out again (never one of FM3's own).
+
+A wheel ported from FM4 or Forza Horizon keeps its rim morph, so a rim size upgrade makes it larger in FM3 too (new in
+0.0.8). The names of a ported car use string keys that no DLC pack installed in Xenia uses (new in 0.0.8: a pack's
+name could show on the ported car).
+
 ### Porting a car into Forza Motorsport 2
 
-On the top bar, **Cars > Import car from another Forza, into: FM2** opens the FM2 port window. It takes cars of
+**Tools ▾ > Import car from another Forza, into: FM2** opens the FM2 port window. It takes cars of
 Forza Motorsport 4, Forza Motorsport 3, Forza Horizon and Forza Horizon 2 (with **Include the game's DLC**, the DLC
 installed in Xenia too).
 
-1. Check the **Source game** and **Forza Motorsport 2** folders and press **Load Cars**. The list shows the cars
+1. Choose the **Source game**, check the **Forza Motorsport 2** folder and press **Load Cars**. The list shows the cars
    FM2 does not have. Write to the `_DEV` copy of the game: the window starts on it when there is one.
 2. Pick a car and an **FM2 template car**. The new car starts as a copy of the template, then the model, wheel,
    textures, livery masks, database rows and engine sound are all replaced with the source car's. Nothing of the
@@ -890,6 +951,30 @@ installed in Xenia too).
    (FM2's own PI and ratings; written only if the integrity check passes) and the engine sound (FSB banks built from
    the source game's sounds). The report says how far each step went. The database is backed up in
    `bak\fm2port_<time>` first.
+
+More in the FM2 window:
+
+- **Make** and **+**: the make the car goes under, or a new make for FM2.
+- **Engine sound**: "the source's" (the source car's sound, built into FM2 banks) or the whole sound of an FM2 car.
+- **Also in arcade mode (FM2: always)** is always ticked: a car added to FM2 is always in its Arcade list.
+- **Review** tab: what the port cannot do, does by itself or adds to FM2, from a dry run of the database step.
+- **Upgrades** tab: the engine swaps to port or leave out, an FM2 engine to add, and a drive conversion.
+- **Port again**: tick **Also show cars already in target**, pick a car you ported before and run the trial. It is
+  ported over itself with the template, variants, materials and sound chosen the first time.
+- **Uninstall...** takes a ported car out of the FM2 folder, with the make, part makers and cylinders the port added.
+
+**A DLC package for FM2** (**Tools ▾ > Create DLC package for: FM2**) uses the same window, with the pack on the right.
+
+1. Trial-run a car as above, then press **Add →** (or double-click the car): it goes into the pack with the choices of
+   its trial. Add needs the trial, so it is off until the trial has run.
+2. Set **Name**, **Offer id** and **First car id** (**Free** puts the first free one).
+3. **Trial Pack** ports every pack car into a temporary copy of the FM2 files. The FM2 folder is only read.
+4. **Build DLC Package** writes the pack into Xenia's FM2 content folder. **Build for Xbox 360...** writes it as a
+   package file. **Add To Package...** adds the cars to a package that is already in Xenia.
+
+Since 0.0.8 an FM2 pack keeps its engine sound banks (`.fsb`) as loose files next to the layer zip, as the official
+FM2 packs do: with the banks inside the zip the pack cars had no sound. Adding a car to a pack built with 0.0.7 moves
+its banks out. Every pack car is also listed in Arcade.
 
 A car bought in a saved game before a port was installed over it can crash: sell it and buy a new one.
 
@@ -924,9 +1009,17 @@ converted with `xma2encode` from the Xbox 360 SDK, which is Microsoft's and **no
 - **A new country** added with a new make in a DLC pack: tested on a trial, not in game. Uninstalling a car
   does not remove the country.
 - **Add song**: tested in game with stereo 44.1 kHz input; mono or 48 kHz input is not.
+- **The new layout of the FM3 and FM2 port windows** (0.0.8): checked on pictures of the windows and on one FM2 DLC
+  run, not yet used by hand for a whole port. The code behind the buttons is the same as before.
+- **Ports into FM3**: the names of a ported car against the DLC packs installed in Xenia (0.0.8) were checked on the
+  files, not in game.
+- **Ports into FM2**: a source car whose first sound level is empty ("NA", e.g. the Forza Horizon Audi R8 GT) takes
+  the nearest level's sound (0.0.8); checked on the files, not in game.
 
 **Known problems**
 
+- A turbo car ported into FM2 can get a PI that is too low (seen on the BMW 1M Coupé, about 260 hp counted instead
+  of 340). The cause is being looked into.
 - Cars from Forza Motorsport 2 cannot use a car of a DLC pack as donor.
 - Engine swaps whose sound is on FM4's second disc may crash the race with an I/O error: only the first
   disc's files are known.
@@ -934,8 +1027,8 @@ converted with `xma2encode` from the Xbox 360 SDK, which is Microsoft's and **no
 **Not available yet**
 
 - **Car ports into the Horizon games** (see `PORT_ALL_GAMES.md`). Ports into FM4, FM3 and FM2 exist.
-- **FM2 port window:** no DLC package for FM2 yet; a car already ported into FM2 cannot be ported again over itself
-  (remove it first); the rim size upgrade and the car's `ShaderSettings.xml` still come from the template car.
+- **FM2 port window:** the rim size upgrade of a ported wheel does not change its size yet (FM2 has no morph table).
+  It has no Open Trial Folder button, because its trial writes no files.
 - **Gauges, Driver and Exhaust tabs on FM2 / FM3 cars** (FM4 header data).
 - **Parts from a lod0, cockpit or brake file into a main model** (LOD 0 into LODs 1 to 5).
 - **Automatic LODs.**
@@ -943,7 +1036,7 @@ converted with `xma2encode` from the Xbox 360 SDK, which is Microsoft's and **no
 
 ## 14. Other tools
 
-All in the **Tools** menu.
+All in the **Tools ▾** panel of the top bar.
 
 | Command | What it does |
 |---|---|

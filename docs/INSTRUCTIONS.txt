@@ -1,4 +1,4 @@
-ForzaStudio EVO 0.0.7 - BETA
+ForzaStudio EVO 0.0.8 - BETA
 ============================
 
 ForzaStudio EVO is a modding tool for the Xbox 360 Forza games (FM4, FH1, FH2;
@@ -62,36 +62,42 @@ Work folders go to %TEMP%\ForzaStudio (the program cleans them; safe to delete).
 
 3. FIRST STEPS
 --------------
-- File > Open Folder...   pick the game folder (the one with Media).
+There are no menus: the commands are buttons on the top bar (Open, Save,
+DLC, Tools, Back, Undo, Redo, ?) and on the FILES bar under it.
+
+- Open > Folder...   pick the game folder (the one with Media).
   The tree loads as you expand it. Double-click a .zip to open it.
-- File > Open Archive...  open one .zip, gamedb.slt or .xds directly.
+- Open > Archive...  open one .zip, gamedb.slt or .xds directly.
 - Click a file in the tree to view it: .carbin (3D model), .xds (texture),
   .xml/.ini/.txt (text editor), gamedb.slt (database), .fbf (digital dash).
-- Edits are kept in memory (shown with * in the tree) until File > Save.
+- Edits are kept in memory (shown with * in the tree) until Save (Ctrl+S).
   Every save first copies the old file into bak\.
+- Model edits have no Apply button: Ctrl+Z undoes a step.
 - Ctrl+B (or Alt+Left) goes back to where you were.
 
 
 4. PORT A CAR FROM FORZA HORIZON TO FM4 (DLC FOR XENIA)
 -------------------------------------------------------
-Tools > Create DLC Package...   (Tools > Import Car From Another Forza... writes
-into the game's own files instead)
+Tools > Create DLC package for: FM4   ("Import car from another Forza, into:
+FM4" writes into the game's own files instead). The buttons FM3 and FM2 of
+the same rows open the same window for those games (MANUAL.md, section 11).
 
-1. Set the source folder (Forza Horizon 1 or 2, or Forza Motorsport 2 or 3) and the
-   Forza Motorsport 4 folder,
-   then press Load Cars.
+1. Choose the source game in the list (Forza Horizon 1 or 2, or Forza
+   Motorsport 2 or 3: the games set in Tools > Settings > Folders) and check
+   the Forza Motorsport 4 folder, then press Load Cars.
 2. Select a car, choose its FM4 donor (a star = closest match),
    press Add -> between the two lists (or double-click the car). Repeat for every car you want.
 3. Give the pack a Name.
 4. Press Trial Pack. Nothing is written to the game yet.
    Check the Review column and the Review tab; choose fixes if needed,
    then run Trial Pack again.
-5. Set Xenia's folder (the one with xenia_canary.exe).
+5. Check the Xenia folder shown in the pack panel (the one with
+   xenia_canary.exe); Settings... changes it.
 6. CLOSE XENIA, then press Build DLC Package.
 7. Start FM4 in Xenia: the cars are listed under their makes, like any other car.
 
 Several packs can be installed together. Cars can be added to a built pack
-later (Add To Package...) or taken out (File > Delete Car from DLC Package...),
+later (Add To Package...) or taken out (DLC > Delete Car from DLC Package...),
 and Tools > Check and Validate DLC... checks a pack without changing it.
 
 Use an FM4 folder where these cars were never installed with
@@ -108,13 +114,17 @@ EXPERIMENTAL (not tested in game, use on a copy):
   export/import: checked with ZModeler 2 (glTF filter) and in game.
 - A new country added with a new make in a pack.
 - Add song needs xma2encode (Xbox 360 SDK, not included).
+- NEW IN 0.0.8, not yet used by hand for a whole port: the new layout of the
+  FM3 and FM2 port windows (the same as the FM4 window).
+- Ports into FM3 and FM2: see "Known limitations" in MANUAL.md.
 
 KNOWN LIMITS:
 - Engine swaps whose sound is on FM4's second disc can crash a race.
-- The hex view of the classic window (Tools > Pay Respects) only works
+- A turbo car ported into FM2 can get a PI that is too low.
+- The hex view of the classic window (Pay Respects, top bar) only works
   after a model was opened in that window.
-- FM2 models can be exported but not imported back.
-- FM3 models can be viewed but not edited (the port tool converts them).
+- FM2 and FM3 models: most model tools work (table in MANUAL.md, section 5);
+  the Exhaust, Gauges and Driver tabs are for FM4 cars only.
 - FM3 digital dashes are converted (checked on one car): please report what you see.
 - For a real Xbox 360, the window's Build for Xbox 360... writes the package;
   copying it to the console (FTP) is up to you.

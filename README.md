@@ -2,7 +2,7 @@
 
 (Repository: ForzaStudio-EVO, exe: ForzaStudioEVO.exe.)
 
-**Version 0.0.7 (beta).** Modding tool for the Xbox 360 era Forza games: Forza
+**Version 0.0.8 (beta).** Modding tool for the Xbox 360 era Forza games: Forza
 Motorsport 4 first, with Forza Horizon 1 and 2 and Forza Motorsport 2 and 3 as car sources.
 
 Edits the game's zip archives directly: `.carbin` car models (OBJ, FBX and glTF export/import,
@@ -12,7 +12,9 @@ position, with the game's music and radio in the status bar.
 
 Ports cars from Forza Horizon, Forza Horizon 2, Forza Motorsport 3 and Forza Motorsport 2 to FM4,
 either into the game's files or as a **DLC package** that leaves the game untouched, for Xenia
-or a modded Xbox 360: see [docs/DLC_PACKAGES.md](docs/DLC_PACKAGES.md). Other tools: Duplicate
+or a modded Xbox 360: see [docs/DLC_PACKAGES.md](docs/DLC_PACKAGES.md). Cars can also be ported
+into Forza Motorsport 3 and Forza Motorsport 2, with DLC packages for those games too; the three
+port windows look and work the same. Other tools: Duplicate
 Car with an engine and gearbox of its own, new car makes, change a car's engine sound, car
 performance from the garage's numbers, DLC package validation, and adding your own songs.
 

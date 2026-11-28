@@ -1,7 +1,7 @@
 # ForzaStudio EVO roadmap
 
-The **goals** of ForzaStudio EVO and where each one stands. Aligned on **2026-11-17**, version **0.0.7**
-(tag `v0.0.7`, 2026-11-11) plus the commits of 2026-11-15/17 that are not in a release yet.
+The **goals** of ForzaStudio EVO and where each one stands. Aligned on **2026-11-28**, version **0.0.8**
+(tag `v0.0.8`, 2026-11-28).
 
 This file says *what* and *how far*. The work itself, point by point with dates, is in `TODO.md`.
 
@@ -15,7 +15,7 @@ This file says *what* and *how far*. The work itself, point by point with dates,
 | `UNTESTED.md` | Everything coded and never seen working | current: C2, D5, D5b, D5c, D8, dash editor E1-E4 |
 | `PRERELEASE_TESTING.md` | The FM4 test round of 2026-11-03/10, point by point | closed, history |
 | `task_status.md` | State of the chat of 2026-10-27 | closed, history |
-| `README.md`, `docs/MANUAL.md`, `docs/INSTRUCTIONS.txt` | What the users read | at 0.0.7 |
+| `README.md`, `docs/MANUAL.md`, `docs/INSTRUCTIONS.txt` | What the users read | at 0.0.8 |
 
 **Numbers.** A goal `N` here is topic `N` in `TODO.md` (points `N.m`), for 1 to 16. Three things do not line up, and are
 left as they are because the numbers are used all over the notes:
@@ -66,7 +66,7 @@ Status: 🔧 active · 🧪 coded, to test · ⏸ paused · 💤 maybe later · 
 | 17 | **A complete game database editor**: every table as easy to reach as cars, tracks and events | ⏸ | Sections for engines, makes, countries, manufacturers and events seen working 2026-11-04; the other tables through the raw view and the SQL console | `TODO.md` NOW 1, `docs/EVENT_RESTRICTIONS.md`, `docs/GAMEDB_SCHEMA.md` |
 | 18 | **Every game to every game.** A car of any Xbox 360 Forza (FM2, FM3, FM4, FH1, FH2) ported to any other, each keeping its own characteristics. One reader and one writer per game | ⏸ | 12 of 20 routes (2026-11-24): the four to FM4, the four to FM3, the four to FM2 (all checked in game). Left: FH1 / FH2 as targets. Paused 2026-11-03 as a whole matrix. Groundwork done meanwhile: one description of the `.carbin` of the five games (2026-11-10, D-22) | `docs/PORT_ALL_GAMES.md`, `docs/PORT_FM4_TO_FM3.md`, `docs/CARBIN_ALL_GAMES.md`, `docs/FM3/fm3_conversion.md` |
 | 19 | **Model tools in the viewport**: numpad views, live camera editors, collision generation, mesh editor, UV mapper, shader preview | ✅ | Views, live cameras, MESH with sub-object levels, UV mapper and collision closed 2026-11-04; game LOD preview (0.0.6), mesh tools (0.0.7), handles for parts, vertices, edges and faces (2026-11-16). Not checked: the shader viewport window | `TODO.md` NOW 6, D-20, D-21, `docs/VIEWPORT_MESH_UV_SESSION.md`, `docs/UI_WORKFLOW.md` |
-| 20 | **Releases.** Finish and fix, version in the program, clean zip, experimental parts labelled in the documents | 🔧 | Seven so far, section 4. Next: 0.0.8 with the work of 2026-11-15/17 once it is tested | `docs/INSTRUCTIONS.txt`, `docs/MANUAL.md` "Known limitations" |
+| 20 | **Releases.** Finish and fix, version in the program, clean zip, experimental parts labelled in the documents | 🔧 | Eight so far, section 4 (0.0.8 on 2026-11-28) | `docs/INSTRUCTIONS.txt`, `docs/MANUAL.md` "Known limitations" |
 | 21 | **Sprint 2: the other games edited in place.** What the editor does for FM4, done inside FM2 and FM3 too | 🔧 | ST-01 material editing ✅ (in game 2026-11-14/15). ST-02 Duplicate Car, DLC and mod packs ✅ (closed 2026-11-15; PI and ratings like each game 2026-11-16/17). ST-03 part import and model editing ✅ (FM4, FM3 and FM2 checked by the user in app and game 2026-11-18 / 21; commit pending, see Now) | `docs/ST01_MATERIALS_FM2_FM3.md`, `docs/ST02_DUPLICATE_FM2_FM3.md`, `docs/ST03_PART_IMPORT.md`, `docs/FM2/PI_AND_RATINGS.md`, `docs/FM3/PI_AND_RATINGS.md` |
 
 ## 4. Releases
@@ -80,7 +80,7 @@ Status: 🔧 active · 🧪 coded, to test · ⏸ paused · 💤 maybe later · 
 | 0.0.5 | 2026-11-08 | Invisible glass after a material change fixed; SHADER side tab, disc 2 package cars |
 | 0.0.6 | 2026-11-09 | Holes in game on very long meshes fixed; game LOD preview |
 | 0.0.7 | 2026-11-11 | Mod packs with the car's database, mesh tools, long meshes split by height, carbin formats of every game |
-| not released | 2026-11-15/17 | Sprint 2 ST-01 and ST-02, the editor workflow (no menus), PI and ratings for FM2 / FM3 / FM4 copies, driver points |
+| 0.0.8 | 2026-11-28 | Ports into FM3 and FM2 with DLC packages for both, the three port windows alike, the editor workflow (no menus, Undo / Redo), model editing and Copy Part in FM2 / FM3 cars, PI and ratings computed like each game, FM2 pack sound and Arcade fixed, FM4 wheels keep their rim morph in FM3 |
 
 ## 5. Map of `docs/`
 
@@ -171,3 +171,4 @@ most test harnesses live outside the repository in `E:\DEV\fm4dev\<topic>` on th
 | Maybe later | 3.4, 3.5.3, 14.1, 12.3, 5.5, 9.4, 9.5, 11.6, 2.4 | | Memory side projects | 17.1 – 17.4 |
 
 Note: the old table says "12.3 → 15.3" for the ini files; since 2026-11-16 `15.3` in `TODO.md` is the editor workflow.
+- 2026-11-28: release 0.0.8 (section 4); the FM3 and FM2 port windows match the FM4 window (`docs/PORT_PARITY.md` section 4).
