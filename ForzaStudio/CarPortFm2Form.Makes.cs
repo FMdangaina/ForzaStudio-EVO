@@ -35,18 +35,19 @@ namespace ForzaStudio
         {
             Label label = new Label();
             label.Text = "Make:";
-            label.Location = new Point(480, 31);
+            label.Location = new Point(8, 63);       // the second row, as the FM4 window: Make, +, Engine sound
             label.AutoSize = true;
             this.makes = new ComboBox();
             this.makes.DropDownStyle = ComboBoxStyle.DropDownList;
-            this.makes.Location = new Point(524, 28);
-            this.makes.Width = 280;
+            this.makes.Location = new Point(52, 60);
+            this.makes.Width = 150;
+            this.makes.DropDownWidth = 280;
             this.makes.MaxDropDownItems = 24;
             this.makes.SelectedIndexChanged += delegate { this.MakeChosen(); };
             new ToolTip().SetToolTip(this.makes, "The make the car goes under in FM2: the source's (added to FM2 when it lacks it), or any make FM2 has");
             this.newMake = new Button();
             this.newMake.Text = "+";
-            this.newMake.Location = new Point(810, 27);
+            this.newMake.Location = new Point(206, 59);
             this.newMake.Size = new Size(30, 24);
             new ToolTip().SetToolTip(this.newMake, "New make: create a car make in the FM2 folder (name, code, country, logo, profile)");
             this.newMake.Click += delegate { this.NewMake(); };

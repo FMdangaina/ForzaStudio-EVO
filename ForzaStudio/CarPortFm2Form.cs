@@ -174,7 +174,12 @@ namespace ForzaStudio
 
         private const int BufferSize = 65536;
 
-        private readonly TextBox sourceBox;
+        private readonly ComboBox sourceBox;     // the source: a game set in Settings (the list) or a folder, as the FM4 window
+        private readonly Label sourceInfo;       // what the source holds: the game, its DLC in Xenia, what is missing
+        private System.Windows.Forms.Timer sourceInfoTimer;
+        private readonly ToolTip showInFm2Tip = new ToolTip();
+        private readonly ComboBox sounds;        // Engine sound, one list as the FM4 window: "the source's" or an FM2 car
+        private readonly CheckBox arcade;        // shown ticked, not changeable: FM2 added cars are ALWAYS in Arcade (user rule)
         private readonly TextBox targetBox;
         private readonly Button load;
         private readonly TextBox search;
@@ -234,16 +239,14 @@ namespace ForzaStudio
         {
         }
 
-        // Dlc (docs/PORT_PARITY.md C, user 2026-11-27): the same window; a car is trial-run as for Install, then Into DLC puts
+        // Dlc (docs/PORT_PARITY.md C, user 2026-11-27): the same window; a car is trial-run as for Install, then Add -> puts
         // it with its choices into the pack on the right; Trial Pack ports every pack car into a stage, Build DLC Package
         // writes DLC<offer> into Xenia's FM2 content folder. The FM2 folder is only read.
         public CarPortFm2Form(PortMode mode)
         {
             this.mode = mode;
-            this.Text = (mode == PortMode.Dlc) ? "Create DLC Package > FM2" : "Import Car From Another Forza > FM2";
-            this.Size = new Size(1360, 900);
-            this.MinimumSize = new Size(1100, 720);
-            this.StartPosition = FormStartPosition.CenterParent;
+            this.Text = PortWindowParts.Title(mode, null, ForzaGame.Motorsport2);
+            PortWindowParts.SizeToScreen(this);     // as the FM4 window (was a fixed 1360 x 900)
             this.Font = ForzaTheme.Regular;
             try
             {
@@ -280,13 +283,16 @@ namespace ForzaStudio
 
             Panel folders = new Panel();
             folders.Dock = DockStyle.Top;
-            folders.Height = 74;
+            folders.Height = 92;
             folders.Width = this.ClientSize.Width;
-            this.sourceBox = this.FolderRow(folders, "Source game (FM4/FM3/FH1/FH2):", 10, DefaultSource(), true);
-            this.targetBox = this.FolderRow(folders, "Forza Motorsport 2:", 42, DefaultTarget(), false);
+            // The source as in the FM4 window: the games of Tools > Settings in a list, and a line saying what was found.
+            this.sourceBox = PortWindowParts.SourceRow(this, folders, 10, DefaultSource(), ForzaGame.Motorsport2, delegate { this.SourceInfoLater(); }, delegate { this.ChoosePackages(); },
+                "DLC package files of the source game (Xbox 360): their cars are listed with the game's. Press again to add more.");
+            this.sourceInfo = PortWindowParts.SourceInfo(folders);
+            this.targetBox = this.FolderRow(folders, "Forza Motorsport 2:", 60, DefaultTarget(), false);
             this.load = new Button();
             this.load.Text = "Load Cars";
-            this.load.Size = new Size(110, 56);
+            this.load.Size = new Size(110, 74);
             this.load.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             this.load.Location = new Point(folders.Width - 122, 9);
             this.load.Click += delegate { this.LoadCars(); };
@@ -306,11 +312,12 @@ namespace ForzaStudio
             this.includeDlc = new CheckBox();
             this.includeDlc.Text = "Include the game's DLC";
             this.includeDlc.Checked = AppSettings.Get("PortFm2.IncludeDlc", "0") == "1";
-            this.includeDlc.Location = new Point(338, 7);
+            this.includeDlc.Location = new Point(620, 7);     // after "Also show...", as the FM4 window (Filter moves it)
             this.includeDlc.AutoSize = true;
             this.includeDlc.CheckedChanged += delegate
             {
                 AppSettings.Set("PortFm2.IncludeDlc", this.includeDlc.Checked ? "1" : "0");
+                this.UpdateSourceInfo();
                 if (this.items.Count > 0 && !this.busy)
                 {
                     this.LoadCars();
@@ -319,14 +326,14 @@ namespace ForzaStudio
             // the cars FM2 already has: the ported ones to port again over (choices of the first port read back), FM2's own
             // ones to port beside them under another name (as the FM3 / FM4 windows)
             this.showInFm2 = new CheckBox();
-            this.showInFm2.Text = "Also show cars FM2 already has";
-            this.showInFm2.Location = new Point(538, 7);
+            this.showInFm2.Text = "Also show cars already in target";     // + " (N hidden)", as the FM4 window (Filter)
+            this.showInFm2.Location = new Point(338, 7);
             this.showInFm2.AutoSize = true;
             this.showInFm2.CheckedChanged += delegate { this.Filter(); };
             filter.Controls.Add(find);
             filter.Controls.Add(this.search);
-            filter.Controls.Add(this.includeDlc);
             filter.Controls.Add(this.showInFm2);
+            filter.Controls.Add(this.includeDlc);
 
             this.cars = new ListView();
             this.cars.Dock = DockStyle.Fill;
@@ -335,13 +342,13 @@ namespace ForzaStudio
             this.cars.MultiSelect = false;
             this.cars.HideSelection = false;
             this.cars.Columns.Add("Id", 56);
-            this.cars.Columns.Add("Car", 260);
+            this.cars.Columns.Add("Car", 220);      // the widths of the FM4 window's list
             this.cars.Columns.Add("Year", 50);
-            this.cars.Columns.Add("Media name", 200);
+            this.cars.Columns.Add("Media name", 180);
             this.cars.Columns.Add("PI", 60);        // "PI FM4" / "PI FM3" / "PI FH" once the source is known (LoadCars)
-            this.cars.Columns.Add("Class", 60);     // the source game's class badge, as in the FM3 / FM4 windows
-            this.cars.Columns.Add("DLC pack", 220);
-            this.cars.Columns.Add("In FM2", 260);
+            this.cars.Columns.Add("Class", 76);     // the source game's class badge, as in the FM3 / FM4 windows
+            this.cars.Columns.Add("DLC", 170);
+            this.cars.Columns.Add("In FM2", 220);
             this.cars.SelectedIndexChanged += delegate { this.ShowSourcePi(); this.ApplyRecord(); this.ShowMake(); this.ShowTrial(); this.UpdateButtons(); };
             CarPortFm3Form.StyleList(this.cars);
 
@@ -363,58 +370,81 @@ namespace ForzaStudio
                 {
                     this.soundCars.SelectedIndex = this.templates.SelectedIndex;
                     this.soundPicked = false;
+                    this.SyncSounds(false);
                 }
                 this.ShowTrial();
                 this.UpdateButtons();
             };
             // Engine sound (user 2026-11-25: "port sound / use sound"): the source's, built into FM2 banks, or an FM2 car's
+            // Shown as ONE list, as the FM4 window's (2026-11-28; was two radio buttons and a list): "the source's" or an FM2 car.
+            // The radio buttons and the car list keep the choice (the rest of the window reads them) in a panel not shown.
             Label soundLabel = new Label();
             soundLabel.Text = "Engine sound:";
-            soundLabel.Location = new Point(8, 66);
+            soundLabel.Location = new Point(244, 63);
             soundLabel.AutoSize = true;
             this.portSound = new RadioButton();
-            this.portSound.Text = "Port sound (the source car's)";
-            this.portSound.Location = new Point(104, 63);
-            this.portSound.AutoSize = true;
             this.portSound.Checked = true;
             this.useSound = new RadioButton();
-            this.useSound.Text = "Use sound of the FM2 car:";
-            this.useSound.Location = new Point(300, 63);
-            this.useSound.AutoSize = true;
             this.soundCars = new ComboBox();
             this.soundCars.DropDownStyle = ComboBoxStyle.DropDownList;
-            this.soundCars.Location = new Point(480, 62);
-            this.soundCars.Width = 360;
-            this.soundCars.MaxDropDownItems = 24;
-            this.soundCars.Enabled = false;
-            this.soundCars.SelectionChangeCommitted += delegate { this.soundPicked = true; };
-            this.useSound.CheckedChanged += delegate { this.soundCars.Enabled = this.useSound.Checked; };
+            Panel soundState = new Panel();
+            soundState.Visible = false;
+            soundState.Controls.Add(this.portSound);
+            soundState.Controls.Add(this.useSound);
+            soundState.Controls.Add(this.soundCars);
+            this.sounds = new ComboBox();
+            this.sounds.DropDownStyle = ComboBoxStyle.DropDownList;
+            this.sounds.Location = new Point(332, 60);
+            this.sounds.Width = 260;
+            this.sounds.MaxDropDownItems = 24;
+            new ToolTip().SetToolTip(this.sounds, "The engine sound: the source car's, built into FM2 banks (the source's), or the whole sound of an FM2 car");
+            this.sounds.SelectionChangeCommitted += delegate
+            {
+                if (this.sounds.SelectedIndex <= 0)
+                {
+                    this.portSound.Checked = true;
+                }
+                else
+                {
+                    this.useSound.Checked = true;
+                    this.soundCars.SelectedIndex = this.sounds.SelectedIndex - 1;
+                    this.soundPicked = true;
+                }
+            };
+            // FM2 added cars are ALWAYS in Arcade (user rule 2026-11-14): the FM4 window's box, ticked and greyed.
+            this.arcade = new CheckBox();
+            this.arcade.Text = "Also in arcade mode (FM2: always)";
+            this.arcade.Checked = true;
+            this.arcade.AutoCheck = false;      // stays ticked: a disabled box showed no tick and dark text on the dark theme
+            this.arcade.Location = new Point(484, 30);
+            this.arcade.AutoSize = true;
+            new ToolTip().SetToolTip(this.arcade, "FM2: always. A car added to FM2 is always in its Arcade car list.");
             this.trial = new Button();
             this.trial.Text = "Trial Run";
-            this.trial.Size = new Size(110, 28);
+            this.trial.Size = new Size(100, 28);
             this.trial.Location = new Point(8, 94);
             this.trial.Click += delegate { this.RunTrial(); };
             this.install = new Button();
             this.install.Text = "Install In FM2...";
-            this.install.Size = new Size(130, 28);
-            this.install.Location = new Point(124, 94);
+            this.install.Size = new Size(120, 28);
+            this.install.Location = new Point(114, 94);
             this.install.Click += delegate { this.Install(); };
             options.Controls.Add(templateLabel);
             options.Controls.Add(this.templates);
+            options.Controls.Add(this.arcade);
             this.BuildMakeRow(options);
             options.Controls.Add(soundLabel);
-            options.Controls.Add(this.portSound);
-            options.Controls.Add(this.useSound);
-            options.Controls.Add(this.soundCars);
+            options.Controls.Add(this.sounds);
+            options.Controls.Add(soundState);
             options.Controls.Add(this.trial);
             options.Controls.Add(this.install);
             this.BuildUninstallButton(options);
             if (mode == PortMode.Dlc)
             {
-                // nothing goes into the FM2 folder here: Into DLC in Install's place, no Uninstall
+                // nothing goes into the FM2 folder here: no Install, no Uninstall (the car goes into the pack with Add ->, between
+                // the two lists as in the FM4 window; Trial Run stays, an FM2 pack car carries its trial's choices)
                 this.install.Visible = false;
                 this.uninstall.Visible = false;
-                this.BuildIntoDlcButton(options);
             }
             Panel selectedCar = new Panel();
             selectedCar.Dock = DockStyle.Bottom;
@@ -428,19 +458,9 @@ namespace ForzaStudio
             carsArea.Controls.Add(selectedCar);
             carsArea.Controls.Add(filter);
             Control carsHeader = CarPortForm.SectionHeader("Cars");
-            // the traffic colour of the car list at the right of the header, as the FM3 window draws it (user 2026-11-25)
-            carsHeader.Paint += delegate(object sender, PaintEventArgs e)
-            {
-                const string name = "Traffic car";
-                Size size = TextRenderer.MeasureText(name, ForzaTheme.Regular);
-                int x = carsHeader.Width - 8 - size.Width;
-                TextRenderer.DrawText(e.Graphics, name, ForzaTheme.Regular, new Point(x, 7), ForzaTheme.Yellow);
-                using (Brush dot = new SolidBrush(ForzaTheme.Yellow))
-                {
-                    e.Graphics.FillEllipse(dot, x - 14, 11, 9, 9);
-                }
-            };
-            carsHeader.Resize += delegate { carsHeader.Invalidate(); };
+            // the colours of the car list at the right of the header, as the FM4 window draws them (user 2026-11-25; the dim
+            // rows named too, 2026-11-28). FM2 has no close-up model, so "Traffic car" says no more.
+            PortWindowParts.Legend(carsHeader, new string[] { "Traffic car", "In target / no files" }, new Color[] { ForzaTheme.Yellow, ForzaTheme.TextDim });
             carsArea.Controls.Add(carsHeader);
 
             this.report = new TextBox();
@@ -575,14 +595,16 @@ namespace ForzaStudio
             body.FixedPanel = FixedPanel.Panel2;
             if (mode == PortMode.Dlc)
             {
-                // the pack on the right of the cars, as the FM3 / FM4 DLC windows
+                // the pack on the right of the cars, Add / Remove between the two lists, as the FM3 / FM4 DLC windows
                 SplitContainer top = new SplitContainer();
                 top.Dock = DockStyle.Fill;
                 top.FixedPanel = FixedPanel.Panel2;
                 top.Panel1.Controls.Add(carsArea);
+                Panel transfer = this.BuildTransfer();
                 top.Panel2.Controls.Add(this.BuildPackPanel());
+                top.Panel2.Controls.Add(transfer);
                 body.Panel1.Controls.Add(top);
-                this.Load += delegate { top.SplitterDistance = Math.Max(500, top.Width - 400); };
+                this.Load += delegate { top.SplitterDistance = Math.Max(400, top.Width - 380 - 112); };
             }
             else
             {
@@ -635,10 +657,68 @@ namespace ForzaStudio
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            this.UpdateSourceInfo();
             if (Directory.Exists(this.sourceBox.Text) && Directory.Exists(this.targetBox.Text))
             {
                 this.LoadCars();
             }
+        }
+
+        // The line under the source, worked out a moment after the text stops changing (as the FM4 window).
+        private void SourceInfoLater()
+        {
+            if (this.sourceInfo == null)
+            {
+                return;
+            }
+            if (this.sourceInfoTimer == null)
+            {
+                this.sourceInfoTimer = new System.Windows.Forms.Timer();
+                this.sourceInfoTimer.Interval = 300;
+                this.sourceInfoTimer.Tick += delegate
+                {
+                    this.sourceInfoTimer.Stop();
+                    this.UpdateSourceInfo();
+                };
+            }
+            this.sourceInfoTimer.Stop();
+            this.sourceInfoTimer.Start();
+        }
+
+        private void UpdateSourceInfo()
+        {
+            if (this.sourceInfo == null)
+            {
+                return;
+            }
+            bool problem;
+            this.sourceInfo.Text = PortWindowParts.DescribeSource(this.sourceBox.Text.Trim(), this.includeDlc == null || this.includeDlc.Checked, ForzaGame.Motorsport2, this.packFiles.Count, out problem);
+            this.sourceInfo.ForeColor = problem ? ForzaTheme.Yellow : ForzaTheme.TextDim;
+        }
+
+        // The Engine sound list follows the choice kept in portSound / useSound / soundCars (not shown): "the source's" first,
+        // then the FM2 cars in the templates' order.
+        private void SyncSounds(bool refill)
+        {
+            if (this.sounds == null)
+            {
+                return;
+            }
+            if (refill)
+            {
+                this.sounds.Items.Clear();
+                this.sounds.Items.Add("the source's");
+                foreach (object car in this.soundCars.Items)
+                {
+                    this.sounds.Items.Add(car);
+                }
+            }
+            if (this.sounds.Items.Count == 0)
+            {
+                return;
+            }
+            int index = (this.useSound.Checked && this.soundCars.SelectedIndex >= 0) ? this.soundCars.SelectedIndex + 1 : 0;
+            this.sounds.SelectedIndex = Math.Min(index, this.sounds.Items.Count - 1);
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -716,6 +796,7 @@ namespace ForzaStudio
                 }
             }
             this.status.Text = this.packFiles.Count + " DLC package(s) added: Load Cars lists their cars with the source game's.";
+            this.UpdateSourceInfo();
             if (Directory.Exists(this.sourceBox.Text.Trim()) && Directory.Exists(this.targetBox.Text.Trim()) && !this.busy)
             {
                 this.LoadCars();
@@ -884,6 +965,7 @@ namespace ForzaStudio
                     }
                     newCars += car.InFm2 ? 0 : 1;
                 }
+                Dictionary<string, Color> badgeColors = PortWindowParts.ClassColors(source, target);
                 return delegate
                 {
                     this.sourceGame = game;
@@ -892,6 +974,9 @@ namespace ForzaStudio
                     this.trials.Clear();
                     this.items.Clear();
                     this.cars.Columns[4].Text = "PI " + GameInfo.Tag(game);
+                    // The source game is known only now, from the folder: the title shows the route (as the FM4 window).
+                    this.Text = PortWindowParts.Title(this.mode, GameInfo.Tag(game), ForzaGame.Motorsport2);
+                    CarPortFm3Form.BadgeColors = badgeColors;
                     foreach (SourceCar car in list)
                     {
                         ListViewItem item = new ListViewItem(car.Id.ToString(CultureInfo.InvariantCulture));
@@ -926,6 +1011,7 @@ namespace ForzaStudio
                         this.templates.Items.Add(one[1] + "  (" + one[0] + ")");
                         this.soundCars.Items.Add(one[1] + "  (" + one[0] + ")");
                     }
+                    this.SyncSounds(true);
                     this.Filter();
                     this.ShowTrial();
                     this.status.Text = string.Format(CultureInfo.InvariantCulture, "{0} {1} cars FM2 does not have ({3} it has: Also show cars FM2 already has), {2} FM2 template cars. Choose a car and its template, then Trial Run.", newCars, GameInfo.Name(game), templateCars.Count, list.Count - newCars);
@@ -1011,6 +1097,7 @@ namespace ForzaStudio
         {
             string text = this.search.Text.Trim();
             List<ListViewItem> shown = new List<ListViewItem>();
+            int hidden = 0;     // the cars the default filter hides, counted on the box as in the FM4 window (UF-001)
             foreach (ListViewItem item in this.items)
             {
                 SourceCar car = (SourceCar) item.Tag;
@@ -1020,10 +1107,14 @@ namespace ForzaStudio
                 }
                 if (car.InFm2 && !this.showInFm2.Checked)
                 {
+                    hidden++;
                     continue;
                 }
                 shown.Add(item);
             }
+            this.showInFm2.Text = "Also show cars already in target" + ((hidden > 0) ? " (" + hidden + " hidden)" : "");
+            this.showInFm2Tip.SetToolTip(this.showInFm2, (hidden > 0) ? "Hidden now: " + hidden + " car(s) FM2 already has (the \"In FM2\" column says which).\nTick to show them (a ported one can be ported again over itself)." : "No car hidden.");
+            this.includeDlc.Left = Math.Max(620, this.showInFm2.Right + 16);
             this.cars.BeginUpdate();
             this.cars.Items.Clear();
             this.cars.Items.AddRange(shown.ToArray());
@@ -1131,6 +1222,7 @@ namespace ForzaStudio
             {
                 this.portSound.Checked = true;
             }
+            this.SyncSounds(false);
             this.status.Text = car.Name + ": ported before on the template " + car.Record.Template + "; Trial Run gives back the variants and materials you chose then.";
         }
 
@@ -1991,7 +2083,7 @@ namespace ForzaStudio
                     {
                         this.tabs.SelectedTab = this.materialsPage;
                     }
-                    string next = (this.mode == PortMode.Dlc) ? "Into DLC" : "Install In FM2";
+                    string next = (this.mode == PortMode.Dlc) ? "Add  →" : "Install In FM2";
                     this.status.Text = !stockFits ? "Trial done: the stock parts alone do not fit FM2."
                         : !allFit ? "Trial done: not every variant fits. Untick variants in the Variants tab until the counters are green, then " + next + "." + materialNote
                         : "Trial done: everything fits. " + next + " when ready." + materialNote;

@@ -2432,11 +2432,9 @@ namespace ForzaStudio
                     }
                     this.sounds.SelectedIndex = 0;
                     this.sourceTag = GameInfo.Tag(sourceGame);
-                    if (this.mode == PortMode.Import)
-                    {
-                        // The source game is known only now, from the folder: the title shows the route.
-                        this.Text = "Import Car From Another Forza: " + this.sourceTag + " > " + GameInfo.Tag(targetGame);
-                    }
+                    // The source game is known only now, from the folder: the title shows the route (both modes since 2026-11-28,
+                    // the same text as the FM3 / FM2 windows).
+                    this.Text = PortWindowParts.Title(this.mode, this.sourceTag, targetGame);
                     this.cars.Columns[4].Text = "PI " + this.sourceTag;
                     this.fm4Cars = motorsport;
                     this.items.Clear();

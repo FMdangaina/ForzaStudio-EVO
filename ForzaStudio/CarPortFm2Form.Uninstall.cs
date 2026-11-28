@@ -18,7 +18,7 @@ namespace ForzaStudio
             this.uninstall = new Button();
             this.uninstall.Text = "Uninstall...";
             this.uninstall.Size = new Size(100, 28);
-            this.uninstall.Location = new Point(260, 94);
+            this.uninstall.Location = new Point(240, 94);
             new ToolTip().SetToolTip(this.uninstall, "Take this ported car out of the FM2 folder again (never one of FM2's own cars): the report lists what goes first");
             this.uninstall.Click += delegate { this.Uninstall(); };
             options.Controls.Add(this.uninstall);

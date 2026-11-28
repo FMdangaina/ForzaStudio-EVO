@@ -9,7 +9,7 @@ namespace ForzaStudio
     using System.Windows.Forms;
 
     // DLC mode of the FM2 port window (docs/PORT_PARITY.md C, user 2026-11-27: "port first, then into the pack"):
-    //   Into DLC ->       the selected car, after its Trial Run, goes into the pack with every choice of the window (template,
+    //   Add ->            the selected car, after its Trial Run, goes into the pack with every choice of the window (template,
     //                     variants, materials, sound, swaps, make), kept as an Fm2PortRecord;
     //   Trial Pack        stage = the FM2 files the port reads and writes, copied under %TEMP%\ForzaStudio\PackFm2\pack_<time>
     //                     (CarDuplicate.Stage per template + Textures.zip and the sound zips); the pack's new makes, then every
@@ -36,7 +36,8 @@ namespace ForzaStudio
         private TextBox packName;
         private TextBox packOffer;
         private TextBox packFirstCar;
-        private TextBox xeniaBox;
+        private TextBox xeniaBox;       // not shown: holds the Xenia folder of Tools > Settings for XeniaContent()
+        private Label xeniaInfo;        // the Xenia folder shown in the pack panel (set in Settings only)
         private Button removeFromPack;
         private Button newPack;
         private Button packTrial;
@@ -47,61 +48,85 @@ namespace ForzaStudio
         private Label packInfo;
         private string packTrialFolder;     // the stage of the last Trial Pack that went through; null: Trial Pack first
 
-        private void BuildIntoDlcButton(Panel options)
+        // Add / remove between the two lists, as in the FM4 / FM3 windows (2026-11-28; was an "Into DLC ->" button under the
+        // selected car and a "Remove" over the pack list). Add needs the car's trial run: an FM2 pack car carries its choices.
+        private Panel BuildTransfer()
         {
+            Panel transfer = new Panel();
+            transfer.Dock = DockStyle.Left;
+            transfer.Width = 112;
             this.intoDlc = new Button();
-            this.intoDlc.Text = "Into DLC \u2192";
-            this.intoDlc.Size = new Size(130, 28);
-            this.intoDlc.Location = this.install.Location;
-            new ToolTip().SetToolTip(this.intoDlc, "Put the car into the pack on the right with the choices of its trial run (template, variants, materials, sound, swaps, make)");
+            this.intoDlc.Text = "Add  \u2192";
+            this.intoDlc.Size = new Size(96, 30);
+            new ToolTip().SetToolTip(this.intoDlc, "Put the car into the pack with the choices of its trial run (template, variants, materials, sound, swaps, make). Trial Run the car first.");
             this.intoDlc.Click += delegate { this.IntoDlc(); };
-            options.Controls.Add(this.intoDlc);
+            this.removeFromPack = new Button();
+            this.removeFromPack.Text = "\u2190  Remove";
+            this.removeFromPack.Size = new Size(96, 30);
+            new ToolTip().SetToolTip(this.removeFromPack, "Take the selected car out of the pack");
+            this.removeFromPack.Click += delegate { this.RemoveFromPack(); };
+            transfer.Controls.Add(this.intoDlc);
+            transfer.Controls.Add(this.removeFromPack);
+            transfer.Layout += delegate
+            {
+                int middle = transfer.ClientSize.Height / 2;
+                this.intoDlc.Location = new Point(8, middle - 36);
+                this.removeFromPack.Location = new Point(8, middle + 6);
+            };
+            this.cars.DoubleClick += delegate
+            {
+                if (this.intoDlc.Enabled)
+                {
+                    this.IntoDlc();
+                }
+            };
+            return transfer;
         }
 
+        // The pack (right): name, offer, first car id, the cars, then the Xenia folder and the actions from the bottom, laid out
+        // as in the FM4 / FM3 windows.
         private Panel BuildPackPanel()
         {
             Panel panel = new Panel();
             panel.Dock = DockStyle.Fill;
 
-            Panel fields = new Panel();
-            fields.Dock = DockStyle.Top;
-            fields.Height = 136;
+            Panel fields = panel;
             Label nameLabel = new Label();
             nameLabel.Text = "Name:";
-            nameLabel.Location = new Point(8, 11);
+            nameLabel.Location = new Point(8, 39);
             nameLabel.AutoSize = true;
             this.packName = new TextBox();
-            this.packName.Location = new Point(96, 8);
-            this.packName.Width = 280;
+            this.packName.Location = new Point(58, 37);
+            this.packName.Width = 300;
             this.packName.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             this.packName.Text = AppSettings.Get("PortFm2.PackName", "ForzaStudio EVO pack");
             this.packName.TextChanged += delegate { AppSettings.Set("PortFm2.PackName", this.packName.Text); this.UpdateButtons(); };
 
             Label offerLabel = new Label();
             offerLabel.Text = "Offer id:";
-            offerLabel.Location = new Point(8, 41);
+            offerLabel.Location = new Point(8, 69);
             offerLabel.AutoSize = true;
             this.packOffer = new TextBox();
-            this.packOffer.Location = new Point(96, 38);
-            this.packOffer.Width = 50;
+            this.packOffer.Location = new Point(58, 66);
+            this.packOffer.Width = 70;
             this.packOffer.MaxLength = 5;
             this.packOffer.Text = AppSettings.Get("PortFm2.PackOffer", "");
             this.packOffer.TextChanged += delegate { AppSettings.Set("PortFm2.PackOffer", this.packOffer.Text.Trim()); this.UpdateButtons(); };
             new ToolTip().SetToolTip(this.packOffer, "The package's number: the folder DLC<offer> in Xenia's FM2 content folder (FM2's own packs use 1-7)");
             Button freeOffer = new Button();
             freeOffer.Text = "Free";
-            freeOffer.Location = new Point(150, 37);
+            freeOffer.Location = new Point(134, 65);
             freeOffer.Size = new Size(46, 24);
             new ToolTip().SetToolTip(freeOffer, "Put the first number no FM2 package in Xenia uses");
             freeOffer.Click += delegate { this.packOffer.Text = DlcPackage.FreeOfferFm2(this.XeniaContent()).ToString(CultureInfo.InvariantCulture); };
 
             Label firstLabel = new Label();
             firstLabel.Text = "First car id:";
-            firstLabel.Location = new Point(206, 41);
+            firstLabel.Location = new Point(190, 69);
             firstLabel.AutoSize = true;
             this.packFirstCar = new TextBox();
-            this.packFirstCar.Location = new Point(280, 38);
-            this.packFirstCar.Width = 46;
+            this.packFirstCar.Location = new Point(262, 66);
+            this.packFirstCar.Width = 50;
             this.packFirstCar.MaxLength = 4;
             this.packFirstCar.Text = AppSettings.Get("PortFm2.PackFirstCar", "");
             this.packFirstCar.TextChanged += delegate
@@ -113,56 +138,46 @@ namespace ForzaStudio
                 + "): the cars take the next free ones from it, never one of the FM2 folder or of another installed pack");
             Button freeFirst = new Button();
             freeFirst.Text = "Free";
-            freeFirst.Location = new Point(330, 37);
+            freeFirst.Location = new Point(316, 65);
             freeFirst.Size = new Size(46, 24);
             new ToolTip().SetToolTip(freeFirst, "Put the first car id neither the FM2 folder nor an installed pack uses");
             freeFirst.Click += delegate { this.SuggestFirstCar(); };
 
             Label xeniaLabel = new Label();
-            xeniaLabel.Text = "Xenia folder:";
-            xeniaLabel.Location = new Point(8, 71);
+            // Xenia is set in one place only, Tools > Settings > Folders (user 2026-11-08): here it is shown, with a way there,
+            // as in the FM4 window (2026-11-28; was a box to type in with a "..." button).
+            xeniaLabel.Text = "Xenia (DLC packs):";
             xeniaLabel.AutoSize = true;
-            this.xeniaBox = new TextBox();
-            this.xeniaBox.Location = new Point(96, 68);
-            this.xeniaBox.Width = 244;
-            this.xeniaBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            this.xeniaBox = new TextBox();      // not shown: holds the folder for XeniaContent()
+            this.xeniaBox.Visible = false;
             this.xeniaBox.Text = AppSettings.Get(SettingsForm.XeniaKey, "");
-            this.xeniaBox.TextChanged += delegate { AppSettings.Set(SettingsForm.XeniaKey, this.xeniaBox.Text.Trim()); this.UpdateButtons(); };
-            new ToolTip().SetToolTip(this.xeniaBox, "Xenia's folder (with xenia_canary.exe): the pack goes into its FM2 content folder");
+            this.xeniaInfo = new Label();
+            this.xeniaInfo.AutoEllipsis = true;
+            this.xeniaInfo.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Button xeniaBrowse = new Button();
-            xeniaBrowse.Text = "...";
-            xeniaBrowse.Size = new Size(32, 24);
-            xeniaBrowse.Location = new Point(344, 67);
-            xeniaBrowse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            xeniaBrowse.Text = "Settings...";
+            xeniaBrowse.Size = new Size(80, 24);
+            xeniaBrowse.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            new ToolTip().SetToolTip(xeniaBrowse, "Tools > Settings > Folders: the game folders and Xenia (the pack goes into Xenia's FM2 content folder)");
             xeniaBrowse.Click += delegate
             {
-                using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+                if (PortWindowParts.OpenFolderSettings(this))
                 {
-                    dialog.Description = "Xenia's folder (the one with xenia_canary.exe and its config)";
-                    dialog.ShowNewFolderButton = false;
-                    if (Directory.Exists(this.xeniaBox.Text))
-                    {
-                        dialog.SelectedPath = this.xeniaBox.Text;
-                    }
-                    if (dialog.ShowDialog(this) == DialogResult.OK)
-                    {
-                        this.xeniaBox.Text = dialog.SelectedPath;
-                    }
+                    this.xeniaBox.Text = AppSettings.Get(SettingsForm.XeniaKey, "");
+                    PortWindowParts.FillSourceGames(this.sourceBox, ForzaGame.Motorsport2);
+                    this.UpdateXeniaInfo();
+                    this.UpdateSourceInfo();
+                    this.UpdatePackInfo();
+                    this.UpdateButtons();
                 }
             };
 
             this.newPack = new Button();
             this.newPack.Text = "New Pack";
-            this.newPack.Location = new Point(8, 100);
-            this.newPack.Size = new Size(100, 28);
+            this.newPack.Size = new Size(100, 26);
+            this.newPack.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             new ToolTip().SetToolTip(this.newPack, "Empty the pack (nothing in Xenia changes)");
             this.newPack.Click += delegate { this.NewPack(); };
-            this.removeFromPack = new Button();
-            this.removeFromPack.Text = "Remove";
-            this.removeFromPack.Location = new Point(114, 100);
-            this.removeFromPack.Size = new Size(100, 28);
-            new ToolTip().SetToolTip(this.removeFromPack, "Take the selected car out of the pack");
-            this.removeFromPack.Click += delegate { this.RemoveFromPack(); };
             fields.Controls.Add(nameLabel);
             fields.Controls.Add(this.packName);
             fields.Controls.Add(offerLabel);
@@ -173,12 +188,15 @@ namespace ForzaStudio
             fields.Controls.Add(freeFirst);
             fields.Controls.Add(xeniaLabel);
             fields.Controls.Add(this.xeniaBox);
+            fields.Controls.Add(this.xeniaInfo);
             fields.Controls.Add(xeniaBrowse);
             fields.Controls.Add(this.newPack);
-            fields.Controls.Add(this.removeFromPack);
+            this.UpdateXeniaInfo();
 
             this.packList = new ListView();
-            this.packList.Dock = DockStyle.Fill;
+            this.packList.Location = new Point(8, 100);
+            this.packList.Size = new Size(350, 150);
+            this.packList.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             this.packList.View = View.Details;
             this.packList.FullRowSelect = true;
             this.packList.MultiSelect = false;
@@ -191,45 +209,47 @@ namespace ForzaStudio
             this.packList.DoubleClick += delegate { this.SelectPackCar(); };
             CarPortFm3Form.StyleList(this.packList);
 
-            Panel bottom = new Panel();
-            bottom.Dock = DockStyle.Bottom;
-            bottom.Height = 92;
+            // Rows from the bottom, as the FM4 window: hint, actions, Xenia folder, New Pack; the list takes the rest.
+            Panel bottom = panel;
             this.packInfo = new Label();
-            this.packInfo.Location = new Point(8, 4);
-            this.packInfo.Size = new Size(370, 46);
-            this.packInfo.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            this.packInfo.Size = new Size(350, 48);
+            this.packInfo.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             this.packInfo.ForeColor = ForzaTheme.TextDim;
             this.packTrial = new Button();
             this.packTrial.Text = "Trial Pack";
-            this.packTrial.Location = new Point(8, 56);
-            this.packTrial.Size = new Size(100, 28);
+            this.packTrial.Location = new Point(8, 0);
+            this.packTrial.Size = new Size(100, 26);
+            this.packTrial.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             new ToolTip().SetToolTip(this.packTrial, "Port every pack car into a temporary copy of the FM2 files (the FM2 folder is only read): report and Review");
             this.packTrial.Click += delegate { this.RunPackTrial(); };
             this.buildPack = new Button();
             this.buildPack.Text = "Build DLC Package";
-            this.buildPack.Location = new Point(114, 56);
-            this.buildPack.Size = new Size(140, 28);
+            this.buildPack.Location = new Point(114, 0);
+            this.buildPack.Size = new Size(130, 26);
+            this.buildPack.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             new ToolTip().SetToolTip(this.buildPack, "Write DLC<offer> into Xenia's FM2 content folder from the last Trial Pack");
             this.buildPack.Click += delegate { this.BuildPack(); };
             this.removePack = new Button();
             this.removePack.Text = "Remove Pack";
-            this.removePack.Location = new Point(260, 56);
-            this.removePack.Size = new Size(110, 28);
+            this.removePack.Location = new Point(250, 0);
+            this.removePack.Size = new Size(108, 26);
+            this.removePack.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             new ToolTip().SetToolTip(this.removePack, "Take DLC<offer> out of Xenia's FM2 content folder");
             this.removePack.Click += delegate { this.RemovePackFromXenia(); };
             this.addToPackage = new Button();
             this.addToPackage.Text = "Add To Package...";
-            this.addToPackage.Location = new Point(8, 90);
-            this.addToPackage.Size = new Size(140, 28);
+            this.addToPackage.Location = new Point(250, 0);
+            this.addToPackage.Size = new Size(120, 26);
+            this.addToPackage.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             new ToolTip().SetToolTip(this.addToPackage, "Put the cars of the last Trial Pack into an FM2 package that is already in Xenia (a DLC<n> folder or a package file): it keeps its offer, name and cars");
             this.addToPackage.Click += delegate { this.AddToPackage(); };
             this.buildXbox = new Button();
             this.buildXbox.Text = "Build for Xbox 360...";
-            this.buildXbox.Location = new Point(154, 90);
-            this.buildXbox.Size = new Size(160, 28);
+            this.buildXbox.Location = new Point(8, 0);
+            this.buildXbox.Size = new Size(238, 26);
+            this.buildXbox.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             new ToolTip().SetToolTip(this.buildXbox, "Write the pack as an Xbox 360 package file (STFS) into a folder you choose, from the last Trial Pack");
             this.buildXbox.Click += delegate { this.BuildXbox(); };
-            bottom.Height = 126;
             bottom.Controls.Add(this.packInfo);
             bottom.Controls.Add(this.packTrial);
             bottom.Controls.Add(this.buildPack);
@@ -238,11 +258,31 @@ namespace ForzaStudio
             bottom.Controls.Add(this.buildXbox);
 
             panel.Controls.Add(this.packList);
-            panel.Controls.Add(bottom);
-            panel.Controls.Add(fields);
-            panel.Controls.Add(CarPortForm.SectionHeader("DLC package"));
+            panel.Controls.Add(CarPortForm.SectionHeader("DLC pack (Xenia / Xbox 360)"));
+            panel.Layout += delegate
+            {
+                int h = panel.ClientSize.Height;
+                int w = panel.ClientSize.Width;
+                this.packInfo.Bounds = new Rectangle(8, h - 52, w - 16, 48);
+                this.buildXbox.Top = this.addToPackage.Top = h - 84;
+                this.packTrial.Top = this.buildPack.Top = this.removePack.Top = h - 116;
+                this.xeniaInfo.Bounds = new Rectangle(8, h - 146, w - 104, 20);
+                xeniaBrowse.Location = new Point(w - 88, h - 150);
+                xeniaLabel.Location = new Point(8, h - 168);
+                this.newPack.Location = new Point(8, h - 204);
+                this.packName.Width = w - 66;
+                this.packList.Bounds = new Rectangle(8, this.packList.Top, w - 16, Math.Max(40, h - 212 - this.packList.Top));
+            };
             this.UpdatePackInfo();
             return panel;
+        }
+
+        // The Xenia line of the pack panel: the folder of Settings and whether it is there (as the FM4 window).
+        private void UpdateXeniaInfo()
+        {
+            bool problem;
+            this.xeniaInfo.Text = PortWindowParts.XeniaInfo(out problem);
+            this.xeniaInfo.ForeColor = problem ? ForzaTheme.Yellow : ForzaTheme.TextDim;
         }
 
         private void UpdatePackButtons(bool trialDone)
@@ -271,7 +311,7 @@ namespace ForzaStudio
                 return;
             }
             string content = this.XeniaContent();
-            this.packInfo.Text = (this.pack.Count == 0) ? "Trial-run a car, then Into DLC \u2192 puts it here with its choices."
+            this.packInfo.Text = (this.pack.Count == 0) ? "Select a car on the left, Trial Run it, then Add (or double-click the car): it goes here with its choices."
                 : (this.packTrialFolder == null) ? this.pack.Count + " car(s). Trial Pack ports them into a copy of the FM2 files (the FM2 folder is only read)."
                 : (content == null) ? this.pack.Count + " car(s), trial done. Set Xenia's folder to build the package."
                 : this.pack.Count + " car(s), trial done: Build DLC Package writes DLC" + this.packOffer.Text.Trim() + " into " + content + ".";
@@ -392,7 +432,7 @@ namespace ForzaStudio
             this.UpdatePackInfo();
         }
 
-        // Into DLC: the selected car with the choices of its trial run.
+        // Add -> (IntoDlc): the selected car with the choices of its trial run.
         private void IntoDlc()
         {
             SourceCar car = this.SelectedCar;

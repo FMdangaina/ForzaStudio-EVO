@@ -23,7 +23,11 @@ that `PortPairs.CanCreateDlc("FM2")` was false and the button greyed.
 | Tires (Normal / Offroad / Small / Offroad Big) | ✅ | n/a (FM3 has no tyres per car) | n/a (FM2 shared tire texture) |
 | Front / rear brakes + caliper angle | ✅ | ✅ | n/a (FM2: no per-car brakes) |
 | Trial Run, Install | ✅ | ✅ | ✅ |
-| **Open Trial Folder** | ✅ | ❌ | n/a (the FM2 trial writes no files) |
+| **Open Trial Folder** | ✅ | ✅ (2026-11-28) | n/a (the FM2 trial writes no files) |
+| Window size (most of the screen, centred), title "...: FH > FM3" | ✅ | ✅ (2026-11-28) | ✅ (2026-11-28) |
+| Source as a list of the games of Settings + the info line under it | ✅ | ✅ (2026-11-28) | ✅ (2026-11-28) |
+| Class badge, "Also show cars already in target (N hidden)", legend of the row colours | ✅ | ✅ (2026-11-28) | ✅ (2026-11-28) |
+| DLC: Add → / ← Remove between the lists, Xenia folder shown with **Settings...** | ✅ | ✅ (2026-11-28) | ✅ (2026-11-28; Add needs the car's Trial Run) |
 | **Uninstall...** (take a ported car out of the folder) | ✅ | ✅ (D2) | ✅ (B6) |
 | Tab Report | ✅ | ✅ | ✅ |
 | Tab **Review** (what the port changed or could not do, **Fix** choices) | ✅ | ✅ | ✅ (B3) |
@@ -170,8 +174,11 @@ Each UI step is described to the user and gets a yes before it is built (`descri
   part maker logo decal386, thumbnail 659, merge), strings DLC9Overrides1_pri_159. The window off screen
   (`packtest\ui\shotdlc`): Trial Run, Into DLC, Trial Pack -> pack row id 659, Build off without a Xenia folder.
 - Open: the in-game test (pack built from the app into Xenia, FM2 with its title update): car in the dealer's DLC,
-  its sound, a new make's logo from a pack. The DLC merge has no ArcadeCarList (with it FM2 hung, 2026-11-14), so a
-  pack car is not in Arcade unless the official packs' way says otherwise. A source bank named only "NA" (FH1 R8 GT)
+  its sound, a new make's logo from a pack. The DLC merge has no ArcadeCarList (with it FM2 hung, 2026-11-14); since
+  2026-11-28 the licence masks add each pack car's ArcadeCarList row (Level 0) instead (`Fm2StockGarage.ArcadeInsert`,
+  hand test on DLC9's BMW 1M: shown in Arcade, no hang). Since the same day the layer zip keeps the sound banks
+  (.fsb/.fev) out, loose in DLC<n>_pri_65\ beside it as the official packs (DLC9: banks inside the zip = no sound,
+  loose = sound, in game). A source bank named only "NA" (FH1 R8 GT)
   keeps that name: two such cars in one pack would share NA.fsb / NA_HT.xml (the Install path has the same naming).
 
 ### A done in code (2026-11-26, built, trial-folder / dry-run checks; DEV rewrite of the ported cars pending)
@@ -293,3 +300,39 @@ Upgrades editable (swaps, drive type), source PI column.
   `Fm3SoundAndDash` (car ET, HTs no remaining ET names, banks no remaining HT names, dash zip + images). Run again: the
   database and every file as before the install, but the two banks, which FM3's own harmonic tunings name (kept by the
   rule; the test copies were taken out by hand, copies in `realrun\bak\after_uninstall`).
+
+## 4. Same size and layout as the FM4 window (2026-11-28)
+
+User 2026-11-28: "per la 0.0.8 serve che le schermate fm2 e fm3 siano uguali a quelle fm4, per dimensione e
+funzionalità". The three windows were rendered off screen, Import and DLC mode, with an inventory of their controls
+(`E:\DEV\fm4dev\PortParity\shot3`, before in `out\`, after in `out2\`). Eleven differences were listed and approved.
+The shared parts are in `PortWindowParts.cs`.
+
+1. **Size**: FM3 and FM2 were a fixed 1360 x 900 centred on the main window. Now they take most of the screen (up to
+   1900 x 1080) and open centred on the screen, as FM4 (`SizeToScreen`).
+2. **Source game**: a list of the games set in Tools > Settings (FM4 first, the target game left out), where any folder
+   can still be typed or browsed. A line under it says what was found, yellow when something is missing: the game, its
+   DLC in Xenia, the package files added with Package... (`SourceRow`, `DescribeSource`).
+3. **Legend** at the right of "Cars": "Traffic car" and "In target / no files". FM4's blue "FM2 car" entry is not
+   there, because these lists have no blue rows.
+4. **Class** drawn as the game's badge (the source game's class colours, `ClassColors`).
+5. **Check boxes**: "Also show cars already in target (N hidden)" first, then "Include the game's DLC".
+6. **FM2 selected car** laid out as FM4's: the template car on one row, Make + Engine sound on the next. Engine sound
+   is one list ("the source's" or an FM2 car) instead of two radio buttons and a list.
+7. **FM2 "Also in arcade mode (FM2: always)"**: shown ticked, cannot be changed (user rule: FM2 added cars are always
+   in Arcade).
+8. **FM3 Open Trial Folder**: the last trial run's files.
+9. **FM2 DLC panel** as FM4's and FM3's: "Add ->" / "<- Remove" between the two lists (was an "Into DLC ->" button
+   under the selected car), the same rows from the bottom, the header "DLC pack (Xenia / Xbox 360)". Add needs the
+   car's Trial Run, because an FM2 pack car carries its trial's choices; a double click on the car adds it too.
+10. **Xenia folder** shown with a "Settings..." button in all three (set in Tools > Settings > Folders only). FM3 and
+    FM2 had a box to type in.
+11. **Titles**: "Import Car From Another Forza: FH > FM3" and "Create DLC Package: FH > FM2" in all three, once the
+    source game is known. FM4's DLC title had no route.
+
+Different on purpose: the tires are FM4 only; FM2 has no per-car brakes; the Variants and Materials tabs are FM2 only;
+the "In FM3" / "In FM2" columns keep the game's name; FM2 has no Open Trial Folder (its trial writes no files).
+
+Checked off screen on the build of 2026-11-28: the six windows render at 1880 x 992, and the FM2 DLC flow works (car
+selected, Trial Run, Add -> enabled only after the trial, car in the pack; harness `PortParity\flow2`). Not yet used
+by hand in the app: UNTESTED D21.

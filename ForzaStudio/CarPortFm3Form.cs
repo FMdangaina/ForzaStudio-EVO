@@ -50,7 +50,12 @@ namespace ForzaStudio
         }
 
         private readonly PortMode mode;
-        private readonly TextBox sourceBox;
+        private readonly ComboBox sourceBox;     // the source: a game set in Settings (the list) or a folder, as the FM4 window
+        private readonly Label sourceInfo;       // what the source holds: the game, its DLC in Xenia, what is missing
+        private System.Windows.Forms.Timer sourceInfoTimer;
+        private readonly ToolTip showInFm3Tip = new ToolTip();
+        private readonly Button openTrial;
+        private string trialFolder;              // the last trial run's files (Open Trial Folder)
         private readonly TextBox targetBox;
         private readonly Button load;
         private readonly TextBox search;
@@ -70,7 +75,8 @@ namespace ForzaStudio
         private readonly List<string> packFiles = new List<string>();
         private readonly List<ListViewItem> items = new List<ListViewItem>();
         private readonly List<PackItem> pack = new List<PackItem>();
-        private TextBox xeniaBox;
+        private TextBox xeniaBox;                // not shown: holds the Xenia folder of Tools > Settings for XeniaContent()
+        private Label xeniaInfo;                 // the Xenia folder shown in the pack panel (set in Settings only)
         private ListView packList;
         private TextBox packName;
         private TextBox packOffer;
@@ -104,10 +110,8 @@ namespace ForzaStudio
         public CarPortFm3Form(PortMode mode)
         {
             this.mode = mode;
-            this.Text = (mode == PortMode.Dlc) ? "Create DLC Package" : "Import Car From Another Forza";
-            this.Size = new Size(1360, 900);
-            this.MinimumSize = new Size(1100, 720);
-            this.StartPosition = FormStartPosition.CenterParent;
+            this.Text = PortWindowParts.Title(mode, null, ForzaGame.Motorsport3);
+            PortWindowParts.SizeToScreen(this);     // as the FM4 window (was a fixed 1360 x 900)
             this.Font = ForzaTheme.Regular;
             try
             {
@@ -145,13 +149,16 @@ namespace ForzaStudio
             // Game folders: the start values come from the settings.
             Panel folders = new Panel();
             folders.Dock = DockStyle.Top;
-            folders.Height = 74;
+            folders.Height = 92;
             folders.Width = this.ClientSize.Width;   // the rows are placed and anchored from this width (a Panel starts 200 wide)
-            this.sourceBox = this.FolderRow(folders, "Source game (FM4/FM2/FH1/FH2):", 10, DefaultSource(), true);
-            this.targetBox = this.FolderRow(folders, "Forza Motorsport 3:", 42, DefaultTarget(mode), false);
+            // The source as in the FM4 window: the games of Tools > Settings in a list, and a line saying what was found.
+            this.sourceBox = PortWindowParts.SourceRow(this, folders, 10, DefaultSource(), ForzaGame.Motorsport3, delegate { this.SourceInfoLater(); }, delegate { this.ChoosePackages(); },
+                "FM4 DLC package files (Xbox 360): their cars are listed with the game's. Press again to add more.");
+            this.sourceInfo = PortWindowParts.SourceInfo(folders);
+            this.targetBox = this.FolderRow(folders, "Forza Motorsport 3:", 60, DefaultTarget(mode), false);
             this.load = new Button();
             this.load.Text = "Load Cars";
-            this.load.Size = new Size(110, 56);
+            this.load.Size = new Size(110, 74);
             this.load.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             this.load.Location = new Point(folders.Width - 122, 9);
             this.load.Click += delegate { this.LoadCars(); };
@@ -170,7 +177,7 @@ namespace ForzaStudio
             this.search.Width = 260;
             this.search.TextChanged += delegate { this.Filter(); };
             this.showInFm3 = new CheckBox();
-            this.showInFm3.Text = "Also show cars FM3 already has (for tests)";
+            this.showInFm3.Text = "Also show cars already in target";     // + " (N hidden)", as the FM4 window (Filter)
             this.showInFm3.Location = new Point(338, 7);
             this.showInFm3.AutoSize = true;
             this.showInFm3.CheckedChanged += delegate { this.Filter(); };
@@ -179,11 +186,12 @@ namespace ForzaStudio
             this.includeDlc = new CheckBox();
             this.includeDlc.Text = "Include the game's DLC";
             this.includeDlc.Checked = AppSettings.Get("PortFm3.IncludeDlc", "0") == "1";
-            this.includeDlc.Location = new Point(640, 7);
+            this.includeDlc.Location = new Point(620, 7);
             this.includeDlc.AutoSize = true;
             this.includeDlc.CheckedChanged += delegate
             {
                 AppSettings.Set("PortFm3.IncludeDlc", this.includeDlc.Checked ? "1" : "0");
+                this.UpdateSourceInfo();
                 if (this.items.Count > 0 && !this.busy)
                 {
                     this.LoadCars();    // the DLC are read with the cars
@@ -199,12 +207,12 @@ namespace ForzaStudio
             this.cars.MultiSelect = false;
             this.cars.HideSelection = false;
             this.cars.Columns.Add("Id", 56);
-            this.cars.Columns.Add("Car", 240);
+            this.cars.Columns.Add("Car", 220);
             this.cars.Columns.Add("Year", 50);
-            this.cars.Columns.Add("Media name", 190);
+            this.cars.Columns.Add("Media name", 180);
             this.cars.Columns.Add("PI", 60);        // "PI FM4" / "PI FH" / "PI FM2" once the source is known (D1, as the FM2 / FM4 windows)
-            this.cars.Columns.Add("Class", 60);
-            this.cars.Columns.Add("DLC pack", 220);
+            this.cars.Columns.Add("Class", 76);
+            this.cars.Columns.Add("DLC", 170);
             this.cars.Columns.Add("In FM3", 220);
             this.cars.SelectedIndexChanged += delegate { this.ShowSourcePi(); this.UpdateButtons(); this.ShowUpgrades(); this.ShowSelectedFixes(); };
             StyleList(this.cars);
@@ -224,20 +232,33 @@ namespace ForzaStudio
             this.BuildChoices(options);     // arcade, make (+), engine sound, brakes: as the FM4 window
             this.trial = new Button();
             this.trial.Text = "Trial Run";
-            this.trial.Size = new Size(110, 28);
+            this.trial.Size = new Size(100, 28);
             this.trial.Location = new Point(8, 154);
             this.trial.Click += delegate { this.Port(false); };
             this.install = new Button();
             this.install.Text = "Install In FM3...";
-            this.install.Size = new Size(130, 28);
-            this.install.Location = new Point(124, 154);
+            this.install.Size = new Size(120, 28);
+            this.install.Location = new Point(114, 154);
             this.install.Click += delegate { this.Port(true); };
+            // The last trial's files, as the FM4 window's button (the row: Trial Run, Install, Open Trial Folder, Uninstall).
+            this.openTrial = new Button();
+            this.openTrial.Text = "Open Trial Folder";
+            this.openTrial.Size = new Size(130, 28);
+            this.openTrial.Location = new Point(240, 154);
+            this.openTrial.Click += delegate
+            {
+                if (this.trialFolder != null && Directory.Exists(this.trialFolder))
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", "\"" + this.trialFolder + "\"");
+                }
+            };
             options.Controls.Add(donorLabel);
             options.Controls.Add(this.donors);
             if (mode == PortMode.Import)
             {
                 options.Controls.Add(this.trial);
                 options.Controls.Add(this.install);
+                options.Controls.Add(this.openTrial);
                 this.BuildUninstallButton(options);     // D2: a ported car out of the FM3 folder again
             }
             Panel selectedCar = new Panel();
@@ -252,19 +273,9 @@ namespace ForzaStudio
             carsArea.Controls.Add(selectedCar);
             carsArea.Controls.Add(filter);
             Control carsHeader = CarPortForm.SectionHeader("Cars");
-            // The traffic colour of the car list at the right of the header, as the FM4 window draws it (user 2026-11-22).
-            carsHeader.Paint += delegate(object sender, PaintEventArgs e)
-            {
-                const string name = "Traffic car (close-up rebuilt)";
-                Size size = TextRenderer.MeasureText(name, ForzaTheme.Regular);
-                int x = carsHeader.Width - 8 - size.Width;
-                TextRenderer.DrawText(e.Graphics, name, ForzaTheme.Regular, new Point(x, 7), ForzaTheme.Yellow);
-                using (Brush dot = new SolidBrush(ForzaTheme.Yellow))
-                {
-                    e.Graphics.FillEllipse(dot, x - 14, 11, 9, 9);
-                }
-            };
-            carsHeader.Resize += delegate { carsHeader.Invalidate(); };
+            // The colours of the car list at the right of the header, as the FM4 window draws them (user 2026-11-22; the dim
+            // rows named too, 2026-11-28). This list has no blue rows (FM4's "FM2 car"), so the legend has none.
+            PortWindowParts.Legend(carsHeader, new string[] { "Traffic car (close-up rebuilt)", "In target / no files" }, new Color[] { ForzaTheme.Yellow, ForzaTheme.TextDim });
             carsArea.Controls.Add(carsHeader);
 
             // Report under both areas, as a tab like the FM4 window's.
@@ -359,10 +370,43 @@ namespace ForzaStudio
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            this.UpdateSourceInfo();
             if (Directory.Exists(this.sourceBox.Text) && Directory.Exists(this.targetBox.Text))
             {
                 this.LoadCars();
             }
+        }
+
+        // The line under the source, worked out a moment after the text stops changing (as the FM4 window).
+        private void SourceInfoLater()
+        {
+            if (this.sourceInfo == null)
+            {
+                return;
+            }
+            if (this.sourceInfoTimer == null)
+            {
+                this.sourceInfoTimer = new System.Windows.Forms.Timer();
+                this.sourceInfoTimer.Interval = 300;
+                this.sourceInfoTimer.Tick += delegate
+                {
+                    this.sourceInfoTimer.Stop();
+                    this.UpdateSourceInfo();
+                };
+            }
+            this.sourceInfoTimer.Stop();
+            this.sourceInfoTimer.Start();
+        }
+
+        private void UpdateSourceInfo()
+        {
+            if (this.sourceInfo == null)
+            {
+                return;
+            }
+            bool problem;
+            this.sourceInfo.Text = PortWindowParts.DescribeSource(this.sourceBox.Text.Trim(), this.includeDlc == null || this.includeDlc.Checked, ForzaGame.Motorsport3, this.packFiles.Count, out problem);
+            this.sourceInfo.ForeColor = problem ? ForzaTheme.Yellow : ForzaTheme.TextDim;
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -439,13 +483,19 @@ namespace ForzaStudio
                 }
             }
             this.status.Text = this.packFiles.Count + " DLC package(s) added: Load Cars lists their cars with the source game's.";
+            this.UpdateSourceInfo();
             if (Directory.Exists(this.sourceBox.Text) && Directory.Exists(this.targetBox.Text))
             {
                 this.LoadCars();
             }
         }
 
-        // Lists drawn like the FM4 window's: upper-case headers over a red rule, alternating dark rows, the selection in Forza red.
+        // The class badge colours of the open window's car list (letter -> colour, PortWindowParts.ClassColors when the cars
+        // load); the FM3 and FM2 windows are modal, so one set at a time.
+        internal static Dictionary<string, Color> BadgeColors = new Dictionary<string, Color>(StringComparer.OrdinalIgnoreCase);
+
+        // Lists drawn like the FM4 window's: upper-case headers over a red rule, alternating dark rows, the selection in Forza
+        // red, the class as the game's badge.
         internal static void StyleList(ListView list)
         {
             list.OwnerDraw = true;
@@ -471,6 +521,26 @@ namespace ForzaStudio
                 using (Brush brush = new SolidBrush(back))
                 {
                     e.Graphics.FillRectangle(brush, e.Bounds);
+                }
+                // The class as the game's badge, as the FM4 window ("B 441": letter, then the PI shown).
+                string value = e.SubItem.Text;
+                if (list.Columns[e.ColumnIndex].Text == "Class" && value.Length > 0)
+                {
+                    string letter = value;
+                    string pi = "";
+                    int space = value.IndexOf(' ');
+                    if (space > 0)
+                    {
+                        letter = value.Substring(0, space);
+                        pi = value.Substring(space + 1);
+                    }
+                    Color color;
+                    if (!BadgeColors.TryGetValue(letter, out color))
+                    {
+                        color = ForzaTheme.Line;
+                    }
+                    ForzaTheme.DrawClassBadge(e.Graphics, e.Bounds, letter, pi, color);
+                    return;
                 }
                 Rectangle text = new Rectangle(e.Bounds.X + 4, e.Bounds.Y, e.Bounds.Width - 6, e.Bounds.Height);
                 bool dim = e.Item.ForeColor == ForzaTheme.TextDim;
@@ -710,6 +780,7 @@ namespace ForzaStudio
                         }
                     }
                 }
+                Dictionary<string, Color> badgeColors = PortWindowParts.ClassColors(source, target);
                 return delegate
                 {
                     this.sourceGame = game;
@@ -717,6 +788,9 @@ namespace ForzaStudio
                     this.fm3Drivetrains = drive3;
                     this.items.Clear();
                     this.cars.Columns[4].Text = "PI " + GameInfo.Tag(game);
+                    // The source game is known only now, from the folder: the title shows the route (as the FM4 window).
+                    this.Text = PortWindowParts.Title(this.mode, GameInfo.Tag(game), ForzaGame.Motorsport3);
+                    BadgeColors = badgeColors;
                     foreach (SourceCar car in list)
                     {
                         ListViewItem item = new ListViewItem(car.Id.ToString(CultureInfo.InvariantCulture));
@@ -908,19 +982,24 @@ namespace ForzaStudio
         {
             string text = this.search.Text.Trim();
             List<ListViewItem> shown = new List<ListViewItem>();
+            int hidden = 0;     // the cars the default filter hides, counted on the box as in the FM4 window (UF-001)
             foreach (ListViewItem item in this.items)
             {
                 SourceCar car = (SourceCar) item.Tag;
-                if (car.InFm3 && !this.showInFm3.Checked)
-                {
-                    continue;
-                }
                 if (text.Length > 0 && item.SubItems[1].Text.IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0 && car.MediaName.IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0)
                 {
                     continue;
                 }
+                if (car.InFm3 && !this.showInFm3.Checked)
+                {
+                    hidden++;
+                    continue;
+                }
                 shown.Add(item);
             }
+            this.showInFm3.Text = "Also show cars already in target" + ((hidden > 0) ? " (" + hidden + " hidden)" : "");
+            this.showInFm3Tip.SetToolTip(this.showInFm3, (hidden > 0) ? "Hidden now: " + hidden + " car(s) FM3 already has (the \"In FM3\" column says which).\nTick to show them." : "No car hidden.");
+            this.includeDlc.Left = Math.Max(620, this.showInFm3.Right + 16);
             this.cars.BeginUpdate();
             this.cars.Items.Clear();
             this.cars.Items.AddRange(shown.ToArray());
@@ -1413,6 +1492,10 @@ namespace ForzaStudio
             this.trial.Enabled = ready;
             this.install.Enabled = ready;
             this.load.Enabled = !this.busy;
+            if (this.openTrial != null)
+            {
+                this.openTrial.Enabled = !this.busy && this.trialFolder != null && Directory.Exists(this.trialFolder);
+            }
             if (this.uninstall != null)
             {
                 SourceCar selected = (this.cars.SelectedItems.Count == 1) ? (SourceCar) this.cars.SelectedItems[0].Tag : null;
@@ -1524,33 +1607,39 @@ namespace ForzaStudio
             this.newPack = PackButton(packPanel, "New Pack", 8, 0, 100);
             this.newPack.Click += delegate { this.NewPack(); };
             Label xeniaLabel = new Label();
-            xeniaLabel.Text = "Xenia folder (with xenia_canary.exe):";
+            // Xenia is set in one place only, Tools > Settings > Folders (user 2026-11-08): here it is shown, with a way there,
+            // as in the FM4 window (2026-11-28; was a box to type in with a "..." button).
+            xeniaLabel.Text = "Xenia (DLC packs):";
             xeniaLabel.AutoSize = true;
             this.xeniaBox = new TextBox();
             this.xeniaBox.Width = 312;
+            this.xeniaBox.ReadOnly = true;
+            this.xeniaBox.TabStop = false;
+            this.xeniaBox.BorderStyle = BorderStyle.None;
             this.xeniaBox.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             this.xeniaBox.Text = AppSettings.Get(SettingsForm.XeniaKey, "");
-            this.xeniaBox.TextChanged += delegate { AppSettings.Set(SettingsForm.XeniaKey, this.xeniaBox.Text.Trim()); this.UpdateButtons(); };
+            this.xeniaInfo = new Label();
+            this.xeniaInfo.AutoEllipsis = true;
+            this.xeniaInfo.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             Button xeniaBrowse = new Button();
-            xeniaBrowse.Text = "...";
-            xeniaBrowse.Size = new Size(32, 24);
+            xeniaBrowse.Text = "Settings...";
+            xeniaBrowse.Size = new Size(80, 24);
             xeniaBrowse.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            new ToolTip().SetToolTip(xeniaBrowse, "Tools > Settings > Folders: the game folders and Xenia");
             xeniaBrowse.Click += delegate
             {
-                using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+                if (PortWindowParts.OpenFolderSettings(this))
                 {
-                    dialog.Description = "Xenia's folder (the one with xenia_canary.exe and its config)";
-                    dialog.ShowNewFolderButton = false;
-                    if (Directory.Exists(this.xeniaBox.Text))
-                    {
-                        dialog.SelectedPath = this.xeniaBox.Text;
-                    }
-                    if (dialog.ShowDialog(this) == DialogResult.OK)
-                    {
-                        this.xeniaBox.Text = dialog.SelectedPath;
-                    }
+                    this.xeniaBox.Text = AppSettings.Get(SettingsForm.XeniaKey, "");
+                    PortWindowParts.FillSourceGames(this.sourceBox, ForzaGame.Motorsport3);
+                    this.UpdateXeniaInfo();
+                    this.UpdateSourceInfo();
+                    this.UpdateButtons();
                 }
             };
+            this.xeniaBox.Visible = false;      // holds the folder for XeniaContent(); the label shows it
+            packPanel.Controls.Add(this.xeniaInfo);
+            this.UpdateXeniaInfo();
             this.packTrial = PackButton(packPanel, "Trial Pack", 8, 0, 100);
             this.packTrial.Click += delegate { this.RunPackTrial(); };
             this.buildXenia = PackButton(packPanel, "Build DLC Package", 114, 0, 130);
@@ -1584,14 +1673,22 @@ namespace ForzaStudio
                 this.packInfo.Bounds = new Rectangle(8, h - 52, w - 16, 48);
                 this.buildXbox.Top = this.addToPackage.Top = h - 84;
                 this.packTrial.Top = this.buildXenia.Top = this.removeXenia.Top = h - 116;
-                this.xeniaBox.Bounds = new Rectangle(8, h - 148, w - 54, this.xeniaBox.Height);
-                xeniaBrowse.Location = new Point(w - 40, h - 150);
+                this.xeniaInfo.Bounds = new Rectangle(8, h - 146, w - 104, 20);
+                xeniaBrowse.Location = new Point(w - 88, h - 150);
                 xeniaLabel.Location = new Point(8, h - 168);
                 this.newPack.Top = h - 204;
                 this.packName.Width = w - 66;
                 this.packList.Bounds = new Rectangle(8, this.packList.Top, w - 16, Math.Max(40, h - 212 - this.packList.Top));
             };
             return packPanel;
+        }
+
+        // The Xenia line of the pack panel: the folder of Settings and whether it is there (as the FM4 window).
+        private void UpdateXeniaInfo()
+        {
+            bool problem;
+            this.xeniaInfo.Text = PortWindowParts.XeniaInfo(out problem);
+            this.xeniaInfo.ForeColor = problem ? ForzaTheme.Yellow : ForzaTheme.TextDim;
         }
 
         private static Button PackButton(Panel parent, string text, int x, int y, int width)
@@ -2066,6 +2163,11 @@ namespace ForzaStudio
                         this.MakesInstalled(newMakes);   // now in the game's database: no longer written into trials
                     }
                     this.status.Text = failed ? car.MediaName + ": failed, see the report." : (installing ? car.MediaName + " installed in FM3." : car.MediaName + ": trial run OK.");
+                    if (!installing && !failed)
+                    {
+                        this.trialFolder = folder;      // Open Trial Folder
+                        this.UpdateButtons();
+                    }
                 };
             });
         }
@@ -2176,8 +2278,7 @@ namespace ForzaStudio
                 if (File.Exists(destination) && BackupPolicy.Enabled)
                 {
                     Directory.CreateDirectory(backup);
-                    string copy = Path.Combine(backup, stamp + "_bak_" + car + "_" + relative.Replace('\\', '_'));
-                    File.Copy(destination, copy, true);
+                    BackupPolicy.Copy(destination, Path.Combine(backup, stamp + "_bak_" + car + "_" + relative.Replace('\\', '_')));
                 }
                 File.Copy(file, destination, true);
                 count++;

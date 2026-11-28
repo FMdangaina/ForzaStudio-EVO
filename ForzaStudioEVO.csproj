@@ -361,6 +361,7 @@
     <Compile Include="ForzaStudio\CarPortFm3Form.cs" />
     <Compile Include="ForzaStudio\CarPortFm3Form.Choices.cs" />
     <Compile Include="ForzaStudio\CarPortFm3Form.Parity.cs" />
+    <Compile Include="ForzaStudio\PortWindowParts.cs" />
     <Compile Include="ForzaStudio\CarPortForm.cs">
       <SubType>Form</SubType>
     </Compile>
