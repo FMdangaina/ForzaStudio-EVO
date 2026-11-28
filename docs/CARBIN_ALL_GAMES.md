@@ -85,7 +85,7 @@ index; from version 4 a damage position, from 5 two fade angles.
 |---|---|---|
 | FH1 / FH2 | 28 | as FM4 with a 4-byte lighting tail (SNORM8) |
 | FM4 | 32 | position 4 x int16 (unit direction, radius / S), UV0, UV1 (u16), tangent frame quaternion (4 x int16), lighting SH0 (4 x SNORM16) |
-| FM3 | 40 | position 4 halves (unit direction, radius), UV0, UV1 (halves), normal 11:11:10, lighting (8 bytes), **damage word (+28)**, normal change of the deformed vertex (+32, 11:11:10 with range +-2: deformed normal = normal + value; 99 % unit on 39.8 M words), bitangent 11:11:10. Wheels (44 bytes): after the lighting, rim morph direction (+24, radial, length = weight, 3FF = none), its normal change (+28), float 1.0, a second direction + normal change pair (3FF / 0 on 99.9 %) |
+| FM3 | 40 | position 4 halves (unit direction, radius), UV0, UV1 (halves), normal 11:11:10, lighting (8 bytes), **damage word (+28)**, normal change of the deformed vertex (+32, 11:11:10 with range +-2: deformed normal = normal + value; 99 % unit on 39.8 M words), bitangent 11:11:10. Wheels (44 bytes): after the lighting, rim morph word (+24; LOD 0 buffer of 139 of 389 wheels; 3FF = none): move in metres = 2 * y * (x, +sqrt(1 - x^2 - z^2), z), i.e. the middle value is the signed length, not a direction component; it rebuilds the FM4 / FH 16-byte table within 2 mm on 96 % of 849 118 vertices), its normal change (+28), float 1.0, a second direction + normal change pair (3FF / 0 on 99.9 %) |
 | FM3 | 44 / 16 | wheels / brakes: position, UV0, normal (+ lighting and 20 bytes on wheels) |
 | FM2 | 60 | position 4 halves, UV0 (sign bit + signed 15-bit magnitude / 1310.72, `ForzaVertex.Fm2Uv`), UV1 (always 0), normal 11:11:10, **damage word (+20)**, normal change of the deformed vertex (+24, as FM3 +32; 97 % unit on 8.2 M words), lighting 16 x SNORM16 |
 
@@ -149,6 +149,28 @@ and so reported "length about 90" and no rule between the two games.
 Wheels use the same slot with 16 bytes per vertex: two positions as halves (y / L, x / L, L, z / L), the rim at its
 largest size and the vertex itself (see the wheel notes in `FH_vs_FM4_CARBIN.md` and `TODO.md` topic 10).
 
+**Shape of the LOD 0 rim morph (FM4, 273 wheels, tyre models `tire*` left out; 2026-11-27):** the move is radial only
+(no X move, no sideways move): target radius = r x (1 + w (k - 1)), with k = (Rmax + 0.1301) / Rmax = 1.67 and Rmax
+the largest YZ radius of the LOD 0 buffer (0.194). Two styles, not tied to the material or to car / aftermarket wheels:
+
+| Style | Wheels | w | Error of the uniform rule (`MakeWheelMorph`) |
+|---|---|---|---|
+| uniform | 125 | 1 everywhere | radius error per wheel median 0.2 mm |
+| hub at half | 148 | 0.47 up to r_a (median 0.063 m, 10-90 % 0.052-0.096), linear to 1 at r_b (median 0.099 m, 0.058-0.156) | median 4.8 mm, worst 29 mm: the hub is drawn up to ~2 cm too large at the largest rim size |
+
+The hub rule with r_a and r_b measured per wheel fits within 0.7 mm (median); one fixed hub rule (0.47 / 0.065 /
+0.120 m) gives 2.4 mm on the hub wheels but 5.6 mm on the uniform ones, so no single rule fits both. Not explained:
+`kia_ceed_11` (61 mm) and `nis_skyline2000gtr_71` (74 mm). FM3 car wheels: 27 of 276 carry the morph word, FM3
+aftermarket wheels 112 of 113; FM2 none. Harness: `fm4dev\CarbinBT\supra3\tool\wm.exe <Games> list | shape | mats`.
+
+**FM3 -> FM4 port (2026-11-27, `CarbinModel.Motorsport3WheelMorph`):** an FM3 wheel with the morph word gets its LOD 0
+target from the word, and the uniform scale where the two are within 3 mm (the uniform one is exact on the uniform
+wheels, the word is 2 mm-stepped). Such a wheel always has a morph, also when `Lod0MorphScale` would call it true size
+(5 small rims: inner rim less than 2 cm above 0.194; before, they got no morph at all). Offline on all 389 FM3 wheels
+(`supra3\tool\wm3\wm3.exe`, app code, nothing written): 139 / 139 with the word converted from it; against the FM4
+wheel of the same name (128 wheels, 849 387 vertices) mean 0.64 mm, 97.2 % within 2 mm, where the uniform scale gives
+4.02 mm, 72.4 %. Not done: the other way (FM4 -> FM3 wheels could write the word).
+
 ## 6. Towards "every game to every game" (goal 18)
 
 One reader and one writer per game. What this document gives each of them:
@@ -158,4 +180,4 @@ One reader and one writer per game. What this document gives each of them:
 | FM4 | `CarbinModel` | `CarbinModel` | - |
 | FH1 / FH2 | `CarbinModel` | bytes round trip; no FM4 -> FH conversion | versions and stride from the table, buffer flags + sharing keys, light flares in the header, damage offsets (`DamageWord.Motorsport4ToHorizon`: length and sign to choose) |
 | FM3 | `CarbinModel` (opt-in) | `CarbinModelToMotorsport3` | - |
-| FM2 | `Fm2CarbinModel` (bytes and structure; positions and damage decoded) | bytes round trip; no conversion | building the two shared buffers from parts (ranges, relative indices), the 60-byte vertex (UV0 rule, 16 lighting values, the unknown word), FM4's LOD 0 has no place |
+| FM2 | `Fm2CarbinModel` (bytes and structure; positions and damage decoded) | bytes round trip; no conversion | building the two shared buffers from parts (ranges, relative indices), the 60-byte vertex (UV0 rule, 16 lighting values; the +24 normal-change word is written 0 by `FromMotorsport4` since 2026-11-27), FM4's LOD 0 has no place |

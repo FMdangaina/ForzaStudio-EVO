@@ -36,7 +36,8 @@ namespace ForzaStudio
         public const int VertexUv1 = 12;            // always 0
         public const int VertexNormal = 16;         // 11 / 11 / 10 signed bits, x low
         public const int VertexDamage = 20;         // damage direction, the FM4 morph word (docs/CARBIN_ALL_GAMES.md section 5)
-        public const int VertexUnknown = 24;        // u32, 0 on 30 % of the vertices
+        public const int VertexUnknown = 24;        // change of the normal of the deformed vertex (11:11:10, +-2: deformed
+                                                    // normal = normal + value; docs/CARBIN_ALL_GAMES.md section 3); 0 = none
         public const int VertexLighting = 28;       // 16 SNORM16: baked spherical harmonics, bands 0-3 (1 + 3 + 5 + 7)
 
         public const uint BufferMarker = 0x000DECAF;    // before and after the data of a filled vertex buffer

@@ -1028,8 +1028,10 @@ namespace ForzaStudio
         //    FM2 file; normal from the FM4 tangent frame; damage word = the FM4 damage table's (same meaning), 000003FF on
         //    parts that do not deform;
         //  - borrowDamage (FH sources, whose words are not FM4 words): the damage word of this car's nearest vertex;
-        //  - the unknown word and the 16 baked lighting values: this car's nearest vertex (another part), preferring one
-        //    that faces the same way (the donor rule of the FM2 port, reversed);
+        //  - the 16 baked lighting values: this car's nearest vertex (another part), preferring one that faces the same
+        //    way (the donor rule of the FM2 port, reversed);
+        //  - the word at +24 (change of the normal of the deformed vertex): 0, "the normal does not change", as the FM3
+        //    writer does. FM4 / FH have no such word and a donor vertex's belongs to another shape (2026-11-27);
         //  - UV0 outside FM2's +-25 (user 2026-11-18, choice b): the part's U and / or V moved by a whole number so its
         //    range fits; a tiled texture looks the same. A range wider than 50 cannot be written: refused. 'notes' says
         //    which shift was used.
@@ -1373,8 +1375,9 @@ namespace ForzaStudio
                 int near = nearest[n];
                 if (near >= 0)
                 {
-                    Buffer.BlockCopy(tail[n], VertexUnknown, vertices, o + VertexUnknown, VertexStride - VertexUnknown);
+                    Buffer.BlockCopy(tail[n], VertexLighting, vertices, o + VertexLighting, VertexStride - VertexLighting);
                 }
+                // bytes 24..27 (normal change) stay 0: see the comment of FromMotorsport4
                 if (borrowDamage && near >= 0)
                 {
                     Buffer.BlockCopy(donor.Data(near), donor.Offset(near) + VertexDamage, vertices, o + VertexDamage, 4);
@@ -1604,8 +1607,9 @@ namespace ForzaStudio
                 cell.Add(id);
             }
 
-            // Bytes 24..59 (the unknown word and the 16 lighting values) for a vertex at 'at' facing 'normal' into 'dest'.
-            // Returns the donor vertex used for the unknown word (also the damage word for FH), -1 when the car has none.
+            // Bytes 24..59 (the normal-change word and the 16 lighting values) for a vertex at 'at' facing 'normal' into
+            // 'dest' (FromMotorsport4 keeps only the lighting). Returns the donor vertex (its damage word is used for FH),
+            // -1 when the car has none.
             public int Fill(Vector3 at, Vector3 normal, bool seeThrough, byte[] dest, int offset)
             {
                 // the preferred part: nearest facing the same way within reach

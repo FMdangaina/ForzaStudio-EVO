@@ -316,7 +316,9 @@ while the rear wing's move to the new car id; harmless in FM4 (the rows exist) b
 
 - User (pack 107, tires now shown): "i cerchi non hanno la proprietà mesh scalabile" - the rim small inside a tall tire.
 - `ratio3.exe` on FM3's 251 stock wheels: LOD 0 largest radius / (Data_Car.FrontWheelDiameterIN x 0.0127) median 1.085,
-  80% 1.077-1.097. FM3 has no morph (FM4's 15" reference + morph does this by itself); the FM2 RX-7 rim was 0.967 x.
+  80% 1.077-1.097. These wheels have no morph (FM4's 15" reference + morph does this by itself); the FM2 RX-7 rim was 0.967 x.
+  CORRECTED 2026-11-27: 139 of FM3's 389 wheels DO have a rim morph (the +24 word of the 44-byte LOD 0 vertex,
+  docs/CARBIN_ALL_GAMES.md section 5); FM4 / FH wheels with a morph table now keep it in FM3 as that word (section 22).
 - Fix: `CarbinModel.Motorsport3WheelRadius` set by CarPortToFm3 (1.085 x the car's nominal rim); the FM4 -> FM3 conversion
   (SizeWheelLod0ForMotorsport3) scales LOD 0 about the axis when outside 1.06-1.11; FH / FM4 wheels already in the band
   are left alone (Lancer 1.10). Report line "lod0 rim sized for FM3". `SizeMotorsport3WheelLod0` does the same on an
@@ -412,3 +414,25 @@ while the rear wing's move to the new car id; harmless in FM4 (the rows exist) b
   changes post Trial Pack; FM2-born FM3 cockpit in the viewport; FH traffic cars yellow in the FM3 list.
 - Nothing left open on the ports to FM3 from FH1 / FH2 / FM2 (traffic cars and FM2 DLC packages included). Next topic:
   ports with FM2 as the target.
+
+## 22. FM4 / FH wheels keep their rim morph in FM3 (2026-11-27, user: "procedi con il punto a, ruote FM4 -> FM3")
+
+- Fact (docs/CARBIN_ALL_GAMES.md section 5): 139 of FM3's 389 wheels have a rim morph, the +24 word of the 44-byte LOD 0
+  vertex: move in metres = 2 * y * (x, +sqrt(1 - x^2 - z^2), z), 11:11:10 x low, 000003FF = no move. Their LOD 0 is at
+  the same 15-inch reference as FM4's (rim radius 0.194). The FM3 -> FM4 side already reads it (UNTESTED D15, OK in game).
+- Study of FM3's own wheels (`E:\DEV\fm4dev\CarbinBT\supra3\tool\fm43\fm43.exe <Games> study`, read-only, `study.txt`):
+  header and section fields are the same with or without the word (the header flag at 4 is 1 on most 15-inch wheels with
+  or without it); +32 / +36 / +40 are the constants the converter already writes; +28 (the normal change of the morph,
+  |n + d| = 1 on 98.8 %) is 0 on 23.7 % and no rule from the move predicts it better than 0 (mean error 0.057 with 0,
+  0.054 uniform scale, 0.071 radial Jacobian), so it is written 0.
+- Code (CarbinModelToMotorsport3.cs): `KeepWheelMorph` (default true). A wheel section with an FM4 16-byte LOD 0 table:
+  `WheelMorphMoves` = target - vertex per LOD 0 vertex, `Motorsport3MorphWord` packs it (direction turned to Y >= 0, signed
+  length / 2; under one 2 mm step = 000003FF); `BakeWheelMorph` and `SizeWheelLod0ForMotorsport3` are skipped, so LOD 0
+  stays at the reference and the header flag stays. Report line "lod0 morph kept as FM3's rim morph word". Wheels without
+  a table (FM2-born, or FM4 wheels without a morph) are converted as before (section 16).
+- Offline (`fm43.exe <Games> round`, nothing written, `round.txt`): 284 / 284 FM4 wheels with a table converted and re-read
+  as FM3; our word -> target against the FM4 table 0.61 mm mean (99.0 % within 2 mm); FM4 -> FM3 -> FM4 with the app both
+  ways 0.46 mm; against FM3's own word on the 129 wheels both games have: 1.20 mm on a mean move of 85 mm (worst wheel
+  1.52 mm), header bytes 4..12 the same on 128 (HOL_Hole_Star: FM4's own float differs), LOD 0 radius the same.
+- Test cars (`fm43.exe <Games> cands`, `cands.txt`): 145 FM4 cars whose morph wheel FM3 DEV lacks. In-game check pending
+  (UNTESTED D18): rim at the right size at stock, and larger after a rim size upgrade.

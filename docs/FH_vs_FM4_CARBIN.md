@@ -96,3 +96,82 @@ Question: do the stripped copies hold byte definitions FM4 lacks? **No.**
 - Port: `stripped_*` stay out (CarPort.cs, PartImport.cs).
 - Viewer bug fixed the same day: opening a stripped file in the model view made `ForzaMesh.Draw` fail inside an effect pass (zero vertices); the error was swallowed and the device stayed half-begun, so the following models were not drawn. `ForzaMesh.Draw` now returns on a mesh without vertices or indices. Not reproduced, deduced from the code; fix built, not checked with a stripped file.
 - Not checked: FH2 stripped files, other cars. Tool: `tools\CarbinCompare\strippedcmp.cs` (C#, references the built exe: `csc -platform:x86 -r:ForzaStudioEVO.exe strippedcmp.cs`, then `strippedcmp full.carbin stripped.carbin`).
+
+## 7. What an FM4 -> FH writer must change (2026-11-27, C# harnesses, port INTO FH study)
+
+Harnesses `E:\DEV\fm4dev\ToFH\tools\fhcmp.cs` (zip entries, every carbin field by field) and `headfh.cs` (header blocks,
+vertex tail fit); outputs in `E:\DEV\fm4dev\ToFH\supra\` (`car_fm4_fh1.txt`, `wheel_fm4_fh1.txt`, `head_fm4_fh1.txt`).
+Supra TOY_SupraRZ_98, FM4 against FH1 (the FH1 and FH2 zips are byte-identical, section 1).
+
+**Zip.** FH adds `physicsdefinition.bin`, `interior_emissive_lod0.xds` and the 11 `stripped_*.carbin`; it has no
+`versiondata.xml`. Identical: maxdata.xml, livery masks, nodamage / interior / damagelights / wood / leather textures and
+all wheel textures. Different: carattribs.xml (v15 / v21), shadersettings.xml, damage.xds, damage_lod0.xds, lights.xds,
+lights_lod0.xds, buildnumber.txt, build report.
+
+**Carbin, the same on every file (121 car sections, 986 subsections, wheel too):**
+- type 2 -> 5 (main, lod0, cockpit); brakes stay type 1 and wheels type 3, with word 4 0x10 -> 0x11;
+- header word after the 0x150 block 0x10 -> 0x11 (12 bytes `10 10 1` -> `11 10 1`);
+- section PostName, AfterSubs, Mid 2 -> 3; Post9 last byte 2 -> 3; subsection Three 3 -> 4;
+- every vertex buffer and damage table gets the FH word: `00000000` when empty, `00000001` + a 32-bit ID (BufferId);
+- vertices 32 -> 28 bytes: bytes 0-23 equal (253929 vertices), tail 4 x SNORM16 -> 4 x SNORM8. The FH tail is FM4's own
+  bake within a few steps (fit FH = 0.98 / 0.96 / 1.01 / 0.98 x FM4, r 0.92-0.99, mean difference 0.03-0.045), so
+  FM4 / 32767 x 127 keeps it better than regenerating it (WriteTail's FH formula);
+- unchanged: Marker, Unk1c (26 differ by float rounding only), A, AfterA, B, Pre, VbTest1/2, AfterLod, bounds,
+  deformable flags, subsection Pre5, Fixed36, Fixed56, IndexType, IndexWord, IndexSize, Tail; trailer; draw-list
+  structure; the 140-byte record and the 0x340 block of the header (one float at +0x324/+0x328 differs in the 4th
+  decimal).
+
+**Header bytes 4..0x154:** FM4 keeps exporter memory there (stack pointers such as 0018F444, 77C90AE5); FH writes zeros,
+plus two float quadruples at +0x40 and +0x80 (car-specific, FH values close to FM4's: 1.0016 1.1496 0.0744 0.4187 vs
+0.9911 1.1366 0.0803 0.4269) and 0018F455/56 words near the end. Meaning not decoded.
+
+**FH light records (main carbin only, E = 16 records of 0x20 bytes before the 140-byte records):** x, y, z, 0, then 16
+bytes of flags. Positions are the lamps: front pairs at x +-0.534 / +-0.632, z 1.92-2.01; rear groups at x +-0.357 /
++-0.459, z -2.05. Word 5 starts 7FFF (front) or 8001 (rear) = direction; the next bytes hold side (01 left, 02 right),
+type and what looks like colour / size. FM4 has none (no night). A writer into FH must build them from the car's lamp
+meshes; FH lod0 / cockpit files have E = 0.
+
+**Model differences (FH remodelled the lights, the rest is FM4's mesh):**
+- the lod0 headlights live in the COCKPIT carbin in FH (`headlightL/R` only in FH cockpit, only in FM4 lod0): mirror of
+  the FH -> FM4 rule "headlights to lod0" ([fh-damage-words]);
+- body, headlightL/R, bumperFa (main and lod0) are split by new FH lamp materials: indicator_left / indicator_right,
+  taillight2S, fullbeam, oldhead, xenonhead; FM4's head_light / tail_light / reverse_light_lod0 meshes are re-cut, so
+  vertex and index counts change in these sections only (body lod0 33535 of 41801 vertices still equal by index);
+- FM4 main sections carry extra LOD lists (body/2, ...) that FH dropped on some parts;
+- cockpit gauges: FM4 `gauge_emissive + gauge_needle`, FH `gauge_emissive` only (one `z_gauge_emissive_alpha`).
+
+**So, for a port INTO FH:** mesh, UVs, indices and nearly every block carry over with fixed word changes; the work is
+(1) the header (zero block, the two float quadruples, light records), (2) buffer IDs, (3) the tail scale, (4) damage
+words in FH's own format (section 4d: FM4 unit 10:11:11 -> FH outward push 11:11:10, not yet solved), (5) the lamp
+materials FH expects (FM4 head_light / tail_light -> FH names, or meshes split), (6) headlights moved to the cockpit
+file, (7) the FH-only files (physicsdefinition.bin: hull + spheres + 30 floats, see ToFH\PHYSICSDEFINITION.md;
+interior_emissive_lod0.xds; carattribs v21; stripped_* not needed by the port), (8) an FH DEV game folder to test.
+
+## 8. FH light records decoded (2026-11-27, all FH1 + FH2 cars)
+
+Harnesses `E:\DEV\fm4dev\ToFH\tools\lightrec.cs` (census: every type-5 main carbin, records + the nearest lamp material
+of the model) and `lightstat.cs` (crosstabs); outputs `E:\DEV\fm4dev\ToFH\lights\` (`lights.tsv` one row per record,
+`lightrec.txt`, `lightstat.txt`). 392 cars, 5304 records, 4 to 24 per car (12 most often). Only the main carbin has them.
+
+Header: u32 E at 0x154, E records of 0x20 bytes from 0x158 (then 12 bytes `11 10 1`, then the FM4-style record table).
+
+| Offset | Type | Meaning | Evidence |
+|---|---|---|---|
+| 0, 4, 8 | float x, y, z | lamp position: model x, model y, **minus model z** (front lamps z > 0) | with z negated the nearest lamp vertex is at 1.6 cm median (5161 / 5304 within 10 cm), 18 cm as stored; side check below |
+| 12, 14, 16 | 3 x S16 | beam direction, unit vector (length 1.0000 on 5304 / 5304); z > 0 front, < 0 rear; y ~0; x mostly 0, else outward (379 / 393) | |
+| 18 | u8 | element number 0-5 within a group (same value left and right) | |
+| 19 | u8 | headlight kind on front type-01 records: 1 hidhead, 2 xenonhead, 3 oldhead (nearest lamp material); 4 = the road beam (b25 0xB3, b26 7, cone 30/70 on most). Rear: 4 on position lamps (type 01), 0 otherwise | |
+| 20 | u8 | side: 1 left (x < 0), 2 right | 220 / 225 and 228 / 231 against lamp materials naming a side; the only byte that differs in 2393 / 2404 mirror pairs |
+| 21 | u8 bits | type: 01 front = headlight, rear = position lamp (dim red 640000); 02 and 04 rear = bright red lamps (two groups, near taillight2S / tail_light; not told apart yet: brake / tail?); 08 = indicator (amber 8C3C14, near indicator_left / right); 10 = reverse (white 808080 / 7C7C7C, near reverse_light 209 / 230) | |
+| 22, 23, 24 | u8 RGB | colour: 9B8C5F / A0A08C warm white, DCDCFF / 9696FF blue-white (xenon), E6E67D, FF0000 / C80000 red, 640000 dim red, 8C3C14 amber, 808080 white | |
+| 25 | u8 | strength / reach (unit unknown): 0xB3 front road beam, 0x39 rear position lamps, 0x0A-0x26 the others | |
+| 26 | u8 | 1-7 on most records (0 rare): probably the glow texture `media\carlights\headlight_glow_<n>.xds` (7 files); 1 on xenon, 2 on oldhead, 7 on beams and position lamps, 5 brake, 6 indicator / reverse | hypothesis |
+| 27, 28, 29 | 3 x S8 | small offset, 0 on ~80 %; x component mirrored, pointing inwards (767 / 878) | |
+| 30, 31 | u8, u8 | cone inner / outer angle in degrees (30/50 most, 30/70 road beam); 255/255 = no cone (glow only) | |
+
+Order in the file: grouped by type, each group left/right in pairs; front headlights first, rear lamps, and a last front
+group (the road beam, b19 4) at the end on most cars.
+
+For a port INTO FH: one record per lamp from the FM4 model (head_light / tail_light / reverse / indicator sections or
+the FH lamp materials after a material review), position (x, y, -z), direction (0, 0, +-1), side by x sign, type,
+colour and cone from the FH typical values above. Open: 02 vs 04, b25 unit, b26 confirmation, b27-29, in-game test.

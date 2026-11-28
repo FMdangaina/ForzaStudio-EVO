@@ -315,8 +315,9 @@ Built:
   re-parented, -1 for the removed part), DuplicatePart, RenamePart, RemoveMeshes (vertices no mesh draws go),
   TransformPart (positions, normals only when turned, glass shards), TransformMesh (shared vertices copied),
   MeshBounds, FromMotorsport4 (FM4-form part -> FM2 part: positions as halves, UV0 = - UV1, UV1 0, normal from the
-  frame, damage word from the FM4 table or 000003FF, FH: from this car's nearest vertex; unknown word + 16 lighting
-  values from this car's nearest vertex facing the same way, 10 cm grid).
+  frame, damage word from the FM4 table or 000003FF, FH: from this car's nearest vertex; 16 lighting values from
+  this car's nearest vertex facing the same way, 10 cm grid; the +24 word was copied from that vertex too until
+  2026-11-27, now 0: it is the normal change of the deformed vertex, docs/CARBIN_ALL_GAMES.md section 3).
 - UV choice b (user): a part whose UV0 leaves +-12.5 is shifted by whole numbers per connected piece (real
   triangles, degenerate strip joins ignored); a piece still wider gets a shift per triangle (steps of 20 so
   neighbours share it), its meshes written one triangle per strip in the same winding, border vertices written

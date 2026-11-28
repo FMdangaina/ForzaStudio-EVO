@@ -141,11 +141,12 @@ namespace ForzaStudio
             bool deformable = HasMotorsport3Damage(section.Lod) || HasMotorsport3Damage(section.Lod0);
             section.DamageLod = deformable ? Motorsport3Damage(section.Lod) : new Table();
             section.DamageLod0 = deformable ? Motorsport3Damage(section.Lod0) : new Table();
+            Table ownMorph = (this.wheelMorph != 1) ? Motorsport3WheelMorph(section.Lod0, lod0Positions, this.wheelMorph) : null;
             bool morph = this.wheelMorph != 1;
             if (morph)
             {
                 section.DamageLod = WheelMorphTable(lodPositions, 1);
-                section.DamageLod0 = WheelMorphTable(lod0Positions, this.wheelMorph);
+                section.DamageLod0 = ownMorph ?? WheelMorphTable(lod0Positions, this.wheelMorph);
             }
 
             // UV offset/scale per group of subsections sharing vertices (the LODs of a material can).
@@ -192,7 +193,84 @@ namespace ForzaStudio
             section.Post9 = new byte[] { 0, 0, 0, 1, (byte) ((deformable || morph) ? 1 : 0), 0, 0, 0, 2 };
             section.Mid = new byte[] { 0, 0, 0, 2 };
             report.AppendFormat(CultureInfo.InvariantCulture, "{0}: lod {1} lod0 {2} vertices{3}{4}\r\n", section.Name, section.Lod.Count, section.Lod0.Count, deformable ? ", deformable" : "",
-                morph ? string.Format(CultureInfo.InvariantCulture, ", lod0 morph target x{0:0.###}", this.wheelMorph) : "");
+                !morph ? "" : (ownMorph != null) ? ", lod0 morph target from the FM3 morph word"
+                    : string.Format(CultureInfo.InvariantCulture, ", lod0 morph target x{0:0.###}", this.wheelMorph));
+        }
+
+        // The FM3 rim morph (2026-11-27, docs/CARBIN_ALL_GAMES.md sections 3 and 5): the 44-byte wheel vertex holds at +24 an
+        // 11:11:10 word (x, y, z; 000003FF = the vertex does not move) set in the LOD 0 buffer of 139 of FM3's 389 wheels
+        // (27 car wheels, 112 aftermarket). The move in metres is 2 * y * (x, +sqrt(1 - x^2 - z^2), z): the middle value is
+        // the signed length / 2, not a direction component. Rebuilt this way it matches the FM4 / FH 16-byte table of the
+        // same wheel within 2 mm on 96.3 % of 849 118 vertices (mean error 1.4 mm on a mean move of 82 mm; the length
+        // steps by 2 mm). Where the word's target lies within 3 mm of the uniform scale `scale` (WheelMorphTable) the
+        // uniform one is written: it is exact on the wheels FM4 scales uniformly (0.1-0.4 mm against FM4's table, the
+        // word 1.0-1.2 mm), and the word keeps the hub that FM4 scales less (4-6.5 mm with the uniform scale, 1.1 mm with
+        // the word). Returns the LOD 0 morph table (the target, then the vertex itself, as WheelMorphTable), or null
+        // when the buffer is not a 44-byte one or no word is set: the caller then keeps the uniform scale.
+        private static Table Motorsport3WheelMorph(VertexBuffer buffer, double[] positions, double scale)
+        {
+            int count = positions.Length / 3;
+            if (!HasMotorsport3WheelMorph(buffer) || buffer.Count != count)
+            {
+                return null;
+            }
+            Table table = new Table();
+            table.Count = count;
+            table.Stride = 16;
+            table.Data = new byte[count * 16];
+            int set = 0;
+            for (int i = 0; i < count; i++)
+            {
+                double x = positions[i * 3];
+                double y = positions[(i * 3) + 1];
+                double z = positions[(i * 3) + 2];
+                double tx = x, ty = y, tz = z;
+                int o = (i * 44) + 24;
+                if (ReadU32(buffer.Data, o) != Motorsport3PlainDamage)
+                {
+                    Vector3 word = Packed111110(buffer.Data, o);
+                    double length = 2.0 * word.Y;
+                    double side = Math.Sqrt(Math.Max(0, 1 - ((double) word.X * word.X) - ((double) word.Z * word.Z)));
+                    tx += word.X * length;
+                    ty += side * length;
+                    tz += word.Z * length;
+                    double ux = x - tx, uy = (y * scale) - ty, uz = (z * scale) - tz;
+                    if ((ux * ux) + (uy * uy) + (uz * uz) <= UniformSnap * UniformSnap)
+                    {
+                        tx = x;
+                        ty = y * scale;
+                        tz = z * scale;
+                    }
+                    set++;
+                }
+                WritePolar(table.Data, i * 16, tx, ty, tz);
+                WritePolar(table.Data, (i * 16) + 8, x, y, z);
+            }
+            if (set == 0)
+            {
+                return null;
+            }
+            table.ExtraFor = table.Data;
+            return table;
+        }
+
+        private const double UniformSnap = 0.003;
+
+        // An FM3 wheel LOD 0 buffer (44-byte vertices) with at least one rim morph word set (see Motorsport3WheelMorph).
+        private static bool HasMotorsport3WheelMorph(VertexBuffer buffer)
+        {
+            if (buffer == null || buffer.Stride != 44)
+            {
+                return false;
+            }
+            for (int i = 0; i < buffer.Count; i++)
+            {
+                if (ReadU32(buffer.Data, (i * 44) + 24) != Motorsport3PlainDamage)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // FM4 wheel morph table (wheels whose lod0 rim is at the 15-inch reference; 284 FM4 wheels, fm4dev\
@@ -200,9 +278,10 @@ namespace ForzaStudio
         // halves, the morph target then the vertex itself, each as (y/L, x/L, L, z/L) with L its distance
         // from (0, 0, 0). The game blends the lod0 towards the target to draw the rim at the car's size
         // (the "Morph_LOD0" of the source scenes; Aiden-Piercee on Discord); without it the rim stays at 15 inches
-        // (Genesis Coupe HKS from the FM3 DLC, 2026-10-18). FM3 wheels carry no morph, so the target is
-        // the vertex with Y and Z scaled by `scale` and X kept, as on FM4's NSX '97, DBR1, V8 Vantage, RS2
-        // (most FM4 wheels scale the hub less). The lod (LOD 1-5) table holds the vertex twice, as FM4's
+        // (Genesis Coupe HKS from the FM3 DLC, 2026-10-18). Here the target is the vertex with Y and Z scaled
+        // by `scale` and X kept, as on 125 of FM4's 273 rims with a morph (NSX '97, DBR1, V8 Vantage, RS2); the
+        // other 148 scale the hub (r < ~6 cm) about half as much. FM3 wheels that carry their own morph word take
+        // it instead (Motorsport3WheelMorph); this rule is for the others and for rims made scalable. The lod (LOD 1-5) table holds the vertex twice, as FM4's
         // 273 such wheels do; the section's Post9 flag is 1.
         private static Table WheelMorphTable(double[] positions, double scale)
         {
@@ -688,7 +767,11 @@ namespace ForzaStudio
             double[] inner = this.WheelMaterial(section, "inner_rim", false, lod, lod0);
             double[] tire = this.WheelMaterial(section, "tire", false, lod, lod0);
             double[] all0 = this.WheelMaterial(section, null, true, lod, lod0);
-            this.wheelMorph = Lod0MorphScale(all0[2], inner[2]);
+            // A wheel with the FM3 morph word has a morph even when its inner rim is too close to the 15-inch reference for
+            // Lod0MorphScale (small rims: hon_nsxr_92, lot_exige240_06, ame_torqthrust, mot_traklite2, ren_5turbo_80; FM4 has
+            // the morph on the four it shares, target 0.324).
+            this.wheelMorph = (HasMotorsport3WheelMorph(section.Lod0) && all0[2] > 0.01)
+                ? (all0[2] + 0.1301) / all0[2] : Lod0MorphScale(all0[2], inner[2]);
             float radius0 = (float) (all0[2] * this.wheelMorph);
             return new float[]
             {

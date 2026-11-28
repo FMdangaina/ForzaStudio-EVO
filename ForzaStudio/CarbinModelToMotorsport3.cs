@@ -25,6 +25,11 @@ namespace ForzaStudio
 
         private bool morphBaked;   // a wheel whose lod0 was set to its true size (BakeWheelMorph)
 
+        // A wheel with an FM4 LOD 0 morph table keeps its morph in FM3 as FM3's own rim morph word (+24 of the 44-byte vertex,
+        // see Motorsport3MorphWord; 2026-11-27): lod0 stays at the 15-inch reference and the header flag stays, as on FM3's
+        // 139 wheels with the word. False = the old way: the morph baked into lod0 at the car's size (BakeWheelMorph).
+        public bool KeepWheelMorph = true;
+
         // The last 20 bytes of FM3's 44-byte wheel vertices: the same on all 10218 vertices of the Supra's wheel.
         private static readonly byte[] Motorsport3WheelTail = { 0, 0, 3, 0xFF, 0, 0, 0, 0, 0x3F, 0x80, 0, 0, 0, 0, 3, 0xFF, 0, 0, 0, 0 };
 
@@ -138,7 +143,12 @@ namespace ForzaStudio
         {
             double[] lod = Positions(section, section.Lod);
             double[] lod0 = Positions(section, section.Lod0);
-            if (wheel)
+            double[] morphMove = (wheel && this.KeepWheelMorph) ? WheelMorphMoves(section, lod0) : null;
+            if (morphMove != null)
+            {
+                report.AppendLine(section.Name + ": " + MorphMoveReport(morphMove));
+            }
+            else if (wheel)
             {
                 string baked = this.BakeWheelMorph(section, lod, lod0);
                 this.morphBaked = this.morphBaked || baked != null;
@@ -165,8 +175,8 @@ namespace ForzaStudio
                 section.Bounds = new float[9];
             }
             int stride = brake ? 16 : (wheel ? 44 : 40);
-            section.Lod = Motorsport3Buffer(section, section.Lod, lod, lodOwner, deformable ? section.DamageLod : null, stride);
-            section.Lod0 = Motorsport3Buffer(section, section.Lod0, lod0, lod0Owner, deformable ? section.DamageLod0 : null, stride);
+            section.Lod = Motorsport3Buffer(section, section.Lod, lod, lodOwner, deformable ? section.DamageLod : null, stride, null);
+            section.Lod0 = Motorsport3Buffer(section, section.Lod0, lod0, lod0Owner, deformable ? section.DamageLod0 : null, stride, morphMove);
 
             section.Marker = new byte[] { 0, 0, 0, 2 };
             section.VbTest1 = (section.Pre != null && section.Pre.Length == 4) ? ReadU32(section.Pre, 0) : 0;
@@ -190,7 +200,8 @@ namespace ForzaStudio
         }
 
         // FM4 draws most wheels' lod0 rim at a 15-inch reference and resizes it with a morph table (16 bytes per vertex: the morph
-        // target first, see WheelMorphTable) to the car's rim; FM3 has no morph and holds the true size in lod0. The game's amount is
+        // target first, see WheelMorphTable) to the car's rim; used only with KeepWheelMorph false (the old way: lod0 at the true size, as FM3's wheels without the
+        // rim morph word; FM3's 139 wheels with the word morph like FM4, which KeepWheelMorph writes). The game's amount is
         // taken from the LOD 1 rim, which is at the car's size: t = (LOD 1 inner_rim radius - lod0 base) / (morph target - lod0 base),
         // on 3 FM4 wheels 0.41 (Cobalt SS, LOD 1 0.248 between 0.194 and 0.325) and 0 (C1, a 15-inch rim already). lod0 becomes
         // base + t * (target - base). Returns a report line, null when the wheel has no morph table or needs none.
@@ -230,9 +241,72 @@ namespace ForzaStudio
             return string.Format(CultureInfo.InvariantCulture, "lod0 morphed by {0:0.000} towards its target (rim radius {1:0.0000} -> {2:0.0000}, the LOD 1 rim's {3:0.0000})", t, baseRadius, baseRadius + (t * (targetRadius - baseRadius)), final);
         }
 
+        // Per lod0 vertex the move (x, y, z in metres) from the vertex to its FM4 morph target (the 16-byte LOD 0 table, target
+        // first; WheelMorphTable). Null when the section has no such table or no vertex moves by 1 mm or more.
+        private static double[] WheelMorphMoves(Section section, double[] lod0)
+        {
+            Table table = section.DamageLod0;
+            int count = lod0.Length / 3;
+            if (table == null || table.Stride != 16 || table.Count != count || count == 0 || table.Data == null || table.Data.Length < count * 16)
+            {
+                return null;
+            }
+            double[] move = new double[lod0.Length];
+            bool any = false;
+            for (int i = 0; i < count; i++)
+            {
+                double length = Half(table.Data, (i * 16) + 4);
+                double tx = Half(table.Data, (i * 16) + 2) * length;
+                double ty = Half(table.Data, i * 16) * length;
+                double tz = Half(table.Data, (i * 16) + 6) * length;
+                move[i * 3] = tx - lod0[i * 3];
+                move[(i * 3) + 1] = ty - lod0[(i * 3) + 1];
+                move[(i * 3) + 2] = tz - lod0[(i * 3) + 2];
+                double l2 = (move[i * 3] * move[i * 3]) + (move[(i * 3) + 1] * move[(i * 3) + 1]) + (move[(i * 3) + 2] * move[(i * 3) + 2]);
+                any = any || l2 >= 0.001 * 0.001;
+            }
+            return any ? move : null;
+        }
+
+        private static string MorphMoveReport(double[] move)
+        {
+            int count = move.Length / 3, moving = 0;
+            double largest = 0;
+            for (int i = 0; i < count; i++)
+            {
+                double l = Math.Sqrt((move[i * 3] * move[i * 3]) + (move[(i * 3) + 1] * move[(i * 3) + 1]) + (move[(i * 3) + 2] * move[(i * 3) + 2]));
+                if (Motorsport3MorphWord(move[i * 3], move[(i * 3) + 1], move[(i * 3) + 2]) != 0x3FF)
+                {
+                    moving++;
+                }
+                largest = Math.Max(largest, l);
+            }
+            return string.Format(CultureInfo.InvariantCulture, "lod0 morph kept as FM3's rim morph word ({0} of {1} vertices move, up to {2:0.0} mm); lod0 stays at the 15-inch reference",
+                moving, count, largest * 1000);
+        }
+
+        // FM3's rim morph word (inverse of CarbinModel.Motorsport3WheelMorph, docs/CARBIN_ALL_GAMES.md section 5): 11:11:10,
+        // x low; the move is 2 * y * (x, +sqrt(1 - x^2 - z^2), z): (x, z) = the move's direction turned to Y >= 0, y = the
+        // signed length / 2 (steps of 2 mm). 000003FF = the vertex does not move (moves under one step).
+        private static uint Motorsport3MorphWord(double mx, double my, double mz)
+        {
+            double length = Math.Sqrt((mx * mx) + (my * my) + (mz * mz));
+            int steps = (int) Math.Round(length / 2 * 1023);
+            if (steps == 0)
+            {
+                return 0x3FF;
+            }
+            double sign = (my < 0) ? -1 : 1;
+            int x = Math.Max(-1023, Math.Min(1023, (int) Math.Round(sign * mx / length * 1023)));
+            int y = Math.Max(-1023, Math.Min(1023, (int) Math.Round(sign * length / 2 * 1023)));
+            int z = Math.Max(-511, Math.Min(511, (int) Math.Round(sign * mz / length * 511)));
+            return (uint) (x & 0x7FF) | ((uint) (y & 0x7FF) << 11) | ((uint) (z & 0x3FF) << 22);
+        }
+
         // The rim size FM3 draws a stock wheel at: its LOD 0 largest radius is 1.085 x the nominal rim radius (the car's
         // FrontWheelDiameterIN x 0.0127), median of 251 FM3 stock wheels, 80% between 1.077 and 1.097 (FHtoFM3\ratio3.exe,
-        // 2026-11-22). FM3 has no morph: it sizes its generic tire for the declared rim and draws the model as it is, so a wheel
+        // 2026-11-22). A wheel without FM3's rim morph word (250 of FM3's 389; the 139 with it morph like FM4, see
+        // KeepWheelMorph): FM3 sizes its generic tire for the declared rim and draws the model as it is, so a wheel
         // modelled smaller (an FM2 rim, 0.958 on the AB Flug RX-7) shows a small rim in a tall tire. Set by the port before
         // the conversion: the nominal radius x 1.085; 0 = leave the size alone.
         public double Motorsport3WheelRadius;
@@ -332,7 +406,8 @@ namespace ForzaStudio
             return owner;
         }
 
-        private static VertexBuffer Motorsport3Buffer(Section section, VertexBuffer buffer, double[] positions, SubSection[] owner, Table damage, int stride)
+        // morphMove: per vertex the move to the FM4 morph target (WheelMorphMoves), written as FM3's rim morph word; null = none.
+        private static VertexBuffer Motorsport3Buffer(Section section, VertexBuffer buffer, double[] positions, SubSection[] owner, Table damage, int stride, double[] morphMove)
         {
             VertexBuffer result = new VertexBuffer();
             if (buffer.Count == 0)
@@ -396,6 +471,12 @@ namespace ForzaStudio
                     {
                         Buffer.BlockCopy(buffer.Data, fm4 + 24, result.Data, o + 16, 8);
                         Buffer.BlockCopy(Motorsport3WheelTail, 0, result.Data, o + 24, 20);
+                        if (morphMove != null && morphMove.Length == buffer.Count * 3)
+                        {
+                            // +28 (the normal change of the morph) stays 0: on FM3's own wheels no rule from the move predicts it
+                            // better than 0 (fm43 study, 962 880 vertices: mean error 0.057 with 0, 0.054-0.071 with scale rules).
+                            WriteBigU32(result.Data, o + 24, Motorsport3MorphWord(morphMove[i * 3], morphMove[(i * 3) + 1], morphMove[(i * 3) + 2]));
+                        }
                     }
                 }
             }

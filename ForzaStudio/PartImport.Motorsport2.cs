@@ -9,8 +9,8 @@ namespace ForzaStudio
     // copied part is made:
     //  - from an FM2 car: the part as it is (meshes, physics, glass, 60-byte vertices), moved in FM2 form when placed;
     //  - from an FM4 / FM3 / FH car (Source in FM4 form, PartSource.ForMotorsport2): moved in FM4 form, then
-    //    Fm2CarbinModel.FromMotorsport4 (UV0 = - UV1, normal, damage word; lighting and unknown word from this car's
-    //    nearest vertex; FH: damage word too, SourceIsHorizon);
+    //    Fm2CarbinModel.FromMotorsport4 (UV0 = - UV1, normal, damage word; lighting from this car's nearest vertex,
+    //    normal-change word 0; FH: damage word from that vertex too, SourceIsHorizon);
     //  - a replaced part's place (draw order, emitters) and its physics and glass shards go to the copy.
     // Source files with LOD 0 only (lod0, cockpit, brakes) cannot become an FM2 part yet (lod0 -> main is the next step).
     public partial class PartImport
