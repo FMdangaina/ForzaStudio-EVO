@@ -2,8 +2,10 @@
 
 One description for the five games, written 2026-11-10. It joins what the project had measured game by game
 (`FH_vs_FM4_CARBIN.md`, `CARBIN_FROM_XEX.md`, the FM3 and FM2 notes) with a 010 Editor template for FH2 car models
-that was shared with the project: the template names every field of the FH2 file, and its version checks turned out
-to read FM3 and FM4 too. Every statement below was checked on all the `.carbin` files of the extracted games (car
+that was shared with the project (by Draff): the template names every field of the FH2 file, and its version checks
+turned out to read FM3 and FM4 too. The templates are in `tools/010Templates`: Draff's `FH2_CarBin.bt`, and the ones
+written on it for this project, `Forza360_CarBin.bt` (FM3, FM4, FH1, FH2 in one), `FM4_CarBin.bt` and
+`FM2_CarBin.bt`. Open a `.carbin` in 010 Editor and run one of them on it. Every statement below was checked on all the `.carbin` files of the extracted games (car
 zips, wheel zips, loose brakes), read to the last byte:
 
 | Game | Files read | |

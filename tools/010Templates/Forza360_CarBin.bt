@@ -1,0 +1,1007 @@
+//------------------------------------------------
+// ForzaStudio EVO (https://github.com/FMdangaina/ForzaStudio-EVO), GPL-3.0.
+// Written for ForzaStudio EVO on the object tree and names of FH2_CarBin.bt by Draff (Discord),
+// included with the author's permission. Format notes: docs/CARBIN_ALL_GAMES.md.
+
+//------------------------------------------------
+// 010 Editor Binary Template: Forza (Xbox 360) .carbin - FM3, FM4, FH1, FH2
+//
+// One template for the four games. The tree (names, order, version gates) is the one of
+// FH2_CarBin.bt; the game is detected from the ModelSettings version and the decoded
+// columns follow the game, so the same car opened from FM4 and from FH shows the same
+// columns side by side.
+//
+//                     FM3   FM4   FH1/FH2
+//   BodyHeader         1     2     5      (2 = RearViewMirrorBox; 3+ = light flares.
+//                                          WheelLighting: only coefficients 0-3 are set,
+//                                          FM4 leaves 4-15 uninitialised, FH writes 0)
+//   TireHeader         2     3     3      (3 = TireExtents)
+//   BrakeHeader        1     1     1
+//   ModelSettings     13    16    17      (13 = 4 gauges, no bones; 16/17 = 15 gauges,
+//                                          BoneCount, BoneTable, same layout)
+//   ShaderVersion     11    16    16
+//   PartPhysics        2     5     5      (5 = BoneWeightCount + DamageMorphs)
+//   MeshMaterial       2     3     3      (3 = four UV transforms)
+//   VertexBuffer       2     2     3      (3 = BufferFlags + SharingKey)
+//   IndexBuffer        3     3     4      (4 = BufferFlags + SharingKey)
+//   vertex stride  40/44/16   32    28
+//   FM2 is NOT this format (FM2_CarBin.bt).
+//
+// Decoded in the Value column (nothing changes in the file):
+//   Vertex (FM4, FH) -> position in metres (car space), normal, UV / 65535, lighting tail
+//   DamageMorph      -> FM4: unit direction + weight; FH: crushed offset in metres;
+//                       both with the vertex it belongs to (index + position)
+//   Part / Mesh / VertexBuffer -> name, deformable flag, counts
+//   Vertex (FM3)     -> position in metres, UV0 (half floats)
+// The Output panel gets one line per part (with the position of its first vertex)
+// and the damage word statistics.
+//
+// Position (FM4, FH): pos = OffsetFromCarOrigin + (BoundsMin + BoundsMax) / 2
+//                         + (X, Y, Z) / 32767 * PositionScale / 32767 * S,  S = |BoundsMax - centre|
+// Normal:    TangentFrame = quaternion (x, y, z, w) SNORM16; normal = X axis of its matrix.
+// Lighting:  FM4 SH0 = 4 x SNORM16 baked ambient; FH Lighting = the same data in 4 signed bytes.
+// Damage:    11:11:10 signed, X in the LOW bits, one word per vertex
+//            (DamageMorph[i] <-> Vertices[i], DamageMorphLOD0[i] <-> VerticesLOD0[i]).
+//            FM4: unit direction (x/1023, y/1023, z/511), length 0..1 = weight, 000003FF = none.
+//            FH:  offset in metres (x/1023*2, y/1023*2, z/511*2), 0 = none.
+//------------------------------------------------
+BigEndian();
+BitfieldRightToLeft();
+
+typedef struct {
+    float X;
+    float Y;
+    float Z;
+} Vec3 <read=Vec3Read>;
+
+string Vec3Read(Vec3 &v) {
+    return Str("(%g, %g, %g)", v.X, v.Y, v.Z);
+}
+
+typedef struct {
+    float X;
+    float Y;
+    float Z;
+    float W;
+} Vec4 <read=Vec4Read>;
+
+string Vec4Read(Vec4 &v) {
+    return Str("(%g, %g, %g, %g)", v.X, v.Y, v.Z, v.W);
+}
+
+typedef struct {
+    Vec4 Row[4];
+} Matrix4x4;
+
+typedef struct {
+    uint32 Length;
+    if (Length > 0)
+        char Text[Length];
+} LString <read=LStringRead>;
+
+string LStringRead(LString &s) {
+    if (s.Length > 0)
+        return s.Text;
+    return "";
+}
+
+typedef struct {
+    uint32 KeyValid     : 1;
+    uint32 DataStripped : 1;
+    uint32 Reserved     : 30;
+} BufferFlags;
+
+typedef enum <ubyte> {
+    BULB_STANDARD = 0,
+    BULB_HALOGEN  = 1,
+    BULB_XENON    = 2,
+    BULB_OLD      = 3,
+    BULB_DIFFUSE  = 4
+} LightBulbType;
+
+typedef struct {
+    ubyte Left     : 1;
+    ubyte Right    : 1;
+    ubyte Front    : 1;
+    ubyte Rear     : 1;
+    ubyte Reserved : 3;
+    ubyte ForceOn  : 1;
+} LightLocation;
+
+typedef struct {
+    ubyte Headlight : 1;
+    ubyte Taillight : 1;
+    ubyte Brake     : 1;
+    ubyte Indicator : 1;
+    ubyte Reverse   : 1;
+    ubyte Reserved  : 3;
+} LightFunction;
+
+typedef enum <uint32> {
+    EMITTER_ENGINE_SMOKE = 0
+} EmitterType;
+
+typedef enum <int32> {
+    PRIMITIVE_POINT_LIST     = 1,
+    PRIMITIVE_LINE_LIST      = 2,
+    PRIMITIVE_LINE_STRIP     = 3,
+    PRIMITIVE_TRIANGLE_LIST  = 4,
+    PRIMITIVE_TRIANGLE_FAN   = 5,
+    PRIMITIVE_TRIANGLE_STRIP = 6,
+    PRIMITIVE_RECT_LIST      = 8,
+    PRIMITIVE_QUAD_LIST      = 13
+} PrimitiveType;
+
+typedef struct {
+    Vec4 Center;
+    Vec4 Axis[3];
+    Vec4 HalfExtents;
+} OrientedBox;
+
+typedef struct {
+    float Coefficients[16];
+} SphericalHarmonics;
+
+//------------------------------------------------
+// Lookup tables filled while parsing, used by the read functions.
+//------------------------------------------------
+local int    MAXB = 2048;
+local int    gParts = 0;            // parts seen so far (index of the current part = gParts - 1)
+local float  gOffX[2048], gOffY[2048], gOffZ[2048];  // part origin + bounds centre
+local float  gS[2048];              // |bounds half-extent|
+local int    gBufs = 0;             // registered buffers
+local int64  gBufStart[2048];       // first data byte
+local int    gBufCount[2048];
+local int    gBufStride[2048];
+local int    gBufPart[2048];
+local int    gBufRole[2048];        // 0 Vertices, 1 VerticesLOD0, 2 DamageMorph, 3 DamageMorphLOD0
+local int    gBad = 0;              // version values that do not belong to the detected game
+local int    gGame = 0;             // 3 = FM3, 4 = FM4, 5 = FH1/FH2, 0 = unknown (set before parsing)
+
+string GameName() {
+    if (gGame == 3) return "FM3";
+    if (gGame == 4) return "FM4";
+    if (gGame == 5) return "FH1/FH2";
+    return "unknown game";
+}
+
+void ExpectVersion(string what, uint32 found, uint32 fm3, uint32 fm4, uint32 fh) {
+    local uint32 want = fm4;
+    if (gGame == 0)
+        return;
+    if (gGame == 3) want = fm3;
+    if (gGame == 5) want = fh;
+    if (found != want) {
+        gBad++;
+        Printf("WARNING: %s version %u (%s uses %u) at 0x%X\n", what, found, GameName(), want, (uint32)(FTell() - 4));
+    }
+}
+
+void RegisterBuffer(int64 start, int count, int stride, int role) {
+    if (gBufs < MAXB && count > 0) {
+        gBufStart[gBufs]  = start;
+        gBufCount[gBufs]  = count;
+        gBufStride[gBufs] = stride;
+        gBufPart[gBufs]   = gParts - 1;
+        gBufRole[gBufs]   = role;
+        gBufs++;
+    }
+}
+
+int FindBuffer(int64 pos) {
+    local int b;
+    for (b = gBufs - 1; b >= 0; b--)
+        if (pos >= gBufStart[b] && pos < gBufStart[b] + (int64)gBufCount[b] * gBufStride[b])
+            return b;
+    return -1;
+}
+
+int FindPartBuffer(int part, int role) {
+    local int b;
+    for (b = 0; b < gBufs; b++)
+        if (gBufPart[b] == part && gBufRole[b] == role)
+            return b;
+    return -1;
+}
+
+float SN(int16 v) {
+    return v / 32767.0;
+}
+
+// 1 when the vertices of a buffer with this stride get a decoded position.
+int Decodable(int stride) {
+    if (stride == 32 || stride == 28)
+        return 1;
+    if (gGame == 3 && (stride == 40 || stride == 44 || stride == 16))
+        return 1;
+    return 0;
+}
+
+// Vertex position in metres at 'pos' (start of a vertex) of part 'part'.
+// FM4 / FH: SNORM16 direction * scale * S. FM3: half floats, direction * radius (no S factor).
+string PositionAt(int64 pos, int part) {
+    if (gGame == 3) {
+        local double hw = ReadHFloat(pos + 6);
+        local double hx = ReadHFloat(pos);
+        local double hy = ReadHFloat(pos + 2);
+        local double hz = ReadHFloat(pos + 4);
+        return Str("(%.4f, %.4f, %.4f)", gOffX[part] + hx * hw,
+            gOffY[part] + hy * hw, gOffZ[part] + hz * hw);
+    }
+    local float x = SN(ReadShort(pos));
+    local float y = SN(ReadShort(pos + 2));
+    local float z = SN(ReadShort(pos + 4));
+    local float r = SN(ReadShort(pos + 6)) * gS[part];
+    return Str("(%.4f, %.4f, %.4f)", gOffX[part] + x * r, gOffY[part] + y * r, gOffZ[part] + z * r);
+}
+
+string NormalAt(int64 pos) {
+    local float qx = SN(ReadShort(pos + 16));
+    local float qy = SN(ReadShort(pos + 18));
+    local float qz = SN(ReadShort(pos + 20));
+    local float qw = SN(ReadShort(pos + 22));
+    return Str("(%.3f, %.3f, %.3f)",
+        1.0 - 2.0 * (qy * qy + qz * qz),
+        2.0 * (qx * qy + qz * qw),
+        2.0 * (qx * qz - qy * qw));
+}
+
+typedef struct (uint32 version) {
+    Vec3          Position;
+    int16         Direction[3];
+    ubyte         Index;
+    LightBulbType BulbType;
+    LightLocation Location;
+    LightFunction Function;
+    ubyte         ColourR;
+    ubyte         ColourG;
+    ubyte         ColourB;
+    ubyte         Size;
+    ubyte         TextureIndex;
+    if (version >= 4)
+        byte      DamagePosition[3];
+    if (version >= 5) {
+        ubyte     StartFadeAngle;
+        ubyte     EndFadeAngle;
+    }
+} LightFlare <bgcolor=cLtYellow>;
+
+typedef struct {
+    uint32 Version;
+    ExpectVersion("BodyHeader", Version, 1, 2, 5);
+    SphericalHarmonics WheelLighting[4];
+    if (Version > 1)
+        OrientedBox RearViewMirrorBox;
+    if (Version >= 3) {
+        uint32 LightFlareCount;
+        local int i;
+        for (i = 0; i < LightFlareCount; i++)
+            LightFlare Flare(Version);
+    }
+} BodyHeader <bgcolor=cLtGray>;
+
+typedef struct {
+    float LipMinX[2];
+    float LipMaxX[2];
+    float TireMinX[2];
+    float TireMaxX[2];
+    float RimMaxRadius[2];
+    float TireMaxRadius[2];
+} TireExtents;
+
+typedef struct {
+    uint32 Version;
+    ExpectVersion("TireHeader", Version, 2, 3, 3);
+    if (Version >= 2) {
+        int32 HasBrakePivot;
+        Vec4  BrakePivot;
+    }
+    if (Version >= 3)
+        TireExtents Extents;
+} TireHeader <bgcolor=cLtGray>;
+
+typedef struct {
+    uint32 Version;
+    ExpectVersion("BrakeHeader", Version, 1, 1, 1);
+} BrakeHeader <bgcolor=cLtGray>;
+
+typedef struct {
+    uint32      Version;
+    EmitterType Type;
+    if (Version >= 2)
+        int32   ParentPartIndex;
+    Matrix4x4   BackfireTransform;
+    if (Version >= 2)
+        Matrix4x4 EngineSmokeTransform;
+} Emitter <bgcolor=cLtRed>;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Emitter Item;
+} EmitterList;
+
+typedef struct {
+    uint32 Version;
+    if (Version == 3) {
+        Vec4 SteeringWheelPosition;
+        Vec4 SteeringWheelAxis;
+        Vec4 LeftHandAnchor;
+        Vec4 RightHandAnchor;
+        Vec4 SeatAnchor;
+        Vec4 ShifterAnchor;
+        Vec4 RightHandOuterLOD0;
+        Vec4 LeftHandOuterLOD0;
+        Vec4 RightHandInnerLOD0;
+        Vec4 LeftHandInnerLOD0;
+        Vec4 RightHandCenterLOD0;
+        Vec4 LeftHandCenterLOD0;
+        Vec4 SteeringWheelPositionLOD0;
+        Vec4 SteeringWheelAxisLOD0;
+        Vec4 SeatAnchorLOD0;
+        Vec4 ShifterAnchorLOD0;
+    } else if (Version == 2) {
+        Vec4 Anchor[13];
+    } else {
+        Vec4 Anchor[6];
+    }
+} DriverAnchors <bgcolor=cLtPurple>;
+
+typedef struct {
+    Vec4  Pivot;
+    Vec4  Axis;
+    float MaxRotation;
+} Gauge <bgcolor=cLtAqua>;
+
+typedef struct (uint32 count) {
+    if (count > 0)  Gauge Speedometer;
+    if (count > 1)  Gauge Tachometer;
+    if (count > 2)  Gauge Fuel;
+    if (count > 3)  Gauge Boost;
+    if (count > 4)  Gauge OilTemperature;
+    if (count > 5)  Gauge OilPressure;
+    if (count > 6)  Gauge WaterTemperature;
+    if (count > 7)  Gauge Voltage;
+    if (count > 8)  Gauge AuxiliaryA;
+    if (count > 9)  Gauge AuxiliaryB;
+    if (count > 10) Gauge AuxiliaryC;
+    if (count > 11) Gauge AuxiliaryD;
+    if (count > 12) Gauge AuxiliaryE;
+    if (count > 13) Gauge AuxiliaryF;
+    if (count > 14) Gauge Power;
+} GaugeSet;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        LString BoneName;
+} BoneTable <bgcolor=cLtGreen>;
+
+typedef struct {
+    uint32        Version;
+    ExpectVersion("ModelSettings", Version, 13, 16, 17);
+    uint32        ShaderVersion;
+    EmitterList   Emitters;
+    DriverAnchors Driver;
+    int32         StartLOD;
+    int32         EndLOD;
+    local uint32 gaugeCount = 3;
+    if (Version >= 16)
+        gaugeCount = 15;
+    else if (Version >= 13)
+        gaugeCount = 4;
+    GaugeSet      Gauges(gaugeCount);
+    float         LightingOffset;
+    float         LightingScale;
+    if (Version >= 14)
+        int32     BoneCount;
+    if (Version >= 15)
+        BoneTable Bones;
+} ModelSettings <bgcolor=cSilver>;
+
+// Entry of a draw list: part index + mesh index inside that part.
+typedef struct {
+    uint16 PartIndex;
+    uint16 MaterialIndex;
+} DrawEntry <read=DrawEntryRead>;
+
+string DrawEntryRead(DrawEntry &e) {
+    return Str("part %u, mesh %u", e.PartIndex, e.MaterialIndex);
+}
+
+typedef struct {
+    int32 Count;
+    if (Count > 0)
+        DrawEntry Entry[Count];
+} DrawList;
+
+typedef struct {
+    uint32 Version;
+    int32  LODCount;
+    local int i;
+    for (i = 0; i < LODCount; i++)
+        DrawList TransparentLOD;
+    for (i = 0; i < LODCount; i++)
+        DrawList OpaqueLOD;
+} DrawOrder <bgcolor=cLtPurple>;
+
+typedef struct {
+    uint32 Version;
+    uint32 VertexListVersion;
+    uint32 VertexCount;
+    if (VertexCount > 0)
+        Vec4 Vertex[VertexCount];
+    uint32 IndexListVersion;
+    uint32 IndexCount;
+    if (IndexCount > 0)
+        uint16 Index[IndexCount];
+} GlassShards;
+
+typedef struct {
+    uint32      Version;
+    ExpectVersion("PartPhysics", Version, 2, 5, 5);
+    Vec3        OffsetFromCarOrigin;
+    Vec3        BoundsMin;
+    Vec3        BoundsMax;
+    float       Mass;
+    Vec3        CenterOfMass;
+    float       DetachDamage;
+    GlassShards GlassBreakup;
+    ubyte       HasTransparentMeshes;
+    if (Version >= 4)
+        int32   BoneWeightCount;
+} PartPhysics <bgcolor=cLtRed>;
+
+// FM4 vertex, stride 32. See the header for the decoding.
+typedef struct {
+    int16  PositionX;
+    int16  PositionY;
+    int16  PositionZ;
+    int16  PositionScale;
+    uint16 U0;
+    uint16 V0;
+    uint16 U1;
+    uint16 V1;
+    int16  TangentFrame[4];   // quaternion x, y, z, w (SNORM16); normal = its X axis
+    int16  SH0[4];            // baked ambient: level + direction (SNORM16)
+} Vertex <read=VertexRead, bgcolor=cLtGreen>;
+
+string VertexRead(Vertex &v) {
+    local int64 pos = startof(v);
+    local int b = FindBuffer(pos);
+    if (b < 0)
+        return "";
+    return Str("#%d pos %s m  n %s  uv (%.4f, %.4f)",
+        (int)((pos - gBufStart[b]) / gBufStride[b]),
+        PositionAt(pos, gBufPart[b]), NormalAt(pos),
+        ReadUShort(pos + 8) / 65535.0, ReadUShort(pos + 10) / 65535.0);
+}
+
+// FH1/FH2 vertex, stride 28: the FM4 vertex with the lighting tail in 4 signed bytes.
+typedef struct {
+    int16  PositionX;
+    int16  PositionY;
+    int16  PositionZ;
+    int16  PositionScale;
+    uint16 U0;
+    uint16 V0;
+    uint16 U1;
+    uint16 V1;
+    int16  TangentFrame[4];   // quaternion x, y, z, w (SNORM16); normal = its X axis
+    byte   Lighting[4];       // baked ambient: FM4 SH0 at 8 bits
+} VertexFH <read=VertexFHRead, bgcolor=cLtGreen>;
+
+string VertexFHRead(VertexFH &v) {
+    local int64 pos = startof(v);
+    local int b = FindBuffer(pos);
+    if (b < 0)
+        return "";
+    return Str("#%d pos %s m  n %s  uv (%.4f, %.4f)  light (%.2f, %.2f, %.2f, %.2f)",
+        (int)((pos - gBufStart[b]) / gBufStride[b]),
+        PositionAt(pos, gBufPart[b]), NormalAt(pos),
+        ReadUShort(pos + 8) / 65535.0, ReadUShort(pos + 10) / 65535.0,
+        ReadByte(pos + 24) / 127.0, ReadByte(pos + 25) / 127.0, ReadByte(pos + 26) / 127.0, ReadByte(pos + 27) / 127.0);
+}
+
+// FM3 packed vector: 11/11/10 signed bits (x low).
+typedef struct {
+    int32 X : 11;
+    int32 Y : 11;
+    int32 Z : 10;
+} Packed111110 <read=Packed111110Read>;
+
+string Packed111110Read(Packed111110 &p) {
+    return Str("(%.3f, %.3f, %.3f)", p.X / 1023.0, p.Y / 1023.0, p.Z / 511.0);
+}
+
+// Change of the normal when the vertex is fully deformed: deformed normal = Normal + this value.
+// 11/11/10 signed bits (x low) with range +-2: value = bits / 1023 * 2 (z: / 511 * 2). 0 = the normal does not change.
+// Measured: |Normal + value| = 1 on 97 % of the non-zero words of FM2 (8.2 million, all files) and
+// 99 % of FM3 (10 million, one car in four + all wheels). FM4 and FH do not store it. The name is ours.
+typedef struct {
+    int32 X : 11;
+    int32 Y : 11;
+    int32 Z : 10;
+} NormalDelta <read=NormalDeltaRead>;
+
+string NormalDeltaRead(NormalDelta &p) {
+    if (p.X == 0 && p.Y == 0 && p.Z == 0)
+        return "none (0)";
+    return Str("(%.3f, %.3f, %.3f)", p.X / 1023.0 * 2.0, p.Y / 1023.0 * 2.0, p.Z / 511.0 * 2.0);
+}
+
+// FM3 wheel morph word (LOD 0 buffer of 139 of the 389 wheels): where the vertex goes when the rim is drawn
+// at its largest size. Same bits as the other packed vectors (11/11/10, x low), but the middle value is
+// NOT a direction component: it is the signed length of the move.
+//   move in metres = 2 * Y * (X, +sqrt(1 - X*X - Z*Z), Z)      with X, Y = bits / 1023 and Z = bits / 511
+//   000003FF = no move.
+// FM4, FH1 and FH2 store the result instead (16-byte table: morph target + the vertex itself). Rebuilt from
+// this word, the move equals the FM4 table's within 2 mm (the step of the length) on 96 % of 849 118
+// vertices of the 129 wheels both games have (FH1, FH2: the same). The names are ours.
+typedef struct {
+    int32 X : 11;
+    int32 Y : 11;
+    int32 Z : 10;
+} WheelMorphWord <read=WheelMorphWordRead>;
+
+string WheelMorphWordRead(WheelMorphWord &p) {
+    if (ReadUInt(startof(p)) == 0x3FF)
+        return "none (3FF)";
+    local double x = p.X / 1023.0;
+    local double z = p.Z / 511.0;
+    local double len = p.Y / 1023.0 * 2.0;
+    local double yy = 1.0 - x * x - z * z;
+    if (yy < 0.0)
+        yy = 0.0;
+    return Str("move (%.4f, %.4f, %.4f) m  = %.1f mm", x * len, Sqrt(yy) * len, z * len, Abs(len) * 1000.0);
+}
+
+// Value column of an FM3 vertex: index, position in metres, UV0.
+// pos = OffsetFromCarOrigin + bounds centre + xyz * w (half floats).
+string FM3VertexText(int64 pos) {
+    local int b = FindBuffer(pos);
+    if (b < 0)
+        return "";
+    return Str("#%d pos %s m  uv (%.4f, %.4f)", (int)((pos - gBufStart[b]) / gBufStride[b]),
+        PositionAt(pos, gBufPart[b]), ReadHFloat(pos + 8), ReadHFloat(pos + 10));
+}
+
+// FM3, stride 40 (car parts). Position halves: xyz = unit direction, w = radius (no S factor).
+typedef struct {
+    hfloat       Position[4];
+    hfloat       UV0[2];
+    hfloat       UV1[2];
+    Packed111110 Normal;
+    ubyte        Lighting[8];       // copied as FM4 SH0 by the FM3 -> FM4 port
+    Packed111110 DamageDirection;   // as the FM4 damage word; 000003FF = none (FM3 has no DamageMorphs tables)
+    NormalDelta  DamageNormalDelta; // deformed normal = Normal + this (see NormalDelta)
+    Packed111110 Bitangent;         // negated
+} VertexFM3_40 <read=VertexFM3_40Read, bgcolor=cLtGreen>;
+
+string VertexFM3_40Read(VertexFM3_40 &v) {
+    return FM3VertexText(startof(v));
+}
+
+// FM3, stride 44 (wheels).
+typedef struct {
+    hfloat       Position[4];
+    hfloat       UV0[2];
+    Packed111110 Normal;
+    ubyte        Lighting[8];
+    WheelMorphWord Morph;           // rim morph: the move of the vertex at the largest rim size (see WheelMorphWord); 000003FF = none
+    NormalDelta  MorphNormalDelta;  // normal of the moved vertex = Normal + this
+    float        One;               // 1.0 on every wheel vertex of the game (4.7 million)
+    Packed111110 SecondDirection;   // a second direction + normal change pair: 000003FF / 0 on 99.9 % of the wheel vertices; use not known
+    NormalDelta  SecondNormalDelta;
+} VertexFM3_44 <read=VertexFM3_44Read, bgcolor=cLtGreen>;
+
+string VertexFM3_44Read(VertexFM3_44 &v) {
+    return FM3VertexText(startof(v));
+}
+
+// FM3, stride 16 (brakes, some lod0).
+typedef struct {
+    hfloat       Position[4];
+    hfloat       UV0[2];
+    Packed111110 Normal;
+} VertexFM3_16 <read=VertexFM3_16Read, bgcolor=cLtGreen>;
+
+string VertexFM3_16Read(VertexFM3_16 &v) {
+    return FM3VertexText(startof(v));
+}
+
+// Damage word. FM4: unit direction + weight, 000003FF = none. FH: offset in metres, 0 = none.
+typedef struct {
+    int32 X : 11;
+    int32 Y : 11;
+    int32 Z : 10;
+} DamageOffset <read=DamageOffsetRead, bgcolor=0xC0A0FF>;
+
+string DamageOffsetRead(DamageOffset &d) {
+    local int64 pos = startof(d);
+    local uint32 raw = ReadUInt(pos);
+    local string vert = "";
+    local int b = FindBuffer(pos);
+    if (b >= 0) {
+        local int idx = (int)((pos - gBufStart[b]) / 4);
+        local int vb = FindPartBuffer(gBufPart[b], gBufRole[b] - 2);
+        if (vb >= 0 && idx < gBufCount[vb] && (gBufStride[vb] == 32 || gBufStride[vb] == 28))
+            vert = Str("  <- vertex #%d %s m", idx, PositionAt(gBufStart[vb] + (int64)idx * gBufStride[vb], gBufPart[b]));
+        else
+            vert = Str("  <- vertex #%d", idx);
+    }
+    if (gGame == 5) {
+        if (raw == 0)
+            return "none (0)" + vert;
+        local float ox = d.X / 1023.0 * 2.0;
+        local float oy = d.Y / 1023.0 * 2.0;
+        local float oz = d.Z / 511.0;
+        if (oz < -1.0)
+            oz = -1.0;
+        oz = oz * 2.0;
+        return Str("offset (%.4f, %.4f, %.4f) m  |o| %.1f cm", ox, oy, oz, 100.0 * Sqrt(ox * ox + oy * oy + oz * oz)) + vert;
+    }
+    if (raw == 0x3FF)
+        return "none (3FF)" + vert;
+    local float x = d.X / 1023.0;
+    local float y = d.Y / 1023.0;
+    local float z = d.Z / 511.0;
+    return Str("dir (%.3f, %.3f, %.3f) w %.3f", x, y, z, Sqrt(x * x + y * y + z * z)) + vert;
+}
+
+// Wheels: LOD0 morph target (rim at max size) + the vertex itself, 8 half floats.
+typedef struct {
+    hfloat Y;
+    hfloat X;
+    hfloat W;
+    hfloat Z;
+} WheelMorphPosition <read=WheelMorphPositionRead>;
+
+string WheelMorphPositionRead(WheelMorphPosition &p) {
+    return Str("(%g, %g, %g)", p.X * p.W, p.Y * p.W, p.Z * p.W);
+}
+
+typedef struct {
+    WheelMorphPosition Target0;   // LOD0 morph target
+    WheelMorphPosition Target1;   // the vertex itself
+} WheelMorphVertex <bgcolor=0xC0A0FF>;
+
+// role: 0 Vertices, 1 VerticesLOD0, 2 DamageMorph, 3 DamageMorphLOD0
+typedef struct (int role) {
+    uint32 Version;
+    ExpectVersion("VertexBuffer", Version, 2, 2, 3);
+    int32  Count;
+    int32  Stride;
+    local int isMorph = role >= 2;
+    local uint32 flags = 0;
+    if (Version >= 3) {
+        BufferFlags Flags;
+        flags = ReadUInt(startof(Flags));
+    }
+    if (flags & 1)
+        uint32 SharingKey;
+    if (Count > 0 && !(flags & 2)) {
+        RegisterBuffer(FTell(), Count, Stride, role);
+        if (!isMorph && Stride == 32)
+            Vertex Vertices[Count];
+        else if (!isMorph && Stride == 28)
+            VertexFH Vertices[Count];
+        else if (!isMorph && Stride == 40)
+            VertexFM3_40 Vertices[Count];
+        else if (!isMorph && Stride == 44)
+            VertexFM3_44 Vertices[Count];
+        else if (!isMorph && Stride == 16)
+            VertexFM3_16 Vertices[Count];
+        else if (isMorph && Stride == 4)
+            DamageOffset DamageOffsets[Count];
+        else if (isMorph && Stride == 16)
+            WheelMorphVertex WheelMorphs[Count];
+        else
+            ubyte Data[Count * Stride];
+    }
+} VertexBuffer <read=VertexBufferRead, bgcolor=cLtBlue>;
+
+string VertexBufferRead(VertexBuffer &b) {
+    if (b.Count == 0)
+        return "empty";
+    return Str("%d x %d bytes", b.Count, b.Stride);
+}
+
+typedef struct {
+    float OffsetU;
+    float ScaleU;
+    float OffsetV;
+    float ScaleV;
+} UVTransform;
+
+typedef struct {
+    uint32 Version;
+    if (Version >= 2)
+        ubyte RemoveFromShadow;
+    if (Version >= 3) {
+        UVTransform UV0Transform;
+        UVTransform UV1Transform;
+        UVTransform UV2Transform;
+        UVTransform UV3Transform;
+    }
+} MeshMaterialSettings <bgcolor=cLtAqua>;
+
+typedef struct {
+    uint32 Version;
+    Vec4   PositionOffset;
+    Vec4   PositionScale;
+    Vec4   UVOffsetScale;
+} Unpacking <bgcolor=cLtAqua>;
+
+typedef struct {
+    uint32 Version;
+    ExpectVersion("IndexBuffer", Version, 3, 3, 4);
+    local uint32 flags = 0;
+    if (Version >= 4) {
+        BufferFlags Flags;
+        flags = ReadUInt(startof(Flags));
+    }
+    if (flags & 1)
+        uint32 SharingKey;
+    int32 Count;
+    int32 IndexSize;
+    if (Count > 0 && !(flags & 2)) {
+        if (IndexSize == 4)
+            uint32 Indices[Count] <bgcolor=cSilver>;   // strips, restart 0x00FFFFFF
+        else
+            uint16 Indices[Count] <bgcolor=cSilver>;   // strips, restart 0xFFFF
+    }
+} IndexBuffer <bgcolor=cLtBlue>;
+
+typedef struct {
+    MeshMaterialSettings MaterialSettings;
+    uint32        Version;
+    LString       MaterialName;
+    int32         LOD;
+    PrimitiveType Primitive;
+    int32         MaterialIndex;
+    Unpacking     PositionUnpacking;
+    IndexBuffer   Indices;
+    if (Version >= 2)
+        uint32    MeshFlags;
+} Mesh <read=MeshRead, bgcolor=cLtAqua>;
+
+string MeshRead(Mesh &m) {
+    return Str("LOD %d  %s  (%d indices)", m.LOD, LStringRead(m.MaterialName), m.Indices.Count);
+}
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Mesh Item;
+} MeshList;
+
+typedef struct {
+    uint32       Version;
+    ubyte        HasDamageMorphs;   // 1 = deformable part
+    VertexBuffer DamageMorph(2);
+    VertexBuffer DamageMorphLOD0(3);
+} DamageMorphs <bgcolor=0xC0A0FF>;
+
+// Output panel line: damage word statistics of one buffer.
+void DamageStats(string name, int part, int role) {
+    local int b = FindPartBuffer(part, role);
+    if (b < 0 || gBufStride[b] != 4)
+        return;
+    local int i, none = 0, zero = 0, unit = 0;
+    local int32 w, x, y, z;
+    local float fx, fy, fz, len, sum = 0, big = 0;
+    if (gGame == 5) {
+        // FH: offsets in metres
+        for (i = 0; i < gBufCount[b]; i++) {
+            w = ReadInt(gBufStart[b] + (int64)i * 4);
+            if (w == 0) { zero++; continue; }
+            x = (w << 21) >> 21;
+            y = (w << 10) >> 21;
+            z = w >> 22;
+            fx = x / 1023.0 * 2.0; fy = y / 1023.0 * 2.0; fz = z / 511.0;
+            if (fz < -1.0) fz = -1.0;
+            fz = fz * 2.0;
+            len = Sqrt(fx * fx + fy * fy + fz * fz);
+            sum += len;
+            if (len > big) big = len;
+        }
+        Printf("    %-16s %6d words  none(0) %5.1f%%  mean offset %6.2f cm  max %6.2f cm\n",
+            name, gBufCount[b], 100.0 * zero / gBufCount[b],
+            gBufCount[b] > zero ? 100.0 * sum / (gBufCount[b] - zero) : 0.0, 100.0 * big);
+        return;
+    }
+    for (i = 0; i < gBufCount[b]; i++) {
+        w = ReadInt(gBufStart[b] + (int64)i * 4);
+        if (w == 0x3FF) { none++; continue; }
+        if (w == 0) { zero++; continue; }
+        x = (w << 21) >> 21;
+        y = (w << 10) >> 21;
+        z = w >> 22;
+        fx = x / 1023.0; fy = y / 1023.0; fz = z / 511.0;
+        len = Sqrt(fx * fx + fy * fy + fz * fz);
+        sum += len;
+        if (len > 0.9)
+            unit++;
+    }
+    local int n = gBufCount[b] - none - zero;
+    Printf("    %-16s %6d words  none(3FF) %5.1f%%  zero %5.1f%%  mean weight %.3f  >0.9 %5.1f%%\n",
+        name, gBufCount[b], 100.0 * none / gBufCount[b], 100.0 * zero / gBufCount[b],
+        n > 0 ? sum / n : 0.0, n > 0 ? 100.0 * unit / n : 0.0);
+}
+
+typedef struct {
+    PartPhysics  Physics;
+    // lookup data for the read functions
+    gOffX[gParts] = Physics.OffsetFromCarOrigin.X + (Physics.BoundsMin.X + Physics.BoundsMax.X) / 2;
+    gOffY[gParts] = Physics.OffsetFromCarOrigin.Y + (Physics.BoundsMin.Y + Physics.BoundsMax.Y) / 2;
+    gOffZ[gParts] = Physics.OffsetFromCarOrigin.Z + (Physics.BoundsMin.Z + Physics.BoundsMax.Z) / 2;
+    local float hx = (Physics.BoundsMax.X - Physics.BoundsMin.X) / 2;
+    local float hy = (Physics.BoundsMax.Y - Physics.BoundsMin.Y) / 2;
+    local float hz = (Physics.BoundsMax.Z - Physics.BoundsMin.Z) / 2;
+    gS[gParts] = Sqrt(hx * hx + hy * hy + hz * hz);
+    gParts++;
+    uint32       Version;
+    LString      Name <bgcolor=cYellow>;
+    VertexBuffer Vertices(0);
+    MeshList     Meshes;
+    if (Physics.Version > 1)
+        VertexBuffer VerticesLOD0(1);
+    if (Physics.Version >= 5)
+        DamageMorphs Damage;
+    // Output panel line
+    local int lod0Count = 0;
+    if (Physics.Version > 1)
+        lod0Count = VerticesLOD0.Count;
+    local int deform = 0;
+    if (Physics.Version >= 5)
+        deform = Damage.HasDamageMorphs;
+    local int fb = FindPartBuffer(gParts - 1, 0);
+    if (fb < 0)
+        fb = FindPartBuffer(gParts - 1, 1);
+    local string v0 = "";
+    if (fb >= 0)
+        if (Decodable(gBufStride[fb]))
+            v0 = "  first vertex " + PositionAt(gBufStart[fb], gParts - 1) + " m";
+    Printf("#%-3d %-20s verts %6d  lod0 %6d  meshes %3d  %s%s\n", gParts - 1, LStringRead(Name),
+        Vertices.Count, lod0Count, Meshes.Count, deform ? "DEFORMABLE" : "rigid     ", v0);
+    DamageStats("DamageMorph", gParts - 1, 2);
+    DamageStats("DamageMorphLOD0", gParts - 1, 3);
+} Part <read=PartRead, bgcolor=cNone>;
+
+string PartRead(Part &p) {
+    local string s = LStringRead(p.Name);
+    if (p.Physics.Version >= 5)
+        if (p.Damage.HasDamageMorphs)
+            s += "  [deformable]";
+    return s + Str("  %d verts", p.Vertices.Count);
+}
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Part Item;
+} PartList;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    if (Count > 0)
+        Vec4 Item[Count];
+} Vec4List;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    if (Count > 0)
+        int32 Item[Count];
+} IntList;
+
+typedef struct {
+    uint32   Version;
+    int32    ShaderFileIndex;
+    int32    TechniqueIndex;
+    Vec4List VertexShaderConstants;
+    Vec4List PixelShaderConstants;
+    IntList  TextureIndices;
+} Material <bgcolor=cLtYellow>;
+
+typedef struct {
+    uint32 Version;
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Material Item;
+} MaterialSet;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        MaterialSet Item;
+} MaterialSetList;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        LString Item;
+} StringList <bgcolor=cLtGray>;
+
+typedef struct {
+    uint32          Version;
+    DrawOrder       Draws;
+    PartList        Parts;
+    MaterialSetList MaterialSets;
+    StringList      ShaderFileNames;
+    StringList      MeshNames;
+} Model;
+
+//------------------------------------------------
+// File kind: tire (first word 3, ModelSettings at 72), brake (1, at 4), else body.
+//------------------------------------------------
+local uint32 first = ReadUInt(0);
+local uint32 kind = 0;
+if (FileSize() >= 76 && first == 3 && ReadUInt(72) >= 9 && ReadUInt(72) <= 17)
+    kind = 1;
+else if (FileSize() >= 28 && first == 2 && ReadUInt(24) >= 9 && ReadUInt(24) <= 17)
+    kind = 1;
+else if (FileSize() >= 8 && first == 1 && ReadUInt(4) >= 9 && ReadUInt(4) <= 17)
+    kind = 2;
+
+// Game: from the ModelSettings version, found by skipping the header.
+local int64 settingsAt = 4;
+if (kind == 1) {
+    settingsAt = first == 3 ? 72 : 24;
+} else if (kind == 0) {
+    settingsAt = 4 + 256;
+    if (first > 1)
+        settingsAt += 80;
+    if (first >= 3) {
+        local uint32 flareSize = 27;
+        if (first >= 4) flareSize += 3;
+        if (first >= 5) flareSize += 2;
+        settingsAt += 4 + (int64)ReadUInt(settingsAt) * flareSize;
+    }
+}
+local uint32 settingsVersion = 0;
+if (settingsAt + 4 <= FileSize())
+    settingsVersion = ReadUInt(settingsAt);
+if (settingsVersion == 13) gGame = 3;
+else if (settingsVersion == 16) gGame = 4;
+else if (settingsVersion == 17) gGame = 5;
+
+Printf("Forza360_CarBin.bt: %s, %s (ModelSettings %u)\n",
+    kind == 1 ? "tire / wheel" : kind == 2 ? "brake" : "body", GameName(), settingsVersion);
+
+if (kind == 1)
+    TireHeader Header;
+else if (kind == 2)
+    BrakeHeader Header;
+else
+    BodyHeader Header;
+
+ModelSettings Settings;
+Model         Geometry;
+
+if (!FEof()) {
+    Printf("WARNING: %d bytes after the model\n", FileSize() - FTell());
+    ubyte Trailing[FileSize() - FTell()];
+}
+if (gGame == 0)
+    Printf("Game not recognised (ModelSettings %u): parsed with the version gates only\n", settingsVersion);
+else if (gBad > 0)
+    Printf("%d version values differ from %s\n", gBad, GameName());
+else
+    Printf("OK: parsed to the last byte, all versions = %s\n", GameName());

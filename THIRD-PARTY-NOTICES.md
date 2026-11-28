@@ -48,10 +48,17 @@ exe. They are not in this repository but are shipped in the release zip, with vg
 The full notice, with the portions copyrighted by others, is in vgmstream's `COPYING`.
 Project: https://github.com/vgmstream/vgmstream
 
-## 010 Editor template
+## 010 Editor templates
 
 `tools/010Templates/FH2_CarBin.bt`, the 010 Editor template for Forza Horizon 2 `.carbin` files, is by
 **Draff** (Discord) and is included with the author's permission.
+
+The other templates in that folder were written for ForzaStudio EVO on the object tree and the names of
+Draff's template, and are under the project's license (GPL-3.0):
+
+- `Forza360_CarBin.bt`: one template for Forza Motorsport 3, Forza Motorsport 4, Forza Horizon and Forza Horizon 2;
+- `FM4_CarBin.bt`: Forza Motorsport 4 only;
+- `FM2_CarBin.bt`: Forza Motorsport 2 (an older form of the same tree).
 
 ## Credits (no code included)
 

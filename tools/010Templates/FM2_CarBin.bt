@@ -1,0 +1,341 @@
+//------------------------------------------------
+// ForzaStudio EVO (https://github.com/FMdangaina/ForzaStudio-EVO), GPL-3.0.
+// Written for ForzaStudio EVO on the object tree and names of FH2_CarBin.bt by Draff (Discord),
+// included with the author's permission. Format notes: docs/CARBIN_ALL_GAMES.md.
+
+//------------------------------------------------
+// Forza Motorsport 2 (Xbox 360) .carbin
+// Same object tree as FH2_CarBin.bt (FM3 / FM4 / FH1 / FH2), in its older form. Names follow that template.
+//
+// Checked with a C# port (fm2.cs) on every .carbin of the game: 785 of 789 read to the last byte
+// (310 car bodies, 68 brakes, 407 wheels). Not covered: 3 wheels in a later format
+// (ModelSettings version 3 / 4: 5zigen_hyper_5zr_02, enkei_rs5, mht_crossover_wheel), brakes\Circle01 (junk),
+// and Livery.zip decals (another kind of file).
+//
+// What differs from the later games:
+//   - version numbers 713 / 714 (0x2C9 / 0x2CA) on ModelSettings and PartPhysics;
+//   - ModelSettings stops after the driver anchors: no StartLOD / EndLOD, gauges, lighting values, bones;
+//   - no per-part vertex data: every part has an empty vertex buffer and the vertices of all parts sit in
+//     TWO buffers after the part list. A part uses vertices FirstVertex..LastVertex of the buffer chosen by
+//     HasTransparentMeshes (1 = first buffer, 0 = second). Mesh indices are relative to FirstVertex
+//     (highest index = LastVertex - FirstVertex in 11057 of 11057 parts; ranges are consecutive);
+//   - no LOD0 buffer, no DamageMorphs: the damage direction is inside the vertex;
+//   - a mesh has no MaterialIndex, Unpacking or MeshFlags, and Primitive comes before LOD;
+//   - a filled vertex buffer has the marker 0x000DECAF before and after its data;
+//   - no material sets / shader names / mesh names lists at the end.
+//------------------------------------------------
+BigEndian();
+BitfieldRightToLeft();
+
+typedef struct {
+    float X;
+    float Y;
+    float Z;
+} Vec3 <read=Vec3Read>;
+
+string Vec3Read(Vec3 &v) {
+    return Str("(%g, %g, %g)", v.X, v.Y, v.Z);
+}
+
+typedef struct {
+    float X;
+    float Y;
+    float Z;
+    float W;
+} Vec4 <read=Vec4Read>;
+
+string Vec4Read(Vec4 &v) {
+    return Str("(%g, %g, %g, %g)", v.X, v.Y, v.Z, v.W);
+}
+
+typedef struct {
+    Vec4 Row[4];
+} Matrix4x4;
+
+typedef struct {
+    uint32 Length;
+    if (Length > 0)
+        char Text[Length];
+} LString <read=LStringRead>;
+
+string LStringRead(LString &s) {
+    if (s.Length > 0)
+        return s.Text;
+    return "";
+}
+
+typedef enum <int32> {
+    PRIMITIVE_TRIANGLE_LIST  = 4,
+    PRIMITIVE_TRIANGLE_STRIP = 6
+} PrimitiveType;
+
+typedef struct {
+    float Coefficients[16];
+} SphericalHarmonics;
+
+// 11 / 11 / 10 signed bits, X in the low bits.
+typedef struct {
+    int32 X : 11;
+    int32 Y : 11;
+    int32 Z : 10;
+} Packed111110 <read=Packed111110Read>;
+
+string Packed111110Read(Packed111110 &p) {
+    return Str("(%.3f, %.3f, %.3f)", p.X / 1023.0, p.Y / 1023.0, p.Z / 511.0);
+}
+
+// Change of the normal when the vertex is fully deformed: deformed normal = Normal + this value.
+// 11/11/10 signed bits (x low) with range +-2: value = bits / 1023 * 2 (z: / 511 * 2). 0 = the normal does not change.
+// Measured: |Normal + value| = 1 on 97 % of the non-zero words of FM2 (8.2 million, all files) and
+// 99 % of FM3 (10 million, one car in four + all wheels). FM4 and FH do not store it. The name is ours.
+typedef struct {
+    int32 X : 11;
+    int32 Y : 11;
+    int32 Z : 10;
+} NormalDelta <read=NormalDeltaRead>;
+
+string NormalDeltaRead(NormalDelta &p) {
+    if (p.X == 0 && p.Y == 0 && p.Z == 0)
+        return "none (0)";
+    return Str("(%.3f, %.3f, %.3f)", p.X / 1023.0 * 2.0, p.Y / 1023.0 * 2.0, p.Z / 511.0 * 2.0);
+}
+
+//------------------------------------------------
+// Lookup tables filled while parsing, used by the read functions and the Output lines.
+//------------------------------------------------
+local int    gParts = 0;
+local float  gOffX[4096], gOffY[4096], gOffZ[4096];   // OffsetFromCarOrigin of each part
+local int    gFirst[4096], gLast[4096], gFlag[4096];  // vertex range + HasTransparentMeshes of each part
+local int64  gVBStart[2];   // first vertex byte: [1] = buffer of the transparent parts, [0] = of the opaque parts
+local int    gVBCount[2];
+local int64  gNameAt[4096];   // part name text
+local int    gNameLen[4096], gMeshes[4096];
+gVBStart[0] = 0; gVBStart[1] = 0; gVBCount[0] = 0; gVBCount[1] = 0;
+
+// Part that owns vertex 'idx' of the shared buffer 'flag' (-1 = none).
+int OwnerOf(int flag, int idx) {
+    local int p;
+    for (p = 0; p < gParts; p++)
+        if (gFlag[p] == flag && idx >= gFirst[p] && idx <= gLast[p])
+            return p;
+    return -1;
+}
+
+// Position in metres (car space) of the vertex at 'pos', owned by part 'part':
+// OffsetFromCarOrigin + xyz * w (half floats; no bounds centre, no scale factor).
+string PositionAt(int64 pos, int part) {
+    local double w = ReadHFloat(pos + 6);
+    local double x = ReadHFloat(pos);
+    local double y = ReadHFloat(pos + 2);
+    local double z = ReadHFloat(pos + 4);
+    return Str("(%.4f, %.4f, %.4f)", gOffX[part] + x * w,
+        gOffY[part] + y * w, gOffZ[part] + z * w);
+}
+
+// 60 bytes. Position = part OffsetFromCarOrigin + xyz * w (halves). UV0 = (raw - 32768) / 1310.72.
+// DamageDirection: the same word FM4 keeps in its Morph table (unit direction, 000003FF = none):
+// 000003FF on 28.6 % of the vertices, a unit vector on 57.2 %.
+// Lighting: 16 SNORM16 whose mean size falls in the steps 1 / 3 / 5 / 7 (0.44 | 0.21-0.27 | 0.08-0.13 | 0.03):
+// baked spherical harmonics, bands 0 to 3. FM4 keeps only the first 4 (its SH0).
+typedef struct {
+    hfloat       Position[4];
+    uint16       UV0[2];
+    uint16       UV1[2];            // always 0
+    Packed111110 Normal;
+    Packed111110 DamageDirection;
+    NormalDelta  DamageNormalDelta; // deformed normal = Normal + this (see NormalDelta)
+    int16        Lighting[16];
+} VertexFM2 <read=VertexFM2Read, bgcolor=cLtGreen>;
+
+// Value column: index in the shared buffer, owning part and index inside it (the number the mesh
+// indices use), position in metres, UV0 = (raw - 32768) / 1310.72, damage direction.
+string VertexFM2Read(VertexFM2 &v) {
+    local int64 pos = startof(v);
+    local int flag = -1;
+    if (gVBCount[1] > 0 && pos >= gVBStart[1] && pos < gVBStart[1] + (int64)gVBCount[1] * 60)
+        flag = 1;
+    else if (gVBCount[0] > 0 && pos >= gVBStart[0] && pos < gVBStart[0] + (int64)gVBCount[0] * 60)
+        flag = 0;
+    if (flag < 0)
+        return "";
+    local int idx = (int)((pos - gVBStart[flag]) / 60);
+    local int part = OwnerOf(flag, idx);
+    if (part < 0)
+        return Str("#%d (no part uses it)", idx);
+    local string dmg = "none (3FF)";
+    if (ReadUInt(pos + 20) != 0x3FF)
+        dmg = Str("(%.3f, %.3f, %.3f)", v.DamageDirection.X / 1023.0, v.DamageDirection.Y / 1023.0, v.DamageDirection.Z / 511.0);
+    return Str("#%d  part %d vertex %d  pos %s m  uv (%.4f, %.4f)  damage %s", idx, part, idx - gFirst[part],
+        PositionAt(pos, part), (ReadUShort(pos + 8) - 32768) / 1310.72, (ReadUShort(pos + 10) - 32768) / 1310.72, dmg);
+}
+
+typedef struct {
+    uint32 Version;                 // 2
+    uint32 DataVersion;             // 1
+    uint32 Count;
+    uint32 Stride;                  // 60, also when empty
+    if (Count > 0) {
+        uint32 MarkerBefore <format=hex>;   // 0x000DECAF
+        if (Stride == 60)
+            VertexFM2 Vertices[Count];
+        else
+            ubyte Data[Count * Stride];
+        uint32 MarkerAfter <format=hex>;    // 0x000DECAF
+    }
+} VertexBuffer <bgcolor=cLtBlue>;
+
+typedef struct {
+    uint32    Version;              // 2
+    uint32    Type;                 // 0
+    int32     ParentPartIndex;      // -1 = none
+    Matrix4x4 BackfireTransform;
+    Matrix4x4 EngineSmokeTransform;
+} Emitter <bgcolor=cLtRed>;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Emitter Item;
+} EmitterList;
+
+typedef struct {
+    uint32 Version;                 // 1
+    Vec4   Anchor[6];
+} DriverAnchors <bgcolor=cLtPurple>;
+
+typedef struct {
+    uint32        Version <format=hex>;   // 0x2CA (one wheel: 0x2C9)
+    EmitterList   Emitters;
+    DriverAnchors Driver;
+} ModelSettings <bgcolor=cSilver>;
+
+typedef struct {
+    uint16 PartIndex;
+    uint16 MeshIndex;
+} DrawEntry;
+
+typedef struct {
+    int32 Count;
+    if (Count > 0)
+        DrawEntry Entry[Count];
+} DrawList;
+
+typedef struct {
+    uint32 Version;                 // 4
+    int32  LODCount;                // 5 on cars and wheels, 1 on brakes
+    local int i;
+    for (i = 0; i < LODCount; i++)
+        DrawList TransparentLOD;
+    for (i = 0; i < LODCount; i++)
+        DrawList OpaqueLOD;
+} DrawOrder <bgcolor=cLtPurple>;
+
+typedef struct {
+    uint32 Version;
+    uint32 VertexListVersion;
+    uint32 VertexCount;
+    if (VertexCount > 0)
+        Vec4 Vertex[VertexCount];
+    uint32 IndexListVersion;
+    uint32 IndexCount;
+    if (IndexCount > 0)
+        uint16 Index[IndexCount];
+} GlassShards;
+
+typedef struct {
+    uint32 MaterialSettingsVersion; // 1
+    uint32 Version;                 // 3
+    LString       MaterialName;
+    PrimitiveType Primitive;
+    int32         LOD;              // 1..5
+    uint32        IndexBufferVersion;   // 3
+    int32         IndexCount;
+    int32         IndexSize;        // always 2
+    if (IndexCount > 0)
+        uint16 Indices[IndexCount] <bgcolor=cSilver>;   // relative to the part's FirstVertex; 0xFFFF = strip restart
+} Mesh <bgcolor=cLtAqua>;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Mesh Item;
+} MeshList;
+
+typedef struct {
+    uint32      PhysicsVersion <format=hex>;   // 0x2C9
+    Vec3        OffsetFromCarOrigin;
+    Vec3        BoundsMin;
+    Vec3        BoundsMax;
+    float       Mass;
+    Vec3        CenterOfMass;
+    float       DetachDamage;
+    GlassShards GlassBreakup;
+    uint16      FirstVertex;        // range in the shared buffer
+    uint16      LastVertex;
+    ubyte       HasTransparentMeshes;   // 1 = first shared buffer, 0 = second
+    uint32      Version;            // 1
+    LString     Name <bgcolor=cYellow>;
+    VertexBuffer Vertices;          // always empty
+    MeshList    Meshes;
+    // lookup data for the read functions and the Output lines
+    gOffX[gParts] = OffsetFromCarOrigin.X; gOffY[gParts] = OffsetFromCarOrigin.Y; gOffZ[gParts] = OffsetFromCarOrigin.Z;
+    gFirst[gParts] = FirstVertex; gLast[gParts] = LastVertex; gFlag[gParts] = HasTransparentMeshes ? 1 : 0;
+    gNameAt[gParts] = startof(Name) + 4; gNameLen[gParts] = Name.Length; gMeshes[gParts] = Meshes.Count;
+    gParts++;
+} Part <read=PartRead, bgcolor=cNone>;
+
+string PartRead(Part &p) {
+    return LStringRead(p.Name);
+}
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Part Item;
+} PartList;
+
+typedef struct {
+    uint32       Version;           // 4
+    DrawOrder    Draws;
+    PartList     Parts;
+    VertexBuffer VerticesOfTransparentParts;
+    VertexBuffer VerticesOfOpaqueParts;
+    // first vertex byte of the two shared buffers: 4 x uint32 + the marker
+    gVBStart[1] = startof(VerticesOfTransparentParts) + 20; gVBCount[1] = VerticesOfTransparentParts.Count;
+    gVBStart[0] = startof(VerticesOfOpaqueParts) + 20;      gVBCount[0] = VerticesOfOpaqueParts.Count;
+} Model;
+
+// Header: 1 = brake or wheel (nothing more), 2 = car body (wheel lighting).
+uint32 HeaderVersion;
+if (HeaderVersion == 2)
+    SphericalHarmonics WheelLighting[4] <bgcolor=cLtGray>;
+
+ModelSettings Settings;
+Model         Geometry;
+
+if (!FEof()) {
+    Printf("WARNING: %d bytes after the model\n", (int)(FileSize() - FTell()));
+    ubyte Trailing[FileSize() - FTell()];
+} else
+    Printf("FM2_CarBin.bt: %s, %d parts, %u + %u shared vertices. OK: parsed to the last byte\n",
+        HeaderVersion == 2 ? "body" : "brake or wheel", Geometry.Parts.Count,
+        Geometry.VerticesOfTransparentParts.Count, Geometry.VerticesOfOpaqueParts.Count);
+
+// Output panel: one line per part, with the position of its first vertex.
+local int op;
+local string ov;
+for (op = 0; op < gParts; op++) {
+    ov = "";
+    if (gVBCount[gFlag[op]] > gFirst[op])
+        ov = "  first vertex " + PositionAt(gVBStart[gFlag[op]] + (int64)gFirst[op] * 60, op) + " m";
+    Printf("#%-3d %-20s vertices %5d..%5d of the %s buffer  meshes %3d%s\n", op,
+        gNameLen[op] > 0 ? ReadString(gNameAt[op], gNameLen[op]) : "",
+        gFirst[op], gLast[op], gFlag[op] ? "transparent" : "opaque     ",
+        gMeshes[op], ov);
+}
