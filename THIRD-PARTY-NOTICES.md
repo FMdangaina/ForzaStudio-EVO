@@ -48,6 +48,11 @@ exe. They are not in this repository but are shipped in the release zip, with vg
 The full notice, with the portions copyrighted by others, is in vgmstream's `COPYING`.
 Project: https://github.com/vgmstream/vgmstream
 
+## 010 Editor template
+
+`tools/010Templates/FH2_CarBin.bt`, the 010 Editor template for Forza Horizon 2 `.carbin` files, is by
+**Draff** (Discord) and is included with the author's permission.
+
 ## Credits (no code included)
 
 - [Aiden-Piercee](https://github.com/Aiden-Piercee), `fm4dlc` toolchain: reference for the DLC package and

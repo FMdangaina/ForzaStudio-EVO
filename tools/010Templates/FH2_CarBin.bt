@@ -1,0 +1,543 @@
+//------------------------------------------------
+// 010 Editor template: Forza Horizon 2 .carbin
+// Author: Draff (Discord).
+// Included in ForzaStudio EVO with the author's permission (2026-11-28).
+//------------------------------------------------
+
+BigEndian();
+BitfieldRightToLeft();
+
+typedef struct {
+    float X;
+    float Y;
+    float Z;
+} Vec3 <read=Vec3Read>;
+
+string Vec3Read(Vec3 &v) {
+    return Str("(%g, %g, %g)", v.X, v.Y, v.Z);
+}
+
+typedef struct {
+    float X;
+    float Y;
+    float Z;
+    float W;
+} Vec4 <read=Vec4Read>;
+
+string Vec4Read(Vec4 &v) {
+    return Str("(%g, %g, %g, %g)", v.X, v.Y, v.Z, v.W);
+}
+
+typedef struct {
+    Vec4 Row[4];
+} Matrix4x4;
+
+typedef struct {
+    uint32 Length;
+    if (Length > 0)
+        char Text[Length];
+} LString <read=LStringRead>;
+
+string LStringRead(LString &s) {
+    if (s.Length > 0)
+        return s.Text;
+    return "";
+}
+
+typedef struct {
+    uint32 KeyValid     : 1;
+    uint32 DataStripped : 1;
+    uint32 Reserved     : 30;
+} BufferFlags;
+
+typedef enum <ubyte> {
+    BULB_STANDARD = 0,
+    BULB_HALOGEN  = 1,
+    BULB_XENON    = 2,
+    BULB_OLD      = 3,
+    BULB_DIFFUSE  = 4
+} LightBulbType;
+
+typedef struct {
+    ubyte Left     : 1;
+    ubyte Right    : 1;
+    ubyte Front    : 1;
+    ubyte Rear     : 1;
+    ubyte Reserved : 3;
+    ubyte ForceOn  : 1;
+} LightLocation;
+
+typedef struct {
+    ubyte Headlight : 1;
+    ubyte Taillight : 1;
+    ubyte Brake     : 1;
+    ubyte Indicator : 1;
+    ubyte Reverse   : 1;
+    ubyte Reserved  : 3;
+} LightFunction;
+
+typedef enum <uint32> {
+    EMITTER_ENGINE_SMOKE = 0
+} EmitterType;
+
+typedef enum <int32> {
+    PRIMITIVE_POINT_LIST     = 1,
+    PRIMITIVE_LINE_LIST      = 2,
+    PRIMITIVE_LINE_STRIP     = 3,
+    PRIMITIVE_TRIANGLE_LIST  = 4,
+    PRIMITIVE_TRIANGLE_FAN   = 5,
+    PRIMITIVE_TRIANGLE_STRIP = 6,
+    PRIMITIVE_RECT_LIST      = 8,
+    PRIMITIVE_QUAD_LIST      = 13
+} PrimitiveType;
+
+typedef struct {
+    Vec4 Center;
+    Vec4 Axis[3];
+    Vec4 HalfExtents;
+} OrientedBox;
+
+typedef struct {
+    float Coefficients[16];
+} SphericalHarmonics;
+
+typedef struct (uint32 version) {
+    Vec3          Position;
+    int16         Direction[3];
+    ubyte         Index;
+    LightBulbType BulbType;
+    LightLocation Location;
+    LightFunction Function;
+    ubyte         ColourR;
+    ubyte         ColourG;
+    ubyte         ColourB;
+    ubyte         Size;
+    ubyte         TextureIndex;
+    if (version >= 4)
+        byte      DamagePosition[3];
+    if (version >= 5) {
+        ubyte     StartFadeAngle;
+        ubyte     EndFadeAngle;
+    }
+} LightFlare <bgcolor=cLtYellow>;
+
+typedef struct {
+    uint32 Version;
+    SphericalHarmonics WheelLighting[4];
+    if (Version > 1)
+        OrientedBox RearViewMirrorBox;
+    if (Version >= 3) {
+        uint32 LightFlareCount;
+        local int i;
+        for (i = 0; i < LightFlareCount; i++)
+            LightFlare Flare(Version);
+    }
+} BodyHeader <bgcolor=cLtGray>;
+
+typedef struct {
+    float LipMinX[2];
+    float LipMaxX[2];
+    float TireMinX[2];
+    float TireMaxX[2];
+    float RimMaxRadius[2];
+    float TireMaxRadius[2];
+} TireExtents;
+
+typedef struct {
+    uint32 Version;
+    if (Version >= 2) {
+        int32 HasBrakePivot;
+        Vec4  BrakePivot;
+    }
+    if (Version >= 3)
+        TireExtents Extents;
+} TireHeader <bgcolor=cLtGray>;
+
+typedef struct {
+    uint32 Version;
+} BrakeHeader <bgcolor=cLtGray>;
+
+typedef struct {
+    uint32      Version;
+    EmitterType Type;
+    if (Version >= 2)
+        int32   ParentPartIndex;
+    Matrix4x4   BackfireTransform;
+    if (Version >= 2)
+        Matrix4x4 EngineSmokeTransform;
+} Emitter <bgcolor=cLtRed>;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Emitter Item;
+} EmitterList;
+
+typedef struct {
+    uint32 Version;
+    if (Version == 3) {
+        Vec4 SteeringWheelPosition;
+        Vec4 SteeringWheelAxis;
+        Vec4 LeftHandAnchor;
+        Vec4 RightHandAnchor;
+        Vec4 SeatAnchor;
+        Vec4 ShifterAnchor;
+        Vec4 RightHandOuterLOD0;
+        Vec4 LeftHandOuterLOD0;
+        Vec4 RightHandInnerLOD0;
+        Vec4 LeftHandInnerLOD0;
+        Vec4 RightHandCenterLOD0;
+        Vec4 LeftHandCenterLOD0;
+        Vec4 SteeringWheelPositionLOD0;
+        Vec4 SteeringWheelAxisLOD0;
+        Vec4 SeatAnchorLOD0;
+        Vec4 ShifterAnchorLOD0;
+    } else if (Version == 2) {
+        Vec4 Anchor[13];
+    } else {
+        Vec4 Anchor[6];
+    }
+} DriverAnchors <bgcolor=cLtPurple>;
+
+typedef struct {
+    Vec4  Pivot;
+    Vec4  Axis;
+    float MaxRotation;
+} Gauge <bgcolor=cLtAqua>;
+
+typedef struct (uint32 count) {
+    if (count > 0)  Gauge Speedometer;
+    if (count > 1)  Gauge Tachometer;
+    if (count > 2)  Gauge Fuel;
+    if (count > 3)  Gauge Boost;
+    if (count > 4)  Gauge OilTemperature;
+    if (count > 5)  Gauge OilPressure;
+    if (count > 6)  Gauge WaterTemperature;
+    if (count > 7)  Gauge Voltage;
+    if (count > 8)  Gauge AuxiliaryA;
+    if (count > 9)  Gauge AuxiliaryB;
+    if (count > 10) Gauge AuxiliaryC;
+    if (count > 11) Gauge AuxiliaryD;
+    if (count > 12) Gauge AuxiliaryE;
+    if (count > 13) Gauge AuxiliaryF;
+    if (count > 14) Gauge Power;
+} GaugeSet;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        LString BoneName;
+} BoneTable <bgcolor=cLtGreen>;
+
+typedef struct {
+    uint32        Version;
+    uint32        ShaderVersion;
+    EmitterList   Emitters;
+    DriverAnchors Driver;
+    int32         StartLOD;
+    int32         EndLOD;
+    local uint32 gaugeCount = 3;
+    if (Version >= 16)
+        gaugeCount = 15;
+    else if (Version >= 13)
+        gaugeCount = 4;
+    GaugeSet      Gauges(gaugeCount);
+    float         LightingOffset;
+    float         LightingScale;
+    if (Version >= 14)
+        int32     BoneCount;
+    if (Version >= 15)
+        BoneTable Bones;
+} ModelSettings <bgcolor=cSilver>;
+
+typedef struct {
+    uint16 PartIndex;
+    uint16 MaterialIndex;
+} DrawEntry;
+
+typedef struct {
+    int32 Count;
+    if (Count > 0)
+        DrawEntry Entry[Count];
+} DrawList;
+
+typedef struct {
+    uint32 Version;
+    int32  LODCount;
+    local int i;
+    for (i = 0; i < LODCount; i++)
+        DrawList TransparentLOD;
+    for (i = 0; i < LODCount; i++)
+        DrawList OpaqueLOD;
+} DrawOrder <bgcolor=cLtPurple>;
+
+typedef struct {
+    uint32 Version;
+    uint32 VertexListVersion;
+    uint32 VertexCount;
+    if (VertexCount > 0)
+        Vec4 Vertex[VertexCount];
+    uint32 IndexListVersion;
+    uint32 IndexCount;
+    if (IndexCount > 0)
+        uint16 Index[IndexCount];
+} GlassShards;
+
+typedef struct {
+    uint32      Version;
+    Vec3        OffsetFromCarOrigin;
+    Vec3        BoundsMin;
+    Vec3        BoundsMax;
+    float       Mass;
+    Vec3        CenterOfMass;
+    float       DetachDamage;
+    GlassShards GlassBreakup;
+    ubyte       HasTransparentMeshes;
+    if (Version >= 4)
+        int32   BoneWeightCount;
+} PartPhysics <bgcolor=cLtRed>;
+
+typedef struct {
+    int16  PositionX;
+    int16  PositionY;
+    int16  PositionZ;
+    int16  PositionScale;
+    uint16 U0;
+    uint16 V0;
+    uint16 U1;
+    uint16 V1;
+    int16  TangentFrame[4];
+    byte   Lighting[4];
+} Vertex <bgcolor=cLtGreen>;
+
+typedef struct {
+    int32 X : 11;
+    int32 Y : 11;
+    int32 Z : 10;
+} DamageOffset <read=DamageOffsetRead, bgcolor=0xC0A0FF>;
+
+string DamageOffsetRead(DamageOffset &d) {
+    local float z = d.Z / 511.0;
+    if (z < -1.0)
+        z = -1.0;
+    return Str("(%.4f, %.4f, %.4f) m", d.X / 1023.0 * 2.0, d.Y / 1023.0 * 2.0, z * 2.0);
+}
+
+typedef struct {
+    hfloat Y;
+    hfloat X;
+    hfloat W;
+    hfloat Z;
+} WheelMorphPosition <read=WheelMorphPositionRead>;
+
+string WheelMorphPositionRead(WheelMorphPosition &p) {
+    return Str("(%g, %g, %g)", p.X * p.W, p.Y * p.W, p.Z * p.W);
+}
+
+typedef struct {
+    WheelMorphPosition Target0;
+    WheelMorphPosition Target1;
+} WheelMorphVertex <bgcolor=0xC0A0FF>;
+
+typedef struct (int isMorph) {
+    uint32 Version;
+    int32  Count;
+    int32  Stride;
+    local uint32 flags = 0;
+    if (Version >= 3) {
+        BufferFlags Flags;
+        flags = ReadUInt(startof(Flags));
+    }
+    if (flags & 1)
+        uint32 SharingKey;
+    if (Count > 0 && !(flags & 2)) {
+        if (!isMorph && Stride == 28)
+            Vertex Vertices[Count];
+        else if (isMorph && Stride == 4)
+            DamageOffset DamageOffsets[Count];
+        else if (isMorph && Stride == 16)
+            WheelMorphVertex WheelMorphs[Count];
+        else
+            ubyte Data[Count * Stride];
+    }
+} VertexBuffer <bgcolor=cLtBlue>;
+
+typedef struct {
+    float OffsetU;
+    float ScaleU;
+    float OffsetV;
+    float ScaleV;
+} UVTransform;
+
+typedef struct {
+    uint32 Version;
+    if (Version >= 2)
+        ubyte RemoveFromShadow;
+    if (Version >= 3) {
+        UVTransform UV0Transform;
+        UVTransform UV1Transform;
+        UVTransform UV2Transform;
+        UVTransform UV3Transform;
+    }
+} MeshMaterialSettings <bgcolor=cLtAqua>;
+
+typedef struct {
+    uint32 Version;
+    Vec4   PositionOffset;
+    Vec4   PositionScale;
+    Vec4   UVOffsetScale;
+} Unpacking <bgcolor=cLtAqua>;
+
+typedef struct {
+    uint32 Version;
+    local uint32 flags = 0;
+    if (Version >= 4) {
+        BufferFlags Flags;
+        flags = ReadUInt(startof(Flags));
+    }
+    if (flags & 1)
+        uint32 SharingKey;
+    int32 Count;
+    int32 IndexSize;
+    if (Count > 0 && !(flags & 2)) {
+        if (IndexSize == 4)
+            uint32 Indices[Count] <bgcolor=cSilver>;
+        else
+            uint16 Indices[Count] <bgcolor=cSilver>;
+    }
+} IndexBuffer <bgcolor=cLtBlue>;
+
+typedef struct {
+    MeshMaterialSettings MaterialSettings;
+    uint32        Version;
+    LString       MaterialName;
+    int32         LOD;
+    PrimitiveType Primitive;
+    int32         MaterialIndex;
+    Unpacking     PositionUnpacking;
+    IndexBuffer   Indices;
+    if (Version >= 2)
+        uint32    MeshFlags;
+} Mesh <bgcolor=cLtAqua>;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Mesh Item;
+} MeshList;
+
+typedef struct {
+    uint32       Version;
+    ubyte        HasDamageMorphs;
+    VertexBuffer DamageMorph(1);
+    VertexBuffer DamageMorphLOD0(1);
+} DamageMorphs <bgcolor=0xC0A0FF>;
+
+typedef struct {
+    PartPhysics  Physics;
+    uint32       Version;
+    LString      Name <bgcolor=cYellow>;
+    VertexBuffer Vertices(0);
+    MeshList     Meshes;
+    if (Physics.Version > 1)
+        VertexBuffer VerticesLOD0(0);
+    if (Physics.Version >= 5)
+        DamageMorphs Damage;
+} Part <read=PartRead, bgcolor=cNone>;
+
+string PartRead(Part &p) {
+    return LStringRead(p.Name);
+}
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Part Item;
+} PartList;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    if (Count > 0)
+        Vec4 Item[Count];
+} Vec4List;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    if (Count > 0)
+        int32 Item[Count];
+} IntList;
+
+typedef struct {
+    uint32   Version;
+    int32    ShaderFileIndex;
+    int32    TechniqueIndex;
+    Vec4List VertexShaderConstants;
+    Vec4List PixelShaderConstants;
+    IntList  TextureIndices;
+} Material <bgcolor=cLtYellow>;
+
+typedef struct {
+    uint32 Version;
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        Material Item;
+} MaterialSet;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        MaterialSet Item;
+} MaterialSetList;
+
+typedef struct {
+    uint32 ListVersion;
+    uint32 Count;
+    local int i;
+    for (i = 0; i < Count; i++)
+        LString Item;
+} StringList <bgcolor=cLtGray>;
+
+typedef struct {
+    uint32          Version;
+    DrawOrder       Draws;
+    PartList        Parts;
+    MaterialSetList MaterialSets;
+    StringList      ShaderFileNames;
+    StringList      MeshNames;
+} Model;
+
+local uint32 first = ReadUInt(0);
+local uint32 kind = 0;
+if (FileSize() >= 76 && first == 3 && ReadUInt(72) >= 9 && ReadUInt(72) <= 17)
+    kind = 1;
+else if (FileSize() >= 28 && first == 2 && ReadUInt(24) >= 9 && ReadUInt(24) <= 17)
+    kind = 1;
+else if (FileSize() >= 8 && first == 1 && ReadUInt(4) >= 9 && ReadUInt(4) <= 17)
+    kind = 2;
+
+if (kind == 1)
+    TireHeader Header;
+else if (kind == 2)
+    BrakeHeader Header;
+else
+    BodyHeader Header;
+
+ModelSettings Settings;
+Model         Geometry;
+
+if (!FEof())
+    ubyte Trailing[FileSize() - FTell()];
