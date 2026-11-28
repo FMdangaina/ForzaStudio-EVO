@@ -795,8 +795,7 @@ namespace ForzaStudio
                 if (!this.isFile && BackupPolicy.Enabled)
                 {
                     Directory.CreateDirectory(bakFolder);
-                    backup = Path.Combine(bakFolder, stamp + "_bak_" + layer.Name);
-                    File.Copy(layer.Path, backup, true);
+                    backup = BackupPolicy.Copy(layer.Path, Path.Combine(bakFolder, stamp + "_bak_" + layer.Name));
                 }
                 layer.Zip.Save(layer.Path);
                 this.Log.AppendLine("saved " + layer.Name);
@@ -817,8 +816,7 @@ namespace ForzaStudio
                 if (BackupPolicy.Enabled)
                 {
                     Directory.CreateDirectory(bakFolder);
-                    backup = Path.Combine(bakFolder, stamp + "_bak_" + Path.GetFileName(this.source));
-                    File.Copy(this.source, backup, true);
+                    backup = BackupPolicy.Copy(this.source, Path.Combine(bakFolder, stamp + "_bak_" + Path.GetFileName(this.source)));
                     this.Log.AppendLine("original kept: " + backup);
                 }
                 File.Delete(this.source);

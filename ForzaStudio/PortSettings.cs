@@ -115,6 +115,102 @@ MoveSections = on
         {
             get { return PortSettings.GetBool("Backup", "Enabled", true); }
         }
+
+        // Copies source to target (a file in a bak folder) unless that folder already holds a copy with the
+        // same bare name and the same bytes; then it returns that copy and writes nothing. A port or an
+        // uninstall used to keep one more 436 MB UI\Textures.zip each time (33 GB of bak by 2026-11-27).
+        // The bare name is the file name after "<stamp>_bak_" / "_bakN_" / "_uninstall_bak_".
+        public static string Copy(string source, string target)
+        {
+            string same = FindSame(source, target);
+            if (same != null)
+            {
+                return same;
+            }
+            File.Copy(source, target, true);
+            return target;
+        }
+
+        public static string BareName(string fileName)
+        {
+            System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(fileName, @"bak\d*_");
+            return m.Success ? fileName.Substring(m.Index + m.Length) : fileName;
+        }
+
+        private static string FindSame(string source, string target)
+        {
+            try
+            {
+                string folder = Path.GetDirectoryName(target);
+                if (!Directory.Exists(folder))
+                {
+                    return null;
+                }
+                string bare = BareName(Path.GetFileName(target));
+                long length = new FileInfo(source).Length;
+                foreach (string candidate in Directory.GetFiles(folder, "*" + bare))
+                {
+                    if (string.Equals(BareName(Path.GetFileName(candidate)), bare, StringComparison.OrdinalIgnoreCase)
+                        && new FileInfo(candidate).Length == length && SameBytes(source, candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+            return null;
+        }
+
+        private static bool SameBytes(string a, string b)
+        {
+            const int Size = 1 << 20;
+            using (FileStream fa = new FileStream(a, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, Size))
+            using (FileStream fb = new FileStream(b, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, Size))
+            {
+                byte[] ba = new byte[Size];
+                byte[] bb = new byte[Size];
+                while (true)
+                {
+                    int na = ReadFull(fa, ba);
+                    int nb = ReadFull(fb, bb);
+                    if (na != nb)
+                    {
+                        return false;
+                    }
+                    if (na == 0)
+                    {
+                        return true;
+                    }
+                    for (int i = 0; i < na; i++)
+                    {
+                        if (ba[i] != bb[i])
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        private static int ReadFull(Stream s, byte[] buffer)
+        {
+            int total = 0;
+            while (total < buffer.Length)
+            {
+                int n = s.Read(buffer, total, buffer.Length - total);
+                if (n <= 0)
+                {
+                    break;
+                }
+                total += n;
+            }
+            return total;
+        }
     }
 
     // Plain .ini files of the tool (Port.ini, Upgrades.ini): "; comments", [sections], key = value.

@@ -690,7 +690,7 @@ namespace ForzaStudio
             {
                 copy = Path.Combine(this.BackupFolder, this.stamp + "_uninstall_bak" + i + "_" + Path.GetFileName(path));
             }
-            File.Copy(path, copy);
+            BackupPolicy.Copy(path, copy);
         }
 
         private void Line(string format, params object[] args)

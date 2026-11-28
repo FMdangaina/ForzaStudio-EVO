@@ -543,7 +543,7 @@ namespace ForzaStudio
             }
             string folder = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "bak");
             Directory.CreateDirectory(folder);
-            File.Copy(path, Path.Combine(folder, DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + "_bak_" + Path.GetFileName(path)), true);
+            BackupPolicy.Copy(path, Path.Combine(folder, DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + "_bak_" + Path.GetFileName(path)));
         }
 
         // Standalone: the database written back to where it was read (the game's file, a pack's zip) and the package packed again.

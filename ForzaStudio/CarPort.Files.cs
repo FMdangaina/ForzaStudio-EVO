@@ -143,7 +143,7 @@ namespace ForzaStudio
             {
                 copy = Path.Combine(folder, this.stamp + "_bak" + i + "_" + Path.GetFileName(path));
             }
-            File.Copy(path, copy);
+            BackupPolicy.Copy(path, copy);
         }
 
         // ---- Donor from an installed DLC pack (TODO D-18) ----

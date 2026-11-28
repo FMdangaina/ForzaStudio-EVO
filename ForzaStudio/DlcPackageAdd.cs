@@ -163,8 +163,7 @@ namespace ForzaStudio
                     {
                         string folder = Path.Combine(Path.GetDirectoryName(System.Windows.Forms.Application.ExecutablePath), "bak");
                         Directory.CreateDirectory(folder);
-                        string backup = Path.Combine(folder, DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + "_bak_" + Path.GetFileName(packageFile));
-                        File.Copy(packageFile, backup, true);
+                        string backup = BackupPolicy.Copy(packageFile, Path.Combine(folder, DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + "_bak_" + Path.GetFileName(packageFile)));
                         report.AppendLine("original kept: " + backup);
                     }
                     File.Delete(packageFile);

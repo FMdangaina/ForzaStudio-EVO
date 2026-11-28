@@ -1622,7 +1622,7 @@ namespace ForzaStudio
             {
                 copy = Path.Combine(this.BackupFolder, this.stamp + "_bak" + i + "_" + Path.GetFileName(path));
             }
-            File.Copy(path, copy);
+            BackupPolicy.Copy(path, copy);
         }
     }
 }

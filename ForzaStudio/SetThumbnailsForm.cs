@@ -891,7 +891,7 @@ namespace ForzaStudio
             }
             string folder = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "bak");
             Directory.CreateDirectory(folder);
-            File.Copy(path, Path.Combine(folder, stamp + "_bak_" + Path.GetFileName(path)), true);
+            BackupPolicy.Copy(path, Path.Combine(folder, stamp + "_bak_" + Path.GetFileName(path)));
         }
 
         // The package file again from the work folder, with its own header; the original is kept in bak\.
@@ -906,8 +906,7 @@ namespace ForzaStudio
                 {
                     string backups = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "bak");
                     Directory.CreateDirectory(backups);
-                    backup = Path.Combine(backups, DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + "_bak_" + Path.GetFileName(target));
-                    File.Copy(target, backup, true);
+                    backup = BackupPolicy.Copy(target, Path.Combine(backups, DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + "_bak_" + Path.GetFileName(target)));
                 }
                 StfsPackage.Rewrite(this.root, temp, this.package.Header);
                 StfsReader check = StfsReader.Open(temp);

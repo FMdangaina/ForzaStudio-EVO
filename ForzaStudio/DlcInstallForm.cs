@@ -263,8 +263,7 @@ namespace ForzaStudio
                 {
                     string bak = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bak");
                     Directory.CreateDirectory(bak);
-                    string copy = Path.Combine(bak, DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + "_bak_" + Path.GetFileName(full));
-                    File.Copy(full, copy, true);
+                    string copy = BackupPolicy.Copy(full, Path.Combine(bak, DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture) + "_bak_" + Path.GetFileName(full)));
                     this.report.AppendText("original kept: " + copy + "\r\n");
                 }
                 this.fixer.SaveTo(output);

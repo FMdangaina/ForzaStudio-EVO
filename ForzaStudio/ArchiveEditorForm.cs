@@ -846,9 +846,7 @@
                 return null;
             }
             Directory.CreateDirectory(BackupFolder);
-            string target = Path.Combine(BackupFolder, stamp + "_bak_" + name);
-            File.Copy(source, target, true);
-            return target;
+            return BackupPolicy.Copy(source, Path.Combine(BackupFolder, stamp + "_bak_" + name));
         }
 
         // A game zip that was rewritten: its line in GAME:\Media\zipmanifest.xml gets the new central
